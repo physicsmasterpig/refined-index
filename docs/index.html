@@ -163,7 +163,7 @@
         ⬇ Download .app
       </a>
       <p class="note">
-        First launch: right-click the app → <strong>Open</strong> → <strong>Open</strong> (Gatekeeper bypass).
+        The app is not notarized — see <strong>Installation</strong> below for the one-time macOS setup.
       </p>
     </div>
 
@@ -187,6 +187,27 @@
       </div>
     </div>
 
+    <!-- ── Installation ────────────────────────────── -->
+    <section>
+      <h2>Installation</h2>
+      <p>The app is ad-hoc signed but <em>not</em> notarized with Apple, so macOS will
+         block it on first launch. Use <strong>one</strong> of these methods:</p>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">Method 1 — Terminal (recommended)</h3>
+      <p>Open <strong>Terminal</strong> and run:</p>
+      <p><code>xattr -cr ~/Downloads/ManifoldIndex.app</code></p>
+      <p>Then double-click the app normally.</p>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">Method 2 — System Settings</h3>
+      <ul>
+        <li>Double-click the app (it will be blocked)</li>
+        <li>Open <strong>System Settings → Privacy &amp; Security</strong></li>
+        <li>Scroll down — click <strong>"Open Anyway"</strong> next to the ManifoldIndex message</li>
+        <li>Click <strong>Open</strong> in the confirmation dialog</li>
+      </ul>
+      <p style="margin-top:0.6rem;">This is only needed once. Subsequent launches work normally.</p>
+    </section>
+
     <!-- ── Requirements ────────────────────────────── -->
     <section>
       <h2>Requirements</h2>
@@ -202,9 +223,9 @@
       <h2>Getting Started</h2>
       <ul>
         <li>Download and unzip <code>ManifoldIndex.zip</code></li>
-        <li>Move <code>ManifoldIndex.app</code> to your Applications folder</li>
-        <li>Right-click → <strong>Open</strong> → <strong>Open</strong> (first launch only)</li>
-        <li>Enter a manifold name (e.g. <code>m004</code>) and click <strong>Run</strong></li>
+        <li>Move <code>ManifoldIndex.app</code> to Applications (or anywhere you like)</li>
+        <li>Clear the quarantine flag (see <strong>Installation</strong> above)</li>
+        <li>Launch the app — enter a manifold name (e.g. <code>m004</code>) and click <strong>Run</strong></li>
       </ul>
     </section>
 
