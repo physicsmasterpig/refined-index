@@ -1,0 +1,18 @@
+(* Content-type: application/vnd.wolfram.mathematica *)
+
+(*** Wolfram Notebook File ***)
+(* http://www.wolfram.com/nb *)
+
+(* CreatedBy='Mathematica 14.0' *)
+Notebook[{
+Cell["Refined Index Table: v1683", "Title"],
+Cell["m ∈ [-4, 4]  |  e ∈ [-2, 2]  |  14 pairs  |  Nmax = 4  |  Generated: 2026-03-11 12:24", "Subtitle"],
+Cell["Setup", "Subsection"],
+Cell[BoxData["ClearAll[q, \\[Eta], iv1683ref, iv1683RefTable];"], "Input"],
+Cell["Precomputed refined index table", "Subsection"],
+Cell[BoxData["(* Precomputed series table: 14 entries, Nmax = 4 *)\niv1683RefTable = <|\n  {-4, 2} -> (q^2 \\[Eta][1]^-2),\n  {-2, -1} -> (q \\[Eta][1] - 2 q^2 \\[Eta][1]),\n  {-2, 0} -> (q^2 \\[Eta][1]^(-1) + q^2),\n  {-2, 1} -> (q \\[Eta][1]^(-1)),\n  {-2, 2} -> (q^2 \\[Eta][1]^-2),\n  {0, -2} -> (-q^2),\n  {0, -1} -> (-q \\[Eta][1] - q \\[Eta][0] \\[Eta][1]^2 + q^2 + 4 q^2 \\[Eta][1] + q^2 \\[Eta][1]^2 - q^2 \\[Eta][1]^3 + q^2 \\[Eta][0] \\[Eta][1] + 2 q^2 \\[Eta][0] \\[Eta][1]^2 + q^2 \\[Eta][0] \\[Eta][1]^3),\n  {0, 0} -> (1 - 3 q - q \\[Eta][0] \\[Eta][1] + q^2 \\[Eta][0]^(-1) \\[Eta][1]^(-1) - q^2 \\[Eta][1]^-2 + 2 q^2 \\[Eta][1]^(-1) + 4 q^2 + 2 q^2 \\[Eta][1] - q^2 \\[Eta][1]^2 + q^2 \\[Eta][0] + 2 q^2 \\[Eta][0] \\[Eta][1] + q^2 \\[Eta][0] \\[Eta][1]^2),\n  {0, 1} -> (-q \\[Eta][1]^(-1) - q \\[Eta][0] - q^2 \\[Eta][1]^-3 + q^2 \\[Eta][1]^-2 + 4 q^2 \\[Eta][1]^(-1) + q^2 + q^2 \\[Eta][0] \\[Eta][1]^(-1) + q^2 \\[Eta][0]),\n  {0, 2} -> (-q^2 \\[Eta][1]^-4),\n  {2, -2} -> (q^2 \\[Eta][1]^2),\n  {2, -1} -> (q \\[Eta][1]),\n  {2, 0} -> (q^2 \\[Eta][1]^(-1) + q^2 + q^2 \\[Eta][1]),\n  {4, -2} -> (q^2 \\[Eta][1]^2)\n|>;"], "Input"],
+Cell["Lookup function   iv1683ref[m, e]", "Subsection"],
+Cell[BoxData["qOrder = 4;\niv1683ref[m_Integer, e_Integer] :=\n  With[{raw = Lookup[iv1683RefTable, Key[{m, e}], Missing[\"NotComputed\"]]},\n    If[MissingQ[raw], raw,\n      Series[raw, {q, 0, qOrder}] // ExpandAll]];"], "Input"],
+Cell["Usage", "Subsection"],
+Cell[BoxData["(* Usage: evaluate the refined index at a given (m, e) *)\niv1683ref[0, 0]\nKeys[iv1683RefTable]   (* list all precomputed (m,e) pairs *)"], "Input"]
+}]

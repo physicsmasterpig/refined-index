@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manifold Index Calculator</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79c0ff;
+      --green: #3fb950;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem;
+    }
+
+    /* Header */
+    header { text-align: center; margin-bottom: 3rem; }
+    header h1 {
+      font-size: 2.2rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.02em;
+    }
+    header p.tagline {
+      color: var(--muted);
+      font-size: 1.1rem;
+    }
+
+    /* Download card */
+    .download-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+    .download-card .version {
+      display: inline-block;
+      background: rgba(56, 139, 253, 0.15);
+      color: var(--accent);
+      padding: 0.2rem 0.7rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+    .download-card .platform {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+    }
+    .btn {
+      display: inline-block;
+      background: var(--green);
+      color: #fff;
+      text-decoration: none;
+      padding: 0.75rem 2rem;
+      border-radius: 8px;
+      font-size: 1.05rem;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .download-card .note {
+      margin-top: 1rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    /* Features */
+    .features {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+    }
+    @media (max-width: 500px) { .features { grid-template-columns: 1fr; } }
+    .feature {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.2rem;
+    }
+    .feature h3 {
+      font-size: 0.95rem;
+      margin-bottom: 0.3rem;
+    }
+    .feature p {
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    /* Sections */
+    section { margin-bottom: 2.5rem; }
+    section h2 {
+      font-size: 1.3rem;
+      margin-bottom: 0.8rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid var(--border);
+    }
+    section p, section li {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    section ul {
+      list-style: none;
+      padding: 0;
+    }
+    section ul li::before {
+      content: "→ ";
+      color: var(--accent);
+    }
+    section ul li { margin-bottom: 0.3rem; }
+    code {
+      background: rgba(110,118,129,0.15);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.88em;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <header>
+      <h1>Manifold Index Calculator</h1>
+      <p class="tagline">3D index, refined index, Dehn filling &amp; non-closable cycles for hyperbolic 3-manifolds</p>
+    </header>
+
+    <!-- ── Download ────────────────────────────────── -->
+    <div class="download-card">
+      <div class="version">v0.1.0</div>
+      <div class="platform">macOS&ensp;·&ensp;Apple&nbsp;Silicon (arm64)&ensp;·&ensp;macOS 11+</div>
+      <a class="btn" href="https://github.com/OWNER/REPO/releases/latest/download/ManifoldIndex.zip">
+        ⬇ Download .app
+      </a>
+      <p class="note">
+        First launch: right-click the app → <strong>Open</strong> → <strong>Open</strong> (Gatekeeper bypass).
+      </p>
+    </div>
+
+    <!-- ── Features ────────────────────────────────── -->
+    <div class="features">
+      <div class="feature">
+        <h3>3D Index</h3>
+        <p>Compute I(m, e) q-series for any cusped manifold in the SnapPy census.</p>
+      </div>
+      <div class="feature">
+        <h3>Refined Index</h3>
+        <p>Two-variable (q, t) refinement with automatic basis selection.</p>
+      </div>
+      <div class="feature">
+        <h3>Dehn Filling</h3>
+        <p>Fill cusps with (P, Q) slopes and compute the filled index.</p>
+      </div>
+      <div class="feature">
+        <h3>Non-closable Cycles</h3>
+        <p>Search for slopes whose filled index vanishes identically.</p>
+      </div>
+    </div>
+
+    <!-- ── Requirements ────────────────────────────── -->
+    <section>
+      <h2>Requirements</h2>
+      <ul>
+        <li>macOS 11 (Big Sur) or later</li>
+        <li>Apple Silicon Mac (M1 / M2 / M3 / M4)</li>
+        <li>No Python installation needed — everything is bundled</li>
+      </ul>
+    </section>
+
+    <!-- ── Getting Started ─────────────────────────── -->
+    <section>
+      <h2>Getting Started</h2>
+      <ul>
+        <li>Download and unzip <code>ManifoldIndex.zip</code></li>
+        <li>Move <code>ManifoldIndex.app</code> to your Applications folder</li>
+        <li>Right-click → <strong>Open</strong> → <strong>Open</strong> (first launch only)</li>
+        <li>Enter a manifold name (e.g. <code>m004</code>) and click <strong>Run</strong></li>
+      </ul>
+    </section>
+
+    <!-- ── Building from source ────────────────────── -->
+    <section>
+      <h2>Build from Source</h2>
+      <p>Requires Python ≥ 3.10 and the packages listed in <code>pyproject.toml</code>.</p>
+      <ul>
+        <li><code>pip install -e ".[dev]"</code></li>
+        <li><code>manifold-index</code>&ensp;to launch the GUI</li>
+        <li><code>pytest tests/</code>&ensp;to run the test suite</li>
+      </ul>
+    </section>
+
+    <!-- ── Footer ──────────────────────────────────── -->
+    <footer>
+      <p>
+        Licensed under <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html">GPLv2+</a>
+        &ensp;·&ensp;
+        <a href="https://github.com/OWNER/REPO">Source on GitHub</a>
+      </p>
+    </footer>
+
+  </div>
+</body>
+</html>

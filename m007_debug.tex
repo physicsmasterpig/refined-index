@@ -1,0 +1,273 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,array,booktabs,geometry}
+\geometry{margin=1in}
+\newcommand{\half}{\tfrac{1}{2}}
+\newcommand{\hZ}{\tfrac{1}{2}\mathbb{Z}}
+
+\title{Index Calculation Debug: \texttt{m007} (Trefoil complement)}
+\author{Pipeline verification}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent
+\textbf{Manifold:} \texttt{m007} in the SnapPy census (figure-eight knot complement / $4_1$).\\
+\textbf{Tetrahedra:} $n=3$. \quad \textbf{Cusps:} $r=1$.\\
+\textbf{Basis decomposition:} $1$ hard edge, $1$ easy edge ($n - r = 2$ internal edges total).\\
+\textbf{Fugacity variables:} $\eta_1$ (one per hard edge).
+
+%===========================================================
+\section{SnapPy Gluing Equations}
+%===========================================================
+
+The standard gluing equations are encoded in two integer matrices.
+Columns are ordered
+$(Z_1, Z_1', Z_1'', \; Z_2, Z_2', Z_2'', \; Z_3, Z_3', Z_3'')$.
+
+\bigskip
+\noindent\textbf{Internal edge equations} $C$ ($3\times 9$):
+\[
+C \;=\;
+\begin{pmatrix}
+ 1 & 0 & 0 & 2 & 0 & 0 & 1 & 0 & 0 \\
+ 0 & 2 & 1 & 0 & 1 & 2 & 0 & 2 & 1 \\
+ 1 & 0 & 1 & 0 & 1 & 0 & 1 & 0 & 1
+\end{pmatrix}
+\]
+
+\noindent\textbf{Cusp equations} $C_{\mathrm{cusp}}$ ($2\times 9$, rows $\mu$, $\lambda$):
+\[
+C_{\mathrm{cusp}} \;=\;
+\begin{pmatrix}
+ 0 &  1 &  0 & -1 &  0 &  0 &  0 &  0 &  1 \\[3pt]
+ 2 &  0 &  1 &  0 & -1 & -1 & -1 &  0 & -1
+\end{pmatrix}
+\]
+Row 1 is the meridian $\mu$; row 2 is the longitude $\lambda$.
+
+%===========================================================
+\section{Geometric Basis (Hard / Easy Edges)}
+%===========================================================
+
+We choose a basis of $n - r = 2$ internal edge equations.
+Each row vector is a row of $C$ (same $9$-column format).
+
+\bigskip
+\noindent\textbf{Easy edge} (all non-zero entries lie in the $Z_i$ columns, i.e.\ all $Z'$-/$Z''$-entries are zero):
+\[
+v_{\text{easy}} \;=\; (1,\; 0,\; 0,\quad 2,\; 0,\; 0,\quad 1,\; 0,\; 0)
+\]
+
+\noindent\textbf{Hard edge} (has non-zero $Z'$-/$Z''$-entries):
+\[
+v_{\text{hard}} \;=\; (0,\; 2,\; 1,\quad 0,\; 1,\; 2,\quad 0,\; 2,\; 1)
+\]
+
+Because there is one hard edge, the refined index depends on \emph{one} fugacity
+variable $\eta_1$, while the easy edge contributes only to the $q$-power.
+
+%===========================================================
+\section{Neumann--Zagier Matrix $g_{\mathrm{NZ}}$ and Affine Shift}
+%===========================================================
+
+After the symmetry-reduction step the $2n \times 2n = 6\times 6$ matrix
+$g_{\mathrm{NZ}}$ is assembled in \emph{block form}
+\[
+g_{\mathrm{NZ}} \;=\;
+\left(\begin{array}{c|c}
+  A & B
+\end{array}\right),
+\qquad
+\text{columns: }
+(Z_1, Z_2, Z_3 \mid Z_1'', Z_2'', Z_3'').
+\]
+Rows are ordered: meridian $\mu$; hard-edge charge $Q_{\mathrm{h}}$;
+easy-edge charge $Q_{\mathrm{e}}$; longitude/2 $\lambda/2$;
+internal momentum $\Gamma_1$ (hard); internal momentum $\Gamma_2$ (easy).
+
+\[
+g_{\mathrm{NZ}} \;=\;
+\left(\begin{array}{rrr|rrr}
+-1 & -1 &  0 & -1 & 0 &  1 \\
+-2 & -1 & -2 & -1 & 1 & -1 \\
+ 1 &  2 &  1 &  0 & 0 &  0 \\\hline
+ 1 & \half & {-\half} & \half & 0 & {-\half} \\
+ 0 & -1 &  0 &  0 & 0 &  0 \\
+ \half & {-\frac{3}{2}} & 0 & \half & 0 & \half
+\end{array}\right)
+\]
+
+\medskip
+\noindent\textbf{Affine shift.}
+The logarithmic branch choices yield integer vectors
+$\boldsymbol{\nu}_X, \boldsymbol{\nu}_P \in \hZ^n$:
+\[
+\boldsymbol{\nu}_X \;=\; (1,\; 3,\; -2),
+\qquad
+\boldsymbol{\nu}_P \;=\; \left(-\tfrac{1}{2},\; 0,\; 0\right).
+\]
+
+\noindent\fbox{%
+\parbox{0.9\textwidth}{%
+\textbf{Key feature:} $(\boldsymbol{\nu}_P)_1 = -\tfrac{1}{2} \notin \mathbb{Z}$.
+This half-integer shift is responsible for the phase selection rule that
+forces all odd-$m$ contributions to vanish in the unrefined ($e{=}0$) index.
+Note: when the local charges $\widetilde{m}_k, \widetilde{e}_k$ are all
+integers, the phase exponent $\varphi$ is \emph{automatically} an integer
+(a structural consequence of the NZ matrix).  The \emph{only} integrality
+constraint on the summation is that $g_{\mathrm{NZ}}^{-1}\kappa\in\mathbb{Z}^{2n}$.}}
+
+%===========================================================
+\section{Inverse Matrix $g_{\mathrm{NZ}}^{-1}$ and Local Charges}
+%===========================================================
+
+\subsection{The inverse matrix}
+
+\[
+g_{\mathrm{NZ}}^{-1} \;=\;
+\left(\begin{array}{rrrrrr}
+ \half  &  0 & \half  &  1 &  1 & 0 \\
+ 0      &  0 &  0     &  0 & -1 & 0 \\
+{-\half}&  0 & \half  & -1 &  1 & 0 \\
+{-1}    &  0 &{-\half}& -1 & -2 & 1 \\
+{-\half}&  1 & \frac{3}{2} & -1 & -1 & 2 \\
+ \half  &  0 &  0     &  0 & -2 & 1
+\end{array}\right)
+\]
+
+\subsection{Master charge vector}
+
+The charge vector entering the summation is
+\[
+\kappa \;=\;
+\begin{pmatrix}
+ m \\ 0 \\ 0 \\ e \\ e_1 \\ e_2
+\end{pmatrix},
+\]
+where $m \in \mathbb{Z}$ is the meridian charge, $e \in \mathbb{Z}$ is (half) the
+longitude charge, the two zeros fix the position charges of the internal edges
+(always zero in the summation), and
+$e_1, e_2 \in \tfrac{1}{2}\mathbb{Z}$ are the momenta of the hard and easy
+internal edges, respectively. The hard-edge momentum $e_1$ contributes the
+fugacity $\eta_1^{2e_1}$ to every term.
+
+\subsection{Local tetrahedron charges}
+
+Set $\Delta = g_{\mathrm{NZ}}^{-1}\,\kappa$.
+The local charges split as $(\widetilde{m}_1, \widetilde{m}_2, \widetilde{m}_3,\, \widetilde{e}_1, \widetilde{e}_2, \widetilde{e}_3)$:
+
+\begin{align*}
+\widetilde{m}_1 &= \tfrac{m}{2} + e + e_1, \\
+\widetilde{m}_2 &= -e_1, \\
+\widetilde{m}_3 &= -\tfrac{m}{2} - e + e_1,\\[6pt]
+\widetilde{e}_1 &= -m - e - 2e_1 + e_2, \\
+\widetilde{e}_2 &= -\tfrac{m}{2} - e - e_1 + 2e_2, \\
+\widetilde{e}_3 &= \tfrac{m}{2} - 2e_1 + e_2.
+\end{align*}
+
+\subsection{Phase exponent}
+
+Each term in the index carries the factor $(-1)^{\varphi}\,q^{\varphi/2}$ from the
+affine shift:
+\begin{align*}
+\varphi &= \sum_{k=1}^{3} \widetilde{m}_k\,(\boldsymbol{\nu}_P)_k
+           - \sum_{k=1}^{3} \widetilde{e}_k\,(\boldsymbol{\nu}_X)_k \\
+        &= \widetilde{m}_1\cdot\bigl(-\tfrac{1}{2}\bigr)
+           - \widetilde{e}_1\cdot 1
+           - \widetilde{e}_2\cdot 3
+           - \widetilde{e}_3\cdot(-2).
+\end{align*}
+
+Substituting the local charges gives the closed form
+\[
+\varphi
+\;=\;
+\frac{13m}{4} + \frac{7e}{2} + \frac{e_1}{2} - 5e_2.
+\]
+
+The \emph{only} constraint on the summation is that the local charges
+$\widetilde{m}_k, \widetilde{e}_k \in \mathbb{Z}$ (i.e.\ $g_{\mathrm{NZ}}^{-1}\kappa\in\mathbb{Z}^{2n}$).
+Whenever this holds, $\varphi\in\mathbb{Z}$ automatically, so no separate
+$\varphi\in\mathbb{Z}$ filter is needed or applied.
+
+%===========================================================
+\section{Refined Index Formula and Truncated Output}
+%===========================================================
+
+\subsection{Index formula}
+
+\[
+\mathcal{I}^{\mathrm{ref}}(m,e;\eta_1;q)
+\;=\;
+\sum_{\substack{e_1,\,e_2\,\in\,\hZ \\ g_{\mathrm{NZ}}^{-1}\kappa\,\in\,\mathbb{Z}^{2n}}}
+\eta_1^{2e_1}\,(-1)^{\varphi}\,q^{\varphi/2}
+\prod_{k=1}^{3}
+\frac{(-1)^{\widetilde{m}_k} q^{\widetilde{m}_k/2}}
+     {1 - (-1)^{\widetilde{m}_k+\widetilde{e}_k} q^{(\widetilde{m}_k+\widetilde{e}_k)/2}}.
+\]
+
+The product of three tetrahedron factors is
+$\displaystyle\prod_{k=1}^3 \mathcal{T}(\widetilde{m}_k, \widetilde{e}_k;q)$,
+where the single-tetrahedron building block is
+\[
+\mathcal{T}(m',e';q)
+\;=\;
+\frac{(-1)^{m'} q^{m'/2}}{1-(-1)^{m'+e'}q^{(m'+e')/2}}.
+\]
+
+\subsection{Truncated expansion at $(m,e)=(0,0)$}
+
+Computed to order $q^6$ (half-integer power cut-off $12$):
+\[
+\mathcal{I}^{\mathrm{ref}}(0,0;\eta_1;q)
+\;=\;
+1
+- q(2 + \eta_1)
++ q^2(\eta_1^{-1} - 2 - \eta_1)
++ q^3(2\eta_1^{-1} + 4 + 2\eta_1 + \eta_1^2)
++ q^4(\eta_1^{-1} + 9 + 7\eta_1 + 2\eta_1^2)
++ q^5(-4\eta_1^{-1} + 13 + 12\eta_1 + 4\eta_1^2)
++ q^6(-11\eta_1^{-1} + 11\eta_1 + 2\eta_1^2 - \eta_1^3)
++ O(q^7).
+\]
+
+\noindent\textbf{Remark:} The coefficient of $q^6$ at $\eta_1^0$ is \emph{zero}
+(no constant-$\eta_1$ term appears at order $q^6$).
+
+\bigskip
+\noindent The full coefficient table at $(m,e)=(0,0)$:
+
+\begin{center}
+\begin{tabular}{cc|r}
+\toprule
+$q$-power & $\eta_1$-power & coefficient \\
+\midrule
+$q^0$ & $\eta_1^0$  &  $1$ \\
+$q^1$ & $\eta_1^0$  & $-2$ \\
+$q^1$ & $\eta_1^1$  & $-1$ \\
+$q^2$ & $\eta_1^{-1}$ & $1$ \\
+$q^2$ & $\eta_1^0$  & $-2$ \\
+$q^2$ & $\eta_1^1$  & $-1$ \\
+$q^3$ & $\eta_1^{-1}$ & $2$ \\
+$q^3$ & $\eta_1^0$  &  $4$ \\
+$q^3$ & $\eta_1^1$  &  $2$ \\
+$q^3$ & $\eta_1^2$  &  $1$ \\
+$q^4$ & $\eta_1^{-1}$ & $1$ \\
+$q^4$ & $\eta_1^0$  &  $9$ \\
+$q^4$ & $\eta_1^1$  &  $7$ \\
+$q^4$ & $\eta_1^2$  &  $2$ \\
+$q^5$ & $\eta_1^{-1}$ & $-4$ \\
+$q^5$ & $\eta_1^0$  & $13$ \\
+$q^5$ & $\eta_1^1$  & $12$ \\
+$q^5$ & $\eta_1^2$  &  $4$ \\
+$q^6$ & $\eta_1^{-1}$ & $-11$ \\
+$q^6$ & $\eta_1^0$  &  $0$  \quad (absent) \\
+$q^6$ & $\eta_1^1$  & $11$ \\
+$q^6$ & $\eta_1^2$  &  $2$ \\
+$q^6$ & $\eta_1^3$  & $-1$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}

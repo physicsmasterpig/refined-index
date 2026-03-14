@@ -1,0 +1,26 @@
+\contentsline {section}{\numberline {1}Overview}{2}{section.1}%
+\contentsline {section}{\numberline {2}Neumann-Zagier Data}{2}{section.2}%
+\contentsline {subsection}{\numberline {2.1}The $g_{\mathrm {NZ}}$ matrix}{2}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}The inverse $g_{\mathrm {NZ}}^{-1}$}{3}{subsection.2.2}%
+\contentsline {section}{\numberline {3}Charge Vector and Hard-Edge Coupling}{3}{section.3}%
+\contentsline {subsection}{\numberline {3.1}The $\kappa $ vector}{3}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Hard-edge coupling $H_{\mathrm {arg}}$}{3}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Relation to the "subtract $a$, add $2b$" prescription}{3}{subsection.3.3}%
+\contentsline {section}{\numberline {4}Affine-Shift Weyl Symmetry}{4}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Centre formula}{4}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Extraction of $a$ and $b$ from pure pairs}{4}{subsection.4.2}%
+\contentsline {section}{\numberline {5}Explicit Verification}{5}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Pure meridian: $(m,e)=(+2,\,0)$}{5}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Pure longitude: $(m,e)=(0,\,-1)$}{5}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Half-integer meridian: $(m,e)=(+1,\,0)$}{5}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.4}Negative meridian: $(m,e)=(-2,\,0)$}{6}{subsection.5.4}%
+\contentsline {subsection}{\numberline {5.5}Remark on truncation artefacts}{6}{subsection.5.5}%
+\contentsline {section}{\numberline {6}The $a,b$ Parameters and "Subtract/Add" Prescription}{7}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Summary of parameters}{7}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Geometric interpretation}{7}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Why $a=+1/2$ and $b=-1/2$}{7}{subsection.6.3}%
+\contentsline {section}{\numberline {7}Full Refined Index at Selected Values}{8}{section.7}%
+\contentsline {subsection}{\numberline {7.1}$(m,e)=(+2,0)$: pure meridian}{8}{subsection.7.1}%
+\contentsline {subsection}{\numberline {7.2}$(m,e)=(0,-1)$: pure longitude}{8}{subsection.7.2}%
+\contentsline {subsection}{\numberline {7.3}$(m,e)=(+1,0)$: half-integer meridian}{8}{subsection.7.3}%
+\contentsline {section}{\numberline {8}Conclusion}{8}{section.8}%
