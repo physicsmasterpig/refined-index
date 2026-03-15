@@ -872,6 +872,7 @@ class TestNonClosableCyclesV1683:
     Fix: buffer is now clamped to q_order_half−1, guaranteeing cutoff ≥ 1.
     """
 
+    @pytest.mark.slow
     def test_meridian_only_at_q_order_half_8(self, nz_v1683):
         """q_order_half=8: exactly one non-closable cycle, the meridian (1,0)."""
         result = find_non_closable_cycles(

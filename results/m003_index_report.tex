@@ -3,13 +3,15 @@
 \usepackage{amsmath, amssymb, amsfonts}
 \usepackage{booktabs}
 \usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{adjustbox}
 \usepackage{hyperref}
 \usepackage{xcolor}
 \allowdisplaybreaks
 \newcommand{\half}{\tfrac{1}{2}}
 
 \title{Full Report: Refined 3D Index of \texttt{m003}}
-\date{2026-03-13 10:51}
+\date{2026-03-15 21:56}
 \begin{document}
 \maketitle
 \tableofcontents
@@ -25,69 +27,31 @@
   \item $q$-order (half): $10$ \quad ($q$-order: $10/2$)
 \end{itemize}
 
-\section{SnaPy Gluing Equations}
-The gluing equation matrix has rows:
-\begin{itemize}
-  \item Rows $0\ldots1$: edge equations
-  \item Rows $2,4,\ldots$: meridian equations (per cusp)
-  \item Rows $3,5,\ldots$: longitude equations (per cusp)
-\end{itemize}
-Columns are ordered as $Z_1, Z'_1, Z''_1, Z_2, Z'_2, Z''_2, \ldots, Z_2, Z'_2, Z''_2$.
-
-$$
-G_{\text{glue}} = 
-\begin{pmatrix}
-2 & 0 & 1 & 2 & 0 & 1 \\
-0 & 2 & 1 & 0 & 2 & 1 \\
-0 & -2 & 0 & 2 & 0 & 0 \\
-0 & -1 & 0 & 2 & -1 & 0 \\
-\end{pmatrix}
-$$
-\subsection*{Cusp Equations}
-\paragraph{Cusp 0:}
-\begin{align*}
-  \mu_0 &= - 2\,Z'_{1} + 2\,Z_{2} \\
-  \lambda_0 &= -Z'_{1} + 2\,Z_{2} - Z'_{2}
-\end{align*}
-
-\section{Edge Classification}
-Total SnaPy edge equations: $2$.
-Independent edge basis rank: $n - r = 1$.
-Of these, $0$ are \textbf{easy} and $1$ are \textbf{hard}.
-
-\subsection{Hard Edges}
-Hard edges contribute fugacity variables $\eta_0, \eta_1, \ldots$ to the refined index.
-\begin{enumerate}
-  \item $C_{\text{hard},0} = 2\,Z_{1} + Z''_{1} + 2\,Z_{2} + Z''_{2}$
-\end{enumerate}
-
-Basis ordering in $g_{NZ}$ (position block rows): meridians ($r$ rows), hard edges, easy edges.
-
 \section{Neumann--Zagier Data}
 \subsection{Symplectic Matrix $g_{NZ}$}
 Row ordering: meridians $(\mu_0,\ldots,\mu_{r-1})$, hard edges, easy edges $\mid$ longitudes$/2$ $(\lambda_0/2,\ldots)$, $\Gamma$ vectors.
 Column ordering: $Z_1,\ldots,Z_n, Z''_1,\ldots,Z''_n$ (block form).
 
-$$
-g_{NZ} = 
-\begin{pmatrix}
+\begin{adjustbox}{max width=\linewidth,center}
+$\displaystyle g_{NZ} = 
+\left(\begin{array}{cccc}
 2 & 2 & 2 & 0 \\
 2 & 2 & 1 & 1 \\
 \frac{1}{2} & \frac{3}{2} & \frac{1}{2} & \frac{1}{2} \\
 1 & 0 & 1 & 0 \\
-\end{pmatrix}
-$$
+\end{array}\right)$
+\end{adjustbox}
 
 \subsection{Inverse $g_{NZ}^{-1}$}
-$$
-g_{NZ}^{-1} = 
-\begin{pmatrix}
+\begin{adjustbox}{max width=\linewidth,center}
+$\displaystyle g_{NZ}^{-1} = 
+\left(\begin{array}{cccc}
 \frac{1}{2} & 1 & -2 & -1 \\
 \frac{1}{2} & 0 & 0 & -1 \\
 -\frac{1}{2} & -1 & 2 & 2 \\
 -\frac{3}{2} & 0 & 2 & 2 \\
-\end{pmatrix}
-$$
+\end{array}\right)$
+\end{adjustbox}
 
 \subsection{Affine Shifts}
 $$\nu_x = (-2, -2)$$
@@ -114,12 +78,7 @@ where:
 \end{itemize}
 
 \section{Non-Closable Cycles \& Basis Selection}
-Cusp~0: non-closable cycles found: $(-1, 0), (1, 0), (-1, 1), (0, 1)$.
-
-\subsection*{Selected Basis}
-\begin{itemize}
-  \item Cusp~0: slope $(1,\, 0)$ $\;\Rightarrow\; m = 1,\; e = 0$\; [\text{default}]
-\end{itemize}
+(No cycle search results available.)
 
 \section{Weyl Symmetry \& Dehn Filling Compatibility}
 Convention: $f(\eta) = \eta^{b\cdot m + a\cdot e} \cdot I(m,e)$, \quad $f(\eta) = f(\eta^{-1})$.
@@ -132,7 +91,7 @@ $$a = (1), \qquad b = (-\frac{1}{2})$$
 \end{itemize}
 Dehn filling prerequisites satisfied.  Compatibility depends on the choice of slope $(P, Q)$: $\mu = b P + a (Q/2)$ must be an integer.
 
-Weyl symmetry check: $\times$ (49/81 entries pass).
+Weyl symmetry check: $\times$ (17/25 entries pass).
 
 \section{Refined Index}
 Evaluated at $q$-order (half) $= 10$, giving series up to $q^{5}$.
@@ -140,51 +99,21 @@ Evaluated at $q$-order (half) $= 10$, giving series up to $q^{5}$.
 Output in \textbf{Weyl-manifest form}: $f(m,e) = \eta^{b\cdot m + a\cdot e}\cdot I(m,e)$, where the displayed $I(m,e)$ satisfies $I(\eta) = I(\eta^{-1})$.
 
 \begin{align*}
-I(-4, -2) &= q^{3} \eta^{-2 \, v_{0}} + q^{3} + q^{4} \eta^{-2 \, v_{0}} + q^{4} + 2 q^{5} \\
-I(-4, -3/2) &= \eta^{-v_{0}} \left( q^{3} \eta^{-v_{0}} + 2 q^{4} \eta^{-v_{0}} + q^{4} \eta^{v_{0}} + 2 q^{5} \eta^{-v_{0}} + q^{5} \eta^{v_{0}} \right) \\
-I(-4, -1) &= \eta^{-2 \, v_{0}} \left( q^{3} + 2 q^{4} + q^{5} \eta^{-2 \, v_{0}} + 3 q^{5} + q^{5} \eta^{2 \, v_{0}} \right) \\
-I(-4, -1/2) &= \eta^{-3 \, v_{0}} \left( q^{3} \eta^{v_{0}} + q^{4} \eta^{-v_{0}} + 2 q^{4} \eta^{v_{0}} + q^{5} \eta^{-v_{0}} + 2 q^{5} \eta^{v_{0}} \right) \\
-I(-4, 0) &= \eta^{-4 \, v_{0}} \left( q^{3} + q^{3} \eta^{2 \, v_{0}} + q^{4} + q^{4} \eta^{2 \, v_{0}} + 2 q^{5} \right) \\
-I(-4, 1/2) &= \eta^{-5 \, v_{0}} \left( q^{2} \eta^{v_{0}} + q^{3} \eta^{v_{0}} + q^{4} \eta^{v_{0}} - q^{5} \eta^{3 \, v_{0}} \right) \\
-I(-4, 1) &= \eta^{-6 \, v_{0}} \left( q \eta^{2 \, v_{0}} - q^{4} \eta^{2 \, v_{0}} - 2 q^{5} \eta^{2 \, v_{0}} \right) \\
-I(-4, 3/2) &= \eta^{-7 \, v_{0}} \left( -q^{3} \eta^{3 \, v_{0}} - q^{4} \eta^{3 \, v_{0}} - q^{5} \eta^{v_{0}} - q^{5} \eta^{3 \, v_{0}} \right) \\
-I(-4, 2) &= \eta^{-8 \, v_{0}} \left( -q^{4} \eta^{2 \, v_{0}} - q^{5} \eta^{2 \, v_{0}} \right) \\
-I(-2, -2) &= \eta^{2 \, v_{0}} \left( q^{2} \eta^{-2 \, v_{0}} + q^{3} \eta^{-2 \, v_{0}} + q^{3} + q^{4} \eta^{-2 \, v_{0}} + 2 q^{4} + 3 q^{5} \right) \\
-I(-2, -3/2) &= \eta^{v_{0}} \left( -q^{1/2} \eta^{-v_{0}} + q^{5/2} \eta^{-v_{0}} + 3 q^{7/2} \eta^{-v_{0}} + q^{7/2} \eta^{v_{0}} + 5 q^{9/2} \eta^{-v_{0}} + 2 q^{9/2} \eta^{v_{0}} \right) \\
 I(-2, -1) &= -q - q^{2} + q^{3} \eta^{-2 \, v_{0}} + q^{3} + 2 q^{4} \eta^{-2 \, v_{0}} + 4 q^{4} + q^{4} \eta^{2 \, v_{0}} + 2 q^{5} \eta^{-2 \, v_{0}} + 8 q^{5} + q^{5} \eta^{2 \, v_{0}} \\
 I(-2, -1/2) &= \eta^{-v_{0}} \left( -q^{3/2} \eta^{-v_{0}} - q^{3/2} \eta^{v_{0}} + 2 q^{7/2} \eta^{-v_{0}} + 2 q^{7/2} \eta^{v_{0}} + 5 q^{9/2} \eta^{-v_{0}} + 5 q^{9/2} \eta^{v_{0}} \right) \\
 I(-2, 0) &= \eta^{-2 \, v_{0}} \left( -q - q^{2} + q^{3} + q^{3} \eta^{2 \, v_{0}} + q^{4} \eta^{-2 \, v_{0}} + 4 q^{4} + 2 q^{4} \eta^{2 \, v_{0}} + q^{5} \eta^{-2 \, v_{0}} + 8 q^{5} + 2 q^{5} \eta^{2 \, v_{0}} \right) \\
 I(-2, 1/2) &= \eta^{-3 \, v_{0}} \left( -q^{1/2} \eta^{v_{0}} + q^{5/2} \eta^{v_{0}} + q^{7/2} \eta^{-v_{0}} + 3 q^{7/2} \eta^{v_{0}} + 2 q^{9/2} \eta^{-v_{0}} + 5 q^{9/2} \eta^{v_{0}} \right) \\
 I(-2, 1) &= \eta^{-4 \, v_{0}} \left( q^{2} \eta^{2 \, v_{0}} + q^{3} + q^{3} \eta^{2 \, v_{0}} + 2 q^{4} + q^{4} \eta^{2 \, v_{0}} + 3 q^{5} \right) \\
-I(-2, 3/2) &= \eta^{-5 \, v_{0}} \left( q^{5/2} \eta^{v_{0}} + q^{7/2} \eta^{v_{0}} + q^{9/2} \eta^{v_{0}} - q^{9/2} \eta^{3 \, v_{0}} \right) \\
-I(-2, 2) &= \eta^{-6 \, v_{0}} \left( -q^{5} \eta^{2 \, v_{0}} \right) \\
-I(0, -2) &= \eta^{4 \, v_{0}} \left( q^{3} + q^{4} + 2 q^{5} \right) \\
-I(0, -3/2) &= \eta^{3 \, v_{0}} \left( q^{3} \eta^{-v_{0}} + q^{3} \eta^{v_{0}} + 2 q^{4} \eta^{-v_{0}} + 2 q^{4} \eta^{v_{0}} + 3 q^{5} \eta^{-v_{0}} + 3 q^{5} \eta^{v_{0}} \right) \\
 I(0, -1) &= \eta^{2 \, v_{0}} \left( -q - q^{2} + q^{3} \eta^{-2 \, v_{0}} + q^{3} + q^{3} \eta^{2 \, v_{0}} + q^{4} \eta^{-2 \, v_{0}} + 4 q^{4} + q^{4} \eta^{2 \, v_{0}} + 2 q^{5} \eta^{-2 \, v_{0}} + 8 q^{5} + 2 q^{5} \eta^{2 \, v_{0}} \right) \\
 I(0, -1/2) &= \eta^{v_{0}} \left( -q \eta^{-v_{0}} - q \eta^{v_{0}} - q^{2} \eta^{-v_{0}} - q^{2} \eta^{v_{0}} + q^{3} \eta^{-v_{0}} + q^{3} \eta^{v_{0}} + 4 q^{4} \eta^{-v_{0}} + 4 q^{4} \eta^{v_{0}} + 8 q^{5} \eta^{-v_{0}} + 8 q^{5} \eta^{v_{0}} \right) \\
 I(0, 0) &= 1 - 2 q - 3 q^{2} + q^{3} \eta^{-2 \, v_{0}} + q^{3} \eta^{2 \, v_{0}} + 2 q^{4} \eta^{-2 \, v_{0}} + 4 q^{4} + 2 q^{4} \eta^{2 \, v_{0}} + 3 q^{5} \eta^{-2 \, v_{0}} + 12 q^{5} + 3 q^{5} \eta^{2 \, v_{0}} \\
 I(0, 1/2) &= \eta^{-v_{0}} \left( -q \eta^{-v_{0}} - q \eta^{v_{0}} - q^{2} \eta^{-v_{0}} - q^{2} \eta^{v_{0}} + q^{3} \eta^{-v_{0}} + q^{3} \eta^{v_{0}} + 4 q^{4} \eta^{-v_{0}} + 4 q^{4} \eta^{v_{0}} + 8 q^{5} \eta^{-v_{0}} + 8 q^{5} \eta^{v_{0}} \right) \\
 I(0, 1) &= \eta^{-2 \, v_{0}} \left( -q - q^{2} + q^{3} \eta^{-2 \, v_{0}} + q^{3} + q^{3} \eta^{2 \, v_{0}} + q^{4} \eta^{-2 \, v_{0}} + 4 q^{4} + q^{4} \eta^{2 \, v_{0}} + 2 q^{5} \eta^{-2 \, v_{0}} + 8 q^{5} + 2 q^{5} \eta^{2 \, v_{0}} \right) \\
-I(0, 3/2) &= \eta^{-3 \, v_{0}} \left( q^{3} \eta^{-v_{0}} + q^{3} \eta^{v_{0}} + 2 q^{4} \eta^{-v_{0}} + 2 q^{4} \eta^{v_{0}} + 3 q^{5} \eta^{-v_{0}} + 3 q^{5} \eta^{v_{0}} \right) \\
-I(0, 2) &= \eta^{-4 \, v_{0}} \left( q^{3} + q^{4} + 2 q^{5} \right) \\
-I(+2, -2) &= \eta^{6 \, v_{0}} \left( -q^{5} \eta^{2 \, v_{0}} \right) \\
-I(+2, -3/2) &= \eta^{5 \, v_{0}} \left( q^{5/2} \eta^{v_{0}} + q^{7/2} \eta^{v_{0}} + q^{9/2} \eta^{v_{0}} - q^{9/2} \eta^{3 \, v_{0}} \right) \\
 I(+2, -1) &= \eta^{4 \, v_{0}} \left( q^{2} \eta^{2 \, v_{0}} + q^{3} + q^{3} \eta^{2 \, v_{0}} + 2 q^{4} + q^{4} \eta^{2 \, v_{0}} + 3 q^{5} \right) \\
 I(+2, -1/2) &= \eta^{3 \, v_{0}} \left( -q^{1/2} \eta^{v_{0}} + q^{5/2} \eta^{v_{0}} + q^{7/2} \eta^{-v_{0}} + 3 q^{7/2} \eta^{v_{0}} + 2 q^{9/2} \eta^{-v_{0}} + 5 q^{9/2} \eta^{v_{0}} \right) \\
 I(+2, 0) &= \eta^{2 \, v_{0}} \left( -q - q^{2} + q^{3} + q^{3} \eta^{2 \, v_{0}} + q^{4} \eta^{-2 \, v_{0}} + 4 q^{4} + 2 q^{4} \eta^{2 \, v_{0}} + q^{5} \eta^{-2 \, v_{0}} + 8 q^{5} + 2 q^{5} \eta^{2 \, v_{0}} \right) \\
 I(+2, 1/2) &= \eta^{v_{0}} \left( -q^{3/2} \eta^{-v_{0}} - q^{3/2} \eta^{v_{0}} + 2 q^{7/2} \eta^{-v_{0}} + 2 q^{7/2} \eta^{v_{0}} + 5 q^{9/2} \eta^{-v_{0}} + 5 q^{9/2} \eta^{v_{0}} \right) \\
 I(+2, 1) &= -q - q^{2} + q^{3} \eta^{-2 \, v_{0}} + q^{3} + 2 q^{4} \eta^{-2 \, v_{0}} + 4 q^{4} + q^{4} \eta^{2 \, v_{0}} + 2 q^{5} \eta^{-2 \, v_{0}} + 8 q^{5} + q^{5} \eta^{2 \, v_{0}} \\
-I(+2, 3/2) &= \eta^{-v_{0}} \left( -q^{1/2} \eta^{-v_{0}} + q^{5/2} \eta^{-v_{0}} + 3 q^{7/2} \eta^{-v_{0}} + q^{7/2} \eta^{v_{0}} + 5 q^{9/2} \eta^{-v_{0}} + 2 q^{9/2} \eta^{v_{0}} \right) \\
-I(+2, 2) &= \eta^{-2 \, v_{0}} \left( q^{2} \eta^{-2 \, v_{0}} + q^{3} \eta^{-2 \, v_{0}} + q^{3} + q^{4} \eta^{-2 \, v_{0}} + 2 q^{4} + 3 q^{5} \right) \\
-I(+4, -2) &= \eta^{8 \, v_{0}} \left( -q^{4} \eta^{2 \, v_{0}} - q^{5} \eta^{2 \, v_{0}} \right) \\
-I(+4, -3/2) &= \eta^{7 \, v_{0}} \left( -q^{3} \eta^{3 \, v_{0}} - q^{4} \eta^{3 \, v_{0}} - q^{5} \eta^{v_{0}} - q^{5} \eta^{3 \, v_{0}} \right) \\
-I(+4, -1) &= \eta^{6 \, v_{0}} \left( q \eta^{2 \, v_{0}} - q^{4} \eta^{2 \, v_{0}} - 2 q^{5} \eta^{2 \, v_{0}} \right) \\
-I(+4, -1/2) &= \eta^{5 \, v_{0}} \left( q^{2} \eta^{v_{0}} + q^{3} \eta^{v_{0}} + q^{4} \eta^{v_{0}} - q^{5} \eta^{3 \, v_{0}} \right) \\
-I(+4, 0) &= \eta^{4 \, v_{0}} \left( q^{3} + q^{3} \eta^{2 \, v_{0}} + q^{4} + q^{4} \eta^{2 \, v_{0}} + 2 q^{5} \right) \\
-I(+4, 1/2) &= \eta^{3 \, v_{0}} \left( q^{3} \eta^{v_{0}} + q^{4} \eta^{-v_{0}} + 2 q^{4} \eta^{v_{0}} + q^{5} \eta^{-v_{0}} + 2 q^{5} \eta^{v_{0}} \right) \\
-I(+4, 1) &= \eta^{2 \, v_{0}} \left( q^{3} + 2 q^{4} + q^{5} \eta^{-2 \, v_{0}} + 3 q^{5} + q^{5} \eta^{2 \, v_{0}} \right) \\
-I(+4, 3/2) &= \eta^{v_{0}} \left( q^{3} \eta^{-v_{0}} + 2 q^{4} \eta^{-v_{0}} + q^{4} \eta^{v_{0}} + 2 q^{5} \eta^{-v_{0}} + q^{5} \eta^{v_{0}} \right) \\
-I(+4, 2) &= q^{3} \eta^{-2 \, v_{0}} + q^{3} + q^{4} \eta^{-2 \, v_{0}} + q^{4} + 2 q^{5} \\
 \end{align*}
 
 \end{document}

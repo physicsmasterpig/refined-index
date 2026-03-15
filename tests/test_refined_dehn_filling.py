@@ -450,7 +450,7 @@ class TestComputeFilledRefined:
         return build_neumann_zagier(data, easy)
 
     def test_ell1_matches_unrefined(self, m003_nz):
-        """For ℓ=1 slopes (P/Q with |Q|=1), refined = unrefined (no η)."""
+        """For ℓ=1 slopes, η=1 projection matches unrefined filling."""
         from manifold_index.core.dehn_filling import compute_filled_index
         from manifold_index.core.refined_dehn_filling import compute_filled_refined_index
 
@@ -461,15 +461,15 @@ class TestComputeFilledRefined:
             m003_nz, 0, P, Q, q_order_half=10, eta_order=0
         )
 
-        # The refined result should have only η^0 terms
-        for (qq_p, eta_exp), c in refined.series.items():
-            assert eta_exp == 0, f"Unexpected η^{eta_exp} term in ℓ=1 result"
+        # ℓ=1 has no cusp η, only hard-edge η's
+        assert not refined.has_cusp_eta, "ℓ=1 should not have cusp η"
 
-        # Compare series values
+        # η=1 projection must match unrefined
+        eta1 = refined.eta1_series()
         for qq_p, c_unref in unrefined.series.items():
-            c_ref = refined.series.get((qq_p, 0), Fraction(0))
+            c_ref = eta1.get(qq_p, Fraction(0))
             assert c_ref == c_unref, (
-                f"Mismatch at qq^{qq_p}: unrefined={c_unref}, refined={c_ref}"
+                f"Mismatch at qq^{qq_p}: refined|η=1={c_ref}, unrefined={c_unref}"
             )
 
     def test_ell2_slope_12_computes(self, m003_nz):
@@ -480,8 +480,12 @@ class TestComputeFilledRefined:
             m003_nz, 0, 1, 2, q_order_half=6, eta_order=4
         )
         assert result.hj_ks == [1, 2]
-        # Should have some η-dependent terms
-        has_eta = any(eta_exp != 0 for (_qq, eta_exp) in result.series)
+        assert result.has_cusp_eta, "ℓ=2 should have cusp η"
+        # Should have some η-dependent terms (either hard-edge or cusp)
+        has_eta = any(
+            any(d != 0 for d in key[1:])
+            for key in result.series
+        )
         assert has_eta, "Expected η-dependent terms for slope 1/2"
 
     @pytest.mark.xfail(

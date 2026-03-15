@@ -93,6 +93,10 @@ from manifold_index.core.index_3d import (
     enumerate_summation_terms,
 )
 from manifold_index.core.neumann_zagier import NeumannZagierData
+from manifold_index.core.refined_index import (
+    RefinedIndexResult,
+    compute_refined_index,
+)
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -103,6 +107,14 @@ from manifold_index.core.neumann_zagier import NeumannZagierData
 # qq_power: power of q^{1/2}
 # eta_exp: integer power of η (can be negative)
 QEtaSeries = dict[tuple[int, int], Fraction]
+
+# MultiEtaSeries: a q^{1/2}-series with multiple fugacity dimensions.
+# key = (qq_power, dim_1, dim_2, ...)  →  Fraction coefficient
+# For ℓ=1 Dehn filling: key = (qq_power, 2*η_0, ..., 2*η_{k-1})
+#   Same shape as RefinedIndexResult but with Fraction values.
+# For ℓ≥2 Dehn filling: key = (qq_power, 2*η_0, ..., 2*η_{k-1}, cusp_eta)
+#   Appends one additional IS kernel η-variable (integer exponent).
+MultiEtaSeries = dict[tuple[int, ...], Fraction]
 
 # ---------------------------------------------------------------------------
 # Part 1 — Hirzebruch-Jung continued fraction
@@ -589,18 +601,155 @@ def _apply_k1_factor(
 
 
 # ---------------------------------------------------------------------------
+# Part 6b — MultiEtaSeries helpers
+# ---------------------------------------------------------------------------
+
+
+def _multi_add(a: MultiEtaSeries, b: MultiEtaSeries) -> MultiEtaSeries:
+    """Add two MultiEtaSeries (non-destructive)."""
+    result: MultiEtaSeries = dict(a)
+    for key, val in b.items():
+        new_val = result.get(key, Fraction(0)) + val
+        if new_val == 0:
+            result.pop(key, None)
+        else:
+            result[key] = new_val
+    return result
+
+
+def _multi_convolve_is(
+    is_series: QEtaSeries,
+    multi_series: MultiEtaSeries,
+    qq_order: int | None = None,
+) -> MultiEtaSeries:
+    """Convolve a QEtaSeries (IS kernel) with a MultiEtaSeries.
+
+    The IS kernel's η (cusp η) is mapped to the LAST dimension of the
+    multi-key.  The qq powers are summed; inner η dimensions (hard-edge
+    fugacities) are untouched.
+
+    Parameters
+    ----------
+    is_series : QEtaSeries
+        Keys: ``(qq_power, cusp_eta_exp)``
+    multi_series : MultiEtaSeries
+        Keys: ``(qq_power, 2η_0, …, 2η_{k-1}, cusp_eta_exp)``
+    qq_order : int or None
+        Truncation cutoff.
+
+    Returns
+    -------
+    MultiEtaSeries with the same key structure as *multi_series*.
+    """
+    result: MultiEtaSeries = {}
+    for (qq_is, eta_is), c_is in is_series.items():
+        for multi_key, c_multi in multi_series.items():
+            new_qq = qq_is + multi_key[0]
+            if qq_order is not None and new_qq > qq_order:
+                continue
+            # Keep hard-η dims unchanged, add cusp-η exponents
+            new_key = (new_qq,) + multi_key[1:-1] + (multi_key[-1] + eta_is,)
+            new_val = result.get(new_key, Fraction(0)) + c_is * c_multi
+            if new_val == 0:
+                result.pop(new_key, None)
+            else:
+                result[new_key] = new_val
+    return result
+
+
+def _apply_k1_factor_multi(
+    series: MultiEtaSeries,
+    c: int,
+    phase: int,
+    multiplicity: int,
+    qq_order: int,
+) -> MultiEtaSeries:
+    """Apply unrefined K(k, 1; m, e) factor to a MultiEtaSeries.
+
+    Identical logic to ``_apply_k1_factor`` but operates on multi-
+    dimensional keys.  Only the qq_power (first element) is shifted;
+    all η dimensions are untouched.
+    """
+    sign = Fraction(1 if phase % 2 == 0 else -1)
+    half = Fraction(1, 2)
+    mult = Fraction(multiplicity)
+
+    if c == 0:
+        result: MultiEtaSeries = {}
+        scalar = half * sign * mult
+        for key, c_val in series.items():
+            scaled = c_val * scalar
+            if scaled == 0:
+                continue
+            qq_p = key[0]
+            rest = key[1:]
+            # +phase shift
+            new_qq_a = qq_p + phase
+            if 0 <= new_qq_a <= qq_order:
+                new_key = (new_qq_a,) + rest
+                v = result.get(new_key, Fraction(0)) + scaled
+                if v == 0:
+                    result.pop(new_key, None)
+                else:
+                    result[new_key] = v
+            # -phase shift
+            new_qq_b = qq_p - phase
+            if 0 <= new_qq_b <= qq_order:
+                new_key = (new_qq_b,) + rest
+                v = result.get(new_key, Fraction(0)) + scaled
+                if v == 0:
+                    result.pop(new_key, None)
+                else:
+                    result[new_key] = v
+        return result
+    else:
+        # c = ±2: constant factor, no q-shift
+        scalar = -half * sign * mult
+        if scalar == 0:
+            return {}
+        return {k: v * scalar for k, v in series.items() if v * scalar != 0}
+
+
+def _refined_to_multi(
+    refined: RefinedIndexResult,
+    append_cusp_eta: bool = False,
+) -> MultiEtaSeries:
+    """Convert a RefinedIndexResult to MultiEtaSeries.
+
+    Parameters
+    ----------
+    refined : RefinedIndexResult
+        Keys: ``(qq_power, 2η_0, …, 2η_{k-1})``
+    append_cusp_eta : bool
+        If True, append a ``cusp_eta = 0`` dimension to every key
+        (needed for ℓ ≥ 2 before IS convolution steps).
+
+    Returns
+    -------
+    MultiEtaSeries with Fraction values.
+    """
+    result: MultiEtaSeries = {}
+    for key, coeff in refined.items():
+        if coeff == 0:
+            continue
+        new_key = key + (0,) if append_cusp_eta else key
+        result[new_key] = Fraction(coeff)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Part 7 — Single-step IS convolution
 # ---------------------------------------------------------------------------
 
 
 def _apply_is_step(
-    state: dict[tuple[int, Fraction], QEtaSeries],
+    state: dict[tuple[int, Fraction], MultiEtaSeries],
     k_current: int,
     k_next: int,
     qq_order: int,
     eta_order: int,
     m1_range: int,
-) -> dict[tuple[int, Fraction], QEtaSeries]:
+) -> dict[tuple[int, Fraction], MultiEtaSeries]:
     """Apply one IS convolution step to the state.
 
     Maps  state[(m, e)]  →  new_state[(m1, e1)]  via
@@ -608,13 +757,13 @@ def _apply_is_step(
         new_state[(m1, e1)] +=
             I_S(m, −e − k_current/2·m,  m1, e1; η) · state[(m, e)]
 
-    For each (m, e) ∈ state, the IS kernel maps it to a distribution over
-    (m1, e1).  The integrality conditions inside _etilde_is automatically
-    filter out non-contributing (m1, e1) pairs.
+    The IS kernel's η variable maps to the LAST dimension of the
+    MultiEtaSeries keys.  Hard-edge η dimensions are carried through
+    unchanged.
 
     Parameters
     ----------
-    state : dict[(int, Fraction) → QEtaSeries]
+    state : dict[(int, Fraction) → MultiEtaSeries]
         Current state (source variables).
     k_current : int
         k_i from the HJ-CF (used to compute the e-transform −e − k_i/2·m).
@@ -628,9 +777,9 @@ def _apply_is_step(
 
     Returns
     -------
-    new_state : dict[(int, Fraction) → QEtaSeries]
+    new_state : dict[(int, Fraction) → MultiEtaSeries]
     """
-    new_state: dict[tuple[int, Fraction], QEtaSeries] = {}
+    new_state: dict[tuple[int, Fraction], MultiEtaSeries] = {}
 
     # Enumerate candidate (m1, e1) pairs from the unrefined K(k_next, 1) support
     # (these are the only ones that can contribute at the final K step).
@@ -648,14 +797,14 @@ def _apply_is_step(
             if not is_val:
                 continue
 
-            # Multiply I_S · state[(m, e)]
-            product = _qeta_convolve(is_val, src_series, qq_order)
+            # Multiply I_S (QEtaSeries) · state[(m, e)] (MultiEtaSeries)
+            product = _multi_convolve_is(is_val, src_series, qq_order)
             if not product:
                 continue
 
             key = (m1, e1)
             if key in new_state:
-                new_state[key] = _qeta_add(new_state[key], product)
+                new_state[key] = _multi_add(new_state[key], product)
             else:
                 new_state[key] = product
 
@@ -669,7 +818,15 @@ def _apply_is_step(
 
 @dataclass
 class FilledRefinedResult:
-    """Result of refined Dehn filling I^ref_{P/Q}(η).
+    """Result of refined Dehn filling I^ref_{P/Q}(η_hard, [η_cusp]).
+
+    The series carries:
+    - For ℓ=1 (|Q|=1, no IS kernel):
+        key = (qq_power, 2*η_0_exp, …, 2*η_{k-1}_exp)
+        Only hard-edge fugacities; no cusp η.
+    - For ℓ≥2 (IS kernel chain):
+        key = (qq_power, 2*η_0_exp, …, 2*η_{k-1}_exp, cusp_eta_exp)
+        Hard-edge fugacities + one cusp η from the IS chain.
 
     Attributes
     ----------
@@ -677,34 +834,32 @@ class FilledRefinedResult:
         Slope (physical cycle P·M + Q·L).
     cusp_idx : int
         Index of the filled cusp.
-    series : QEtaSeries
-        dict[(qq_power, eta_exp) → Fraction]
-        where qq_power is the power of q^{1/2}.
+    series : MultiEtaSeries
+        Multi-dimensional η-polynomial in q^{1/2}.
     qq_order : int
-        Series is truncated at q^{qq_order/2}.
+        Series is truncated at qq^{qq_order}.
     eta_order : int
-        η exponents are bounded by ±eta_order.
+        Maximum |cusp η exponent| to retain (0 for ℓ=1).
     hj_ks : list[int]
         Hirzebruch-Jung continued fraction coefficients [k_1, …, k_ℓ].
     n_kernel_terms : int
-        Number of outer kernel (m, e) pairs evaluated.
-
-    Properties
-    ----------
-    is_zero : bool
-        True if the series is identically zero.
-    as_q_eta_string : str
-        Human-readable q·η polynomial string.
+        Number of outer (m, e) pairs evaluated.
+    num_hard : int
+        Number of hard-edge η dimensions.
+    has_cusp_eta : bool
+        True for ℓ≥2 (cusp η is the last key dimension).
     """
 
     P: int
     Q: int
     cusp_idx: int
-    series: QEtaSeries
+    series: MultiEtaSeries
     qq_order: int
     eta_order: int
     hj_ks: list[int]
     n_kernel_terms: int
+    num_hard: int
+    has_cusp_eta: bool
 
     @property
     def is_zero(self) -> bool:
@@ -712,9 +867,10 @@ class FilledRefinedResult:
         return len(self.series) == 0
 
     def eta1_series(self) -> dict[int, Fraction]:
-        """Sum over all η exponents (set η=1): pure qq-series."""
+        """Set all η variables to 1: pure qq-series."""
         result: dict[int, Fraction] = {}
-        for (qq_p, _eta), c in self.series.items():
+        for key, c in self.series.items():
+            qq_p = key[0]
             new = result.get(qq_p, Fraction(0)) + c
             if new == 0:
                 result.pop(qq_p, None)
@@ -723,10 +879,28 @@ class FilledRefinedResult:
         return result
 
     def q_series_at_eta(self, eta_val: int = 1) -> dict[int, Fraction]:
-        """Evaluate η at a specific integer value: pure qq-series."""
+        """Evaluate all η at a specific integer value: pure qq-series.
+
+        For the hard-edge η's (stored as 2×exponent), the actual exponent
+        is key[i]/2.  For the cusp η (if present), the exponent is key[-1].
+        """
         result: dict[int, Fraction] = {}
-        for (qq_p, eta_exp), c in self.series.items():
-            contrib = c * Fraction(eta_val ** eta_exp)
+        for key, c in self.series.items():
+            qq_p = key[0]
+            # Hard-edge η: exponents in key[1:1+num_hard], stored as 2×exp
+            contrib = c
+            for i in range(1, 1 + self.num_hard):
+                half_exp = key[i]  # = 2 * η_a_exp
+                # η_val^(half_exp/2) — only works for η_val = ±1
+                if eta_val == 1 or half_exp == 0:
+                    pass
+                else:
+                    contrib *= Fraction(eta_val ** (half_exp // 2))
+            # Cusp η (if present)
+            if self.has_cusp_eta:
+                cusp_exp = key[-1]
+                if cusp_exp != 0 and eta_val != 1:
+                    contrib *= Fraction(eta_val ** cusp_exp)
             new = result.get(qq_p, Fraction(0)) + contrib
             if new == 0:
                 result.pop(qq_p, None)
@@ -746,17 +920,16 @@ class FilledRefinedResult:
         ----------
         q_var, eta_var : str
         half_pow : bool
-            If True, write q^{k/2} rather than q^{k} (keeping the raw
-            qq_power in the exponent).  If False (default), assume all
-            qq_powers are even and write q^{k//2}.
+            If True, write q^{k/2} for qq_powers.
         """
         if not self.series:
             return "0"
-        parts = []
-        for (qq_p, eta_exp) in sorted(self.series.keys()):
-            c = self.series[(qq_p, eta_exp)]
+        parts: list[str] = []
+        for key in sorted(self.series.keys()):
+            c = self.series[key]
             if c == 0:
                 continue
+            qq_p = key[0]
             # Build q factor string
             if half_pow:
                 q_str = (
@@ -768,14 +941,32 @@ class FilledRefinedResult:
             else:
                 qp = qq_p // 2
                 q_str = "" if qp == 0 else f"{q_var}" if qp == 1 else f"{q_var}^{qp}"
-            # Build η factor string
-            h_str = (
-                "" if eta_exp == 0 else
-                f"{eta_var}" if eta_exp == 1 else
-                f"{eta_var}^{eta_exp}" if eta_exp > 0 else
-                f"{eta_var}^({eta_exp})"
-            )
-            monomial = (q_str + h_str) or "1"
+            # Build η factor strings
+            eta_parts: list[str] = []
+            # Hard-edge η's
+            for a in range(self.num_hard):
+                exp2 = key[1 + a]  # = 2 * η_a_exp
+                if exp2 == 0:
+                    continue
+                if exp2 == 2:
+                    eta_parts.append(f"{eta_var}_{a}")
+                elif exp2 == -2:
+                    eta_parts.append(f"{eta_var}_{a}^(-1)")
+                elif exp2 % 2 == 0:
+                    eta_parts.append(f"{eta_var}_{a}^{exp2 // 2}")
+                else:
+                    eta_parts.append(f"{eta_var}_{a}^({exp2}/2)")
+            # Cusp η
+            if self.has_cusp_eta:
+                cusp_exp = key[-1]
+                if cusp_exp == 1:
+                    eta_parts.append(f"{eta_var}_c")
+                elif cusp_exp == -1:
+                    eta_parts.append(f"{eta_var}_c^(-1)")
+                elif cusp_exp != 0:
+                    eta_parts.append(f"{eta_var}_c^{cusp_exp}")
+            h_str = "·".join(eta_parts)
+            monomial = (q_str + ("·" + h_str if h_str else "")) or "1"
             parts.append(f"{c}*{monomial}" if c != 1 else monomial)
         return " + ".join(parts) if parts else "0"
 
@@ -792,22 +983,23 @@ def compute_filled_refined_index(
     m1_range: int | None = None,
     verbose: bool = False,
 ) -> FilledRefinedResult:
-    """Compute the refined Dehn-filled index I^ref_{P/Q}(η).
+    """Compute the refined Dehn-filled index I^ref_{P/Q}(η_hard, η_cusp).
 
-    Applies the refined Dehn filling kernel K^ref(P,Q; m,e; η) to the
-    3D index I_{3D}(m, e) summed over all contributing (m, e) pairs.
+    Applies the refined Dehn filling kernel K^ref(P,Q; m,e; η_cusp) to the
+    refined 3D index I^ref(m,e; η_hard) summed over contributing (m,e) pairs.
 
     Algorithm
     ---------
     1. Compute the HJ-CF k = [k_1, …, k_ℓ] for P/Q.
-    2. If ℓ = 1: K^ref = K(k_1, 1; ·) (unrefined); delegate to
-       compute_filled_index with η=1, returning a no-η result.
+    2. If ℓ = 1: K^ref = K(k_1, 1; ·) (unrefined kernel, no IS chain).
+       Sum K(k_1,1; m,e) · I^ref(m,e; η_hard) over kernel support.
+       Result has only hard-edge η's.
     3. If ℓ ≥ 2:
-       a. Enumerate contributing (m, e) from the unrefined kernel support.
-       b. For each (m, e): initialise state[(m, e)] = I_{3D}(m, e) as a
-          QEtaSeries with η^0.
-       c. Apply ℓ−1 IS convolution steps (using IS kernel chain).
-       d. Apply the final unrefined K(k_ℓ, 1; ·) to the last state.
+       a. Scan ALL (m,e) with non-zero I^ref; initialise state with
+          I^ref(m,e; η_hard) ⊗ η_cusp^0.
+       b. Apply ℓ−1 IS convolution steps (IS kernel multiplies into cusp-η).
+       c. Apply the final unrefined K(k_ℓ, 1; ·) to the last state.
+       Result has hard-edge η's + cusp η.
     4. Return FilledRefinedResult.
 
     Parameters
@@ -820,10 +1012,9 @@ def compute_filled_refined_index(
     m_other, e_other : sequences of length r−1, optional
         Values for the remaining cusps. Defaults to all zeros.
     q_order_half : int
-        Series cutoff in q^{1/2} powers (= qq_order = 2×q_order).
-        The IS series is computed with 2*q_order_half qq-powers.
+        Series cutoff in q^{1/2} powers (= qq_order).
     eta_order : int
-        Maximum |η exponent| to retain.
+        Maximum |cusp η exponent| to retain in IS kernels.
     m1_range : int or None
         Scan range for intermediate (m_1, e_1) variables.
         Default: 2 * q_order_half.
@@ -835,6 +1026,7 @@ def compute_filled_refined_index(
     FilledRefinedResult
     """
     r = nz_data.r
+    num_hard = nz_data.num_hard
     if m_other is None:
         m_other = [0] * (r - 1)
     if e_other is None:
@@ -845,8 +1037,6 @@ def compute_filled_refined_index(
     if m1_range is None:
         m1_range = 2 * q_order_half
 
-    # qq_order: the is/etilde kernels work in q^{1/2} powers;
-    # q_order_half is already in units of q^{1/2}, so qq_order = q_order_half.
     qq_order = q_order_half
 
     # ------------------------------------------------------------------
@@ -858,42 +1048,10 @@ def compute_filled_refined_index(
         print(f"[refined_filling] P={P}, Q={Q}, HJ-CF={hj_ks}, ℓ={ell}")
 
     # ------------------------------------------------------------------
-    # Step 2: ℓ = 1 special case (no IS kernel needed)
+    # Helper: build full (m_ext, e_ext) from cusp charge (m_i, e_i)
     # ------------------------------------------------------------------
-    if ell == 1:
-        if verbose:
-            print("[refined_filling] ℓ=1: delegating to unrefined filling")
-        # Unrefined result (no η); wrap as QEtaSeries with η^0
-        unrefined = compute_filled_index(
-            nz_data, cusp_idx, P, Q, m_other, e_other, q_order_half, verbose=verbose
-        )
-        series: QEtaSeries = {}
-        for qq_p, c in unrefined.series.items():
-            if c != 0:
-                series[(qq_p, 0)] = c
-        return FilledRefinedResult(
-            P=P, Q=Q, cusp_idx=cusp_idx,
-            series=series,
-            qq_order=qq_order,
-            eta_order=0,
-            hj_ks=hj_ks,
-            n_kernel_terms=unrefined.n_kernel_terms,
-        )
-
-    # ------------------------------------------------------------------
-    # Step 3: Enumerate outer kernel terms (m, e)
-    # ------------------------------------------------------------------
-    R, S = find_rs(P, Q)
-    _summation_cache: dict = {}
-    kernel_terms = enumerate_kernel_terms(
-        P, Q, R, S, nz_data, cusp_idx, m_other, e_other, q_order_half,
-        _summation_cache=_summation_cache,
-    )
-    if verbose:
-        print(f"[refined_filling] {len(kernel_terms)} outer kernel terms")
-
     def _make_ext(
-        m_i: int, e_i: Fraction
+        m_i: int, e_i: Fraction | int,
     ) -> tuple[list[int], list[int | Fraction]]:
         m_ext: list[int] = []
         e_ext: list[int | Fraction] = []
@@ -909,39 +1067,103 @@ def compute_filled_refined_index(
         return m_ext, e_ext
 
     # ------------------------------------------------------------------
-    # Step 4a: Initialise state[(m, e)] = I_{3D}(m, e) as QEtaSeries(η^0)
+    # Step 2: ℓ = 1 special case (no IS kernel, no cusp η)
     # ------------------------------------------------------------------
-    state: dict[tuple[int, Fraction], QEtaSeries] = {}
-    for kt in kernel_terms:
-        m_ext, e_ext = _make_ext(kt.m, kt.e)
-        index_q_order = q_order_half + (abs(kt.phase) if kt.c == 0 else 0)
-        idx_result = compute_index_3d_python(
-            nz_data, m_ext=m_ext, e_ext=e_ext,
-            q_order_half=index_q_order,
-            _precomputed_terms=_summation_cache.get((kt.m, kt.e, index_q_order)),
+    if ell == 1:
+        k1 = hj_ks[0]
+        if verbose:
+            print(f"[refined_filling] ℓ=1, k={k1}: refined K(k,1) filling")
+
+        # Enumerate (m, e) from unrefined K(k1, 1) support
+        slope1_terms = _enumerate_slope1_terms(k1, m1_range)
+
+        total_series: MultiEtaSeries = {}
+        n_terms = 0
+
+        for m_t, e_t, c_val, phase_t in slope1_terms:
+            m_ext, e_ext = _make_ext(m_t, e_t)
+            # Extra qq budget for c=0 terms that shift by ±phase
+            extra_q = abs(phase_t) if c_val == 0 else 0
+            refined = compute_refined_index(
+                nz_data, m_ext, e_ext, q_order_half=qq_order + extra_q
+            )
+            if not refined:
+                continue
+            n_terms += 1
+
+            # Convert to MultiEtaSeries (no cusp η dimension)
+            multi = _refined_to_multi(refined, append_cusp_eta=False)
+
+            # Determine multiplicity
+            m0, _ = _particular_solution(k1, 1, c_val)
+            t_abs = abs(m_t - m0)
+            mult = 2 if (c_val == 2 or (c_val == 0 and t_abs > 0)) else 1
+
+            contribution = _apply_k1_factor_multi(
+                multi, c_val, phase_t, mult, qq_order
+            )
+            total_series = _multi_add(total_series, contribution)
+
+        if verbose:
+            print(
+                f"[refined_filling] ℓ=1 done: {n_terms} terms, "
+                f"{len(total_series)} non-zero entries"
+            )
+
+        return FilledRefinedResult(
+            P=P, Q=Q, cusp_idx=cusp_idx,
+            series=total_series,
+            qq_order=qq_order,
+            eta_order=0,
+            hj_ks=hj_ks,
+            n_kernel_terms=n_terms,
+            num_hard=num_hard,
+            has_cusp_eta=False,
         )
-        idx_series = _qseries_from_result(idx_result)
-        # Convert to QEtaSeries with η^0 and apply multiplicity
-        qe_series: QEtaSeries = {}
-        for qq_p, c in idx_series.items():
-            val = c * kt.multiplicity
-            if val != 0:
-                qe_series[(qq_p, 0)] = val
-        if qe_series:
-            existing = state.get((kt.m, kt.e))
-            state[(kt.m, kt.e)] = (
-                _qeta_add(existing, qe_series) if existing else qe_series
+
+    # ------------------------------------------------------------------
+    # Step 3: ℓ ≥ 2 — Grid scan of (m, e) with non-zero I^ref
+    # ------------------------------------------------------------------
+    if verbose:
+        print(f"[refined_filling] ℓ={ell}: scanning (m,e) grid for I^ref ≠ 0")
+
+    # Scan bounds: m ∈ [-m_scan, m_scan], e ∈ [-e_scan, e_scan] step 1/2
+    m_scan = 2 * qq_order
+    e_scan = qq_order  # in half-integer units, covers ±qq_order/2
+
+    state: dict[tuple[int, Fraction], MultiEtaSeries] = {}
+    n_grid_terms = 0
+
+    for m_i in range(-m_scan, m_scan + 1):
+        for e_half in range(-2 * e_scan, 2 * e_scan + 1):
+            e_i = Fraction(e_half, 2)
+            m_ext, e_ext = _make_ext(m_i, e_i)
+
+            refined = compute_refined_index(
+                nz_data, m_ext, e_ext, q_order_half=qq_order
+            )
+            if not refined:
+                continue
+            n_grid_terms += 1
+
+            # Convert to MultiEtaSeries with cusp_eta=0 appended
+            multi = _refined_to_multi(refined, append_cusp_eta=True)
+            existing = state.get((m_i, e_i))
+            state[(m_i, e_i)] = (
+                _multi_add(existing, multi) if existing else multi
             )
 
     if verbose:
-        print(f"[refined_filling] State initialised with {len(state)} (m,e) entries")
+        print(
+            f"[refined_filling] Grid scan: {n_grid_terms} non-zero (m,e) "
+            f"pairs → {len(state)} state entries"
+        )
 
     # ------------------------------------------------------------------
-    # Step 4b: Apply ℓ−1 IS convolution steps
+    # Step 4: Apply ℓ−1 IS convolution steps
     # ------------------------------------------------------------------
     for step_i in range(ell - 1):
         k_current = hj_ks[step_i]
-        # Next step's kernel index (for enumerating output (m1,e1) candidates)
         k_next = hj_ks[step_i + 1]
         if verbose:
             print(
@@ -961,13 +1183,11 @@ def compute_filled_refined_index(
             print(f"            → new |state|={len(state)}")
 
     # ------------------------------------------------------------------
-    # Step 4c: Apply final unrefined K(k_ℓ, 1; m_{ℓ-1}, e_{ℓ-1})
+    # Step 5: Apply final unrefined K(k_ℓ, 1; m_{ℓ-1}, e_{ℓ-1})
     # ------------------------------------------------------------------
     k_final = hj_ks[-1]
     final_terms = _enumerate_slope1_terms(k_final, m1_range)
-    # Phase=m (R=1,S=0), so multiplicity handling mirrors dehn_filling.py:
-    #   c=0, t≠0 → multiplicity=2; c=0, t=0 → multiplicity=1; c=2 → multiplicity=2
-    # Build a fast lookup: (m, e) → (c, phase, multiplicity)
+    # Build lookup: (m, e) → (c, phase, multiplicity)
     final_term_info: dict[tuple[int, Fraction], tuple[int, int, int]] = {}
     seen_final: set[tuple[int, Fraction]] = set()
     for m1, e1, c_final, phase_final in final_terms:
@@ -975,12 +1195,12 @@ def compute_filled_refined_index(
         if key in seen_final:
             continue
         seen_final.add(key)
-        # Determine multiplicity: c=0 t≠0 or c=2 → 2; else 1
-        t_abs = abs(m1 - _particular_solution(k_final, 1, c_final)[0])
+        m0, _ = _particular_solution(k_final, 1, c_final)
+        t_abs = abs(m1 - m0)
         mult = 2 if (c_final == 2 or (c_final == 0 and t_abs > 0)) else 1
         final_term_info[key] = (c_final, phase_final, mult)
 
-    total_series: QEtaSeries = {}
+    total_series_ell2: MultiEtaSeries = {}
     for (m1, e1), src_series in state.items():
         if not src_series:
             continue
@@ -988,19 +1208,24 @@ def compute_filled_refined_index(
         if info is None:
             continue
         c_final, phase_final, mult_final = info
-        contribution = _apply_k1_factor(
-            src_series, m1, e1, c_final, phase_final, mult_final, qq_order
+        contribution = _apply_k1_factor_multi(
+            src_series, c_final, phase_final, mult_final, qq_order
         )
-        total_series = _qeta_add(total_series, contribution)
+        total_series_ell2 = _multi_add(total_series_ell2, contribution)
 
     if verbose:
-        print(f"[refined_filling] Done: {len(total_series)} non-zero (qq,η) entries")
+        print(
+            f"[refined_filling] Done: {len(total_series_ell2)} "
+            f"non-zero multi-η entries"
+        )
 
     return FilledRefinedResult(
         P=P, Q=Q, cusp_idx=cusp_idx,
-        series=total_series,
+        series=total_series_ell2,
         qq_order=qq_order,
         eta_order=eta_order,
         hj_ks=hj_ks,
-        n_kernel_terms=len(kernel_terms),
+        n_kernel_terms=n_grid_terms,
+        num_hard=num_hard,
+        has_cusp_eta=True,
     )

@@ -52,6 +52,8 @@ class ResultsPage(QWidget):
         self._weyl_result = None
         self._filled_refined_result = None   # FilledRefinedResult from Dehn filling
         self._dehn_slope_rows: list[dict] = []
+        self._weyl_a: list[Fraction] = []
+        self._weyl_b: list[Fraction] = []
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -333,33 +335,38 @@ class ResultsPage(QWidget):
                     "✗  a ∉ ℤ — not directly compatible (slope Q must be even)"
                 )
                 self._weyl_compat_label.setStyleSheet("color: #d1242f; font-size: 12px;")
+            self._weyl_a = a_new
+            self._weyl_b = b_new
         else:
             a_new = [Fraction(0)] * num_hard
             b_new = [Fraction(0)] * num_hard
             self._weyl_ab_label.setText("(a, b) could not be determined — insufficient data")
             self._weyl_compat_label.setText("")
+            self._weyl_a = a_new
+            self._weyl_b = b_new
 
-        # Build per-hard-edge Dehn filling rows
+        # Build per-cusp Dehn filling rows
         self._clear_dehn_rows()
 
-        if num_hard == 0:
-            note = QLabel("No hard edges — Dehn filling not applicable.")
+        nz = self._nz_changed if self._nz_changed is not None \
+            else (self._pipeline_result.nz_data if self._pipeline_result else None)
+        num_cusps = nz.r if nz is not None else 0
+
+        if num_cusps == 0:
+            note = QLabel("No cusps — Dehn filling not applicable.")
             note.setStyleSheet("color: palette(mid); font-size: 11px;")
             self._dehn_layout.addWidget(note)
             return
 
-        for i in range(num_hard):
-            ai = a_new[i] if i < len(a_new) else Fraction(0)
-            bi = b_new[i] if i < len(b_new) else Fraction(0)
-
+        for cusp_i in range(num_cusps):
             row_widget = QWidget()
             row_hbox = QHBoxLayout(row_widget)
             row_hbox.setContentsMargins(0, 4, 0, 4)
             row_hbox.setSpacing(8)
 
-            lbl = QLabel(f"Hard edge {i}   a={_fmt_frac(ai)}, b={_fmt_frac(bi)}")
+            lbl = QLabel(f"Cusp {cusp_i}")
             lbl.setFont(monospace_font(11))
-            lbl.setFixedWidth(220)
+            lbl.setFixedWidth(80)
             row_hbox.addWidget(lbl)
 
             row_hbox.addWidget(QLabel("P:"))
@@ -385,7 +392,7 @@ class ResultsPage(QWidget):
             fill_btn = QPushButton("Dehn Fill  ▶")
             fill_btn.setObjectName("secondary")
             fill_btn.setFixedHeight(28)
-            fill_btn.clicked.connect(lambda _, j=i: self._on_dehn_fill(j))
+            fill_btn.clicked.connect(lambda _, j=cusp_i: self._on_dehn_fill(j))
             row_hbox.addWidget(fill_btn)
 
             self._dehn_layout.addWidget(row_widget)
@@ -394,24 +401,26 @@ class ResultsPage(QWidget):
                 "q_spin": q_spin,
                 "compat_label": compat_label,
                 "fill_btn": fill_btn,
-                "a": ai,
-                "b": bi,
+                "cusp_idx": cusp_i,
             }
             self._dehn_slope_rows.append(row_data)
 
-            p_spin.valueChanged.connect(lambda _, j=i: self._check_slope_compat(j))
-            q_spin.valueChanged.connect(lambda _, j=i: self._check_slope_compat(j))
-            self._check_slope_compat(i)
+            p_spin.valueChanged.connect(lambda _, j=cusp_i: self._check_slope_compat(j))
+            q_spin.valueChanged.connect(lambda _, j=cusp_i: self._check_slope_compat(j))
+            self._check_slope_compat(cusp_i)
 
     def _check_slope_compat(self, cusp_idx: int) -> None:
-        """Recompute and display Dehn-filling compatibility for one hard edge."""
+        """Recompute and display Dehn-filling compatibility for one cusp.
+
+        The compatibility check verifies ALL hard edges simultaneously:
+        for each hard edge i, a_i must be integer, 2b_i must be integer,
+        and 2b_i·P + a_i·Q must be an integer.
+        """
         if cusp_idx >= len(self._dehn_slope_rows):
             return
         row = self._dehn_slope_rows[cusp_idx]
         P = row["p_spin"].value()
         Q = row["q_spin"].value()
-        a: Fraction = row["a"]
-        b: Fraction = row["b"]
         lbl: QLabel = row["compat_label"]
         btn = row["fill_btn"]
 
@@ -420,30 +429,46 @@ class ResultsPage(QWidget):
             btn.setEnabled(False)
             return
 
-        # Prerequisites: a must be integer and 2b must be integer
-        if a.denominator != 1:
-            lbl.setText(f"✗ incompatible  (a = {_fmt_frac(a)} ∉ ℤ)")
-            lbl.setStyleSheet("color: #d1242f; font-size: 11px;")
-            btn.setEnabled(False)
-            return
-        if (2 * b).denominator != 1:
-            lbl.setText(f"✗ incompatible  (2b = {_fmt_frac(2 * b)} ∉ ℤ)")
-            lbl.setStyleSheet("color: #d1242f; font-size: 11px;")
-            btn.setEnabled(False)
-            return
+        a_list = getattr(self, "_weyl_a", [])
+        b_list = getattr(self, "_weyl_b", [])
+        num_hard = len(a_list)
 
-        mu2 = 2 * b * P + a * Q
-        if mu2.denominator == 1:
-            lbl.setText(f"✓ compatible  (μ = {_fmt_frac(mu2 / 2)})")
+        if num_hard == 0:
+            # No hard edges → always compatible
+            lbl.setText("✓ compatible (no hard edges)")
             lbl.setStyleSheet("color: #2ea043; font-size: 11px;")
             btn.setEnabled(True)
-        else:
-            lbl.setText(f"✗ incompatible  (2μ = {mu2} ∉ ℤ)")
-            lbl.setStyleSheet("color: #d1242f; font-size: 11px;")
-            btn.setEnabled(False)
+            return
+
+        # Check each hard edge
+        for i in range(num_hard):
+            a = a_list[i]
+            b = b_list[i]
+            if a.denominator != 1:
+                lbl.setText(f"✗ incompatible  (a_{i} = {_fmt_frac(a)} ∉ ℤ)")
+                lbl.setStyleSheet("color: #d1242f; font-size: 11px;")
+                btn.setEnabled(False)
+                return
+            if (2 * b).denominator != 1:
+                lbl.setText(f"✗ incompatible  (2b_{i} = {_fmt_frac(2 * b)} ∉ ℤ)")
+                lbl.setStyleSheet("color: #d1242f; font-size: 11px;")
+                btn.setEnabled(False)
+                return
+            mu2 = 2 * b * P + a * Q
+            if mu2.denominator != 1:
+                lbl.setText(
+                    f"✗ incompatible  (edge {i}: 2μ = {mu2} ∉ ℤ)"
+                )
+                lbl.setStyleSheet("color: #d1242f; font-size: 11px;")
+                btn.setEnabled(False)
+                return
+
+        lbl.setText("✓ compatible")
+        lbl.setStyleSheet("color: #2ea043; font-size: 11px;")
+        btn.setEnabled(True)
 
     def _on_dehn_fill(self, cusp_idx: int) -> None:
-        """Launch refined Dehn filling for one hard edge."""
+        """Launch refined Dehn filling for one cusp."""
         if cusp_idx >= len(self._dehn_slope_rows):
             return
         row = self._dehn_slope_rows[cusp_idx]

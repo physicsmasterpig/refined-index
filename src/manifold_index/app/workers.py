@@ -3,9 +3,12 @@ app/workers.py — Background QThread workers for computation.
 
 Workers
 -------
-PipelineWorker       — Steps 4-5: non-closable cycle search per cusp.
-RefinedIndexWorker   — Step 8: refined index at every (m_ext, e_ext) point.
-DehnFillingWorker    — Refined Dehn filling via compute_filled_refined_index.
+PipelineWorker                — Steps 4-5: non-closable cycle search per cusp.
+RefinedIndexWorker            — Step 8: refined index at every (m_ext, e_ext) point.
+DehnFillingWorker             — Refined Dehn filling via compute_filled_refined_index.
+DehnFillingPipelineWorker     — Full Dehn-filling pipeline: search non-closable
+                                cycles, basis change, slope transform, compute
+                                filled refined index.
 """
 
 from __future__ import annotations
@@ -299,3 +302,212 @@ class DehnFillingWorker(QThread):
         )
         self.status.emit("Dehn filling complete.")
         self.finished.emit(result)
+
+
+# ---------------------------------------------------------------------------
+# DehnFillingPipelineWorker — full pipeline: search + transform + fill
+# ---------------------------------------------------------------------------
+
+def _ext_gcd(a: int, b: int) -> tuple[int, int, int]:
+    """Extended Euclidean algorithm: returns (g, x, y) with a*x + b*y = g."""
+    if b == 0:
+        return a, 1, 0
+    g, x1, y1 = _ext_gcd(b, a % b)
+    return g, y1, x1 - (a // b) * y1
+
+
+def _transform_slope(
+    P_user: int, Q_user: int,
+    P_nc: int, Q_nc: int,
+) -> tuple[int, int, int, int]:
+    """Transform the user's Dehn filling slope into the new basis.
+
+    The non-closable cycle (P_nc, Q_nc) becomes the new meridian:
+        new_M = P_nc·M + Q_nc·L
+
+    The new longitude is determined by the Bézout identity:
+        P_nc·b − 2·Q_nc·a = 1
+    so:
+        new_L = 2a·M + b·L
+
+    The user's slope (P_user, Q_user) in the original (M, L) basis
+    is re-expressed as (P_new, Q_new) in the new (M', L') basis:
+        P_new = b · P_user − 2a · Q_user
+        Q_new = −Q_nc · P_user + P_nc · Q_user
+
+    Returns (P_new, Q_new, a, b).
+    """
+    g, b, a = _ext_gcd(P_nc, -2 * Q_nc)
+    # _ext_gcd(P_nc, -2*Q_nc) → P_nc*b + (-2*Q_nc)*a = g
+    # i.e. P_nc*b − 2*Q_nc*a = g (should be 1)
+    assert g == 1, (
+        f"gcd({P_nc}, {-2*Q_nc}) = {g} ≠ 1; "
+        f"P_nc must be odd for integer Bézout solution"
+    )
+    P_new = b * P_user - 2 * a * Q_user
+    Q_new = -Q_nc * P_user + P_nc * Q_user
+    return P_new, Q_new, a, b
+
+
+class DehnFillingPipelineWorker(QThread):
+    """Full Dehn filling pipeline: search non-closable cycles → basis
+    change → slope transform → compute filled refined index.
+
+    Emits a dict with all results when done.
+    """
+
+    status = Signal(str)
+    progress = Signal(int, int)   # (done, total)
+    finished = Signal(object)     # dict result_info
+    error = Signal(str)
+
+    def __init__(
+        self,
+        nz_data,
+        cusp_idx: int,
+        P_user: int,
+        Q_user: int,
+        q_order_half: int,
+        p_range: range,
+        q_range: range,
+        eta_order: int = 5,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._nz_data = nz_data
+        self._cusp_idx = cusp_idx
+        self._P_user = P_user
+        self._Q_user = Q_user
+        self._q_order_half = q_order_half
+        self._p_range = p_range
+        self._q_range = q_range
+        self._eta_order = eta_order
+
+    def run(self) -> None:
+        try:
+            self._run()
+        except Exception as exc:
+            import traceback
+            self.error.emit(
+                f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}"
+            )
+
+    def _run(self) -> None:
+        from math import gcd as _gcd
+        from manifold_index.core.dehn_filling import compute_filled_index
+        from manifold_index.core.neumann_zagier import apply_cusp_basis_change
+        from manifold_index.core.refined_dehn_filling import (
+            compute_filled_refined_index,
+        )
+
+        nz = self._nz_data
+        cusp_idx = self._cusp_idx
+        q_order_half = self._q_order_half
+
+        # ── Step 1: search non-closable cycles ────────────────────
+        self.status.emit(
+            f"Cusp {cusp_idx}: searching non-closable cycles …"
+        )
+
+        slopes: list[tuple[int, int]] = []
+        for P in self._p_range:
+            for Q in self._q_range:
+                if P == 0 and Q == 0:
+                    continue
+                if _gcd(abs(P), abs(Q)) != 1:
+                    continue
+                # Need P odd for basis change to work
+                if P % 2 == 0:
+                    continue
+                slopes.append((P, Q))
+
+        # Deduplicate by removing (P,Q) if (-P,-Q) already present
+        seen: set[tuple[int, int]] = set()
+        unique_slopes = []
+        for P, Q in slopes:
+            if (-P, -Q) not in seen:
+                unique_slopes.append((P, Q))
+                seen.add((P, Q))
+        slopes = unique_slopes
+
+        total = len(slopes)
+        non_closable: list[tuple[int, int]] = []
+
+        r = nz.r
+        m_other = [0] * (r - 1)
+        e_other = [Fraction(0)] * (r - 1)
+
+        for done_idx, (P_nc, Q_nc) in enumerate(slopes):
+            self.progress.emit(done_idx + 1, total)
+            self.status.emit(
+                f"Cusp {cusp_idx}: testing slope ({P_nc}, {Q_nc}) "
+                f"({done_idx + 1}/{total}) …"
+            )
+
+            filled = compute_filled_index(
+                nz, cusp_idx=cusp_idx, P=P_nc, Q=Q_nc,
+                m_other=list(m_other), e_other=list(e_other),
+                q_order_half=q_order_half,
+            )
+            if filled.is_stably_zero():
+                non_closable.append((P_nc, Q_nc))
+                # Also add the negation
+                non_closable.append((-P_nc, -Q_nc))
+
+        # ── Step 2: for each non-closable cycle, transform + fill ──
+        results: list[dict] = []
+
+        if non_closable:
+            # Use just the first non-closable cycle for now (they should
+            # give the same result).  But record all for display.
+            # Actually, compute for ALL to verify agreement.
+            total_nc = len(non_closable)
+            for nc_idx, (P_nc, Q_nc) in enumerate(non_closable):
+                self.status.emit(
+                    f"Non-closable ({P_nc}, {Q_nc}): "
+                    f"computing filled refined index ({nc_idx + 1}/{total_nc}) …"
+                )
+                self.progress.emit(nc_idx + 1, total_nc)
+
+                try:
+                    P_new, Q_new, a_coeff, b_coeff = _transform_slope(
+                        self._P_user, self._Q_user, P_nc, Q_nc,
+                    )
+                except AssertionError as e:
+                    # Skip this cycle (P_nc even — shouldn't happen)
+                    continue
+
+                # Apply basis change
+                nz_changed = apply_cusp_basis_change(nz, cusp_idx, P_nc, Q_nc)
+
+                # Compute filled refined index with transformed slope
+                filled_result = compute_filled_refined_index(
+                    nz_changed,
+                    cusp_idx=cusp_idx,
+                    P=P_new,
+                    Q=Q_new,
+                    q_order_half=q_order_half,
+                    eta_order=self._eta_order,
+                    verbose=False,
+                )
+
+                results.append({
+                    "P_nc": P_nc,
+                    "Q_nc": Q_nc,
+                    "a": a_coeff,
+                    "b": b_coeff,
+                    "P_new": P_new,
+                    "Q_new": Q_new,
+                    "filled_result": filled_result,
+                })
+
+        result_info = {
+            "cusp_idx": cusp_idx,
+            "P_user": self._P_user,
+            "Q_user": self._Q_user,
+            "non_closable_cycles": non_closable,
+            "results": results,
+        }
+        self.status.emit("Dehn filling pipeline complete.")
+        self.finished.emit(result_info)
+

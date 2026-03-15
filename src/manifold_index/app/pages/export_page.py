@@ -40,6 +40,7 @@ class ExportPage(QWidget):
         self._build_ui()
 
     def set_results_page(self, page) -> None:
+        """Accept an OverviewPage (or any object with the required properties)."""
         self._results_page = page
 
     # ------------------------------------------------------------------
@@ -170,20 +171,21 @@ class ExportPage(QWidget):
     # ------------------------------------------------------------------
 
     def _get_data(self):
-        """Pull everything needed for export from the results page."""
+        """Pull everything needed for export from the overview page."""
         rp = self._results_page
         if rp is None:
             return None
-        if rp.refined_result is None:
+        if rp.refined_results is None:
             return None
-        pp = rp.pipeline_result
-        nz = rp.nz_changed if rp.nz_changed is not None else pp.nz_data
+        nz = rp.nz_data
+        if nz is None:
+            return None
         return {
-            "entries": rp.refined_result,
-            "name": pp.name,
-            "q_ord": pp.q_order_half,
+            "entries": rp.refined_results,
+            "name": self._prefix_edit.text().replace("_index", "") or "unknown",
+            "q_ord": getattr(nz, "_q_order_half", 10),
             "num_hard": nz.num_hard,
-            "basis_summary": rp.basis.summary() if rp.basis else "",
+            "basis_summary": "",
             "weyl_result": rp.weyl_result if self._chk_weyl.isChecked() else None,
         }
 
@@ -192,21 +194,22 @@ class ExportPage(QWidget):
         rp = self._results_page
         if rp is None:
             return None
-        if rp.refined_result is None:
+        if rp.refined_results is None:
             return None
-        pp = rp.pipeline_result
-        nz = rp.nz_changed if rp.nz_changed is not None else pp.nz_data
+        nz = rp.nz_data
+        if nz is None:
+            return None
         return {
-            "entries": rp.refined_result,
-            "name": pp.name,
-            "q_ord": pp.q_order_half,
+            "entries": rp.refined_results,
+            "name": self._prefix_edit.text().replace("_index", "") or "unknown",
+            "q_ord": getattr(nz, "_q_order_half", 10),
             "num_hard": nz.num_hard,
-            "basis_summary": rp.basis.summary() if rp.basis else "",
+            "basis_summary": "",
             "weyl_result": rp.weyl_result,
-            "pipeline_result": pp,
-            "basis_selection": rp.basis,
-            "nz_changed": rp.nz_changed,
-            "filled_refined_result": rp.filled_refined_result,
+            "pipeline_result": None,
+            "basis_selection": None,
+            "nz_changed": nz,
+            "filled_refined_result": None,
         }
 
     # ------------------------------------------------------------------

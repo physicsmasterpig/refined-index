@@ -6,7 +6,7 @@
 (* CreatedBy='Mathematica 14.0' *)
 Notebook[{
 Cell["Refined Index Table: 5_1^2", "Title"],
-Cell["m ∈ [-4, 4]  |  e ∈ [-2, 2]  |  289 nonzero / 6561 pairs  |  Nmax = 10  |  Generated: 2026-03-13 12:40", "Subtitle"],
+Cell["m ∈ [-4, 4]  |  e ∈ [-2, 2]  |  289 nonzero / 6561 pairs  |  Nmax = 10  |  Generated: 2026-03-14 21:55", "Subtitle"],
 Cell["Setup", "Subsection"],
 Cell[BoxData["ClearAll[q, \\[Eta], v, i512ref, i512RefTable];"], "Input"],
 Cell["Precomputed refined index table", "Subsection"],

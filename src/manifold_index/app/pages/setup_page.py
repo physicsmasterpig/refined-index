@@ -27,10 +27,10 @@ def _has_snapy() -> bool:
 
 
 class SetupPage(QWidget):
-    """Page 1: manifold name, validate, parameters, Run Pipeline."""
+    """Page 1: manifold name, validate, parameters, Compute."""
 
-    run_requested = Signal(str, int, object, object)
-    # (name, q_order_half, p_range, q_range)
+    run_requested = Signal(str, int)
+    # (name, q_order_half)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -101,47 +101,12 @@ class SetupPage(QWidget):
         )
         param_form.addRow("Nmax (q_order_half):", self._q_spin)
 
-        # Slope search range
-        slope_label = QLabel("Slope search range for non-closable cycles:")
-        slope_label.setStyleSheet("color: palette(mid); font-size: 11px;")
-        param_form.addRow("", slope_label)
-
-        p_row = QHBoxLayout()
-        self._p_min = QSpinBox()
-        self._p_min.setRange(-20, 0)
-        self._p_min.setValue(-1)
-        self._p_max = QSpinBox()
-        self._p_max.setRange(0, 20)
-        self._p_max.setValue(1)
-        p_row.addWidget(QLabel("P ∈ ["))
-        p_row.addWidget(self._p_min)
-        p_row.addWidget(QLabel(","))
-        p_row.addWidget(self._p_max)
-        p_row.addWidget(QLabel("]"))
-        p_row.addStretch()
-        param_form.addRow("", p_row)
-
-        q_row = QHBoxLayout()
-        self._q_min = QSpinBox()
-        self._q_min.setRange(-20, 0)
-        self._q_min.setValue(0)
-        self._q_max = QSpinBox()
-        self._q_max.setRange(0, 20)
-        self._q_max.setValue(1)
-        q_row.addWidget(QLabel("Q ∈ ["))
-        q_row.addWidget(self._q_min)
-        q_row.addWidget(QLabel(","))
-        q_row.addWidget(self._q_max)
-        q_row.addWidget(QLabel("]"))
-        q_row.addStretch()
-        param_form.addRow("", q_row)
-
         root.addWidget(param_group)
 
         # ── Run button ────────────────────────────────────────────
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        self._run_btn = QPushButton("Run Pipeline  ▶")
+        self._run_btn = QPushButton("Compute  ▶")
         self._run_btn.setObjectName("primary")
         self._run_btn.setFixedHeight(44)
         self._run_btn.setFixedWidth(200)
@@ -193,8 +158,6 @@ class SetupPage(QWidget):
         self.run_requested.emit(
             name,
             self._q_spin.value(),
-            range(self._p_min.value(), self._p_max.value() + 1),
-            range(self._q_min.value(), self._q_max.value() + 1),
         )
 
     # ------------------------------------------------------------------

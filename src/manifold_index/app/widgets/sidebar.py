@@ -27,8 +27,8 @@ class Sidebar(QWidget):
 
     _STEPS = [
         ("1", "Setup"),
-        ("2", "Basis"),
-        ("3", "Results"),
+        ("2", "Overview"),
+        ("3", "Dehn Filling"),
         ("4", "Export"),
     ]
 

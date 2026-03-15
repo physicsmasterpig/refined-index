@@ -5,10 +5,16 @@ Architecture
 ────────────
 Sidebar (fixed 180 px)  |  QStackedWidget (4 pages)
                         |
-  1. Setup              |  SetupPage       — manifold name, parameters
-  2. Basis              |  BasisPage       — pipeline progress + cycle selection
-  3. Results            |  ResultsPage     — tabbed: Series · Weyl & Dehn · Raw
-  4. Export             |  ExportPage      — batch export to txt/tex/json/nb
+  1. Setup              |  SetupPage          — manifold name, Nmax
+  2. Overview           |  OverviewPage       — H₁(∂N,ℤ/2) sectors + refined index
+  3. Dehn Filling       |  DehnFillingPage    — slope input → auto-search → results
+  4. Export             |  ExportPage         — batch export to txt/tex/json/nb
+
+Workflow:
+  SetupPage  → compute NZ + refined index for all ℤ/2 sectors
+  OverviewPage  → display sectors + Weyl check
+  DehnFillingPage  → user inputs slope → auto non-closable search
+                     → basis change + slope transform → filled refined index
 
 Entry point:
     from manifold_index.app.gui import launch_gui
@@ -35,48 +41,41 @@ from PySide6.QtWidgets import (
 from manifold_index.app.style import APP_STYLESHEET
 from manifold_index.app.widgets.sidebar import Sidebar
 from manifold_index.app.pages.setup_page import SetupPage
-from manifold_index.app.pages.basis_page import BasisPage
-from manifold_index.app.pages.results_page import ResultsPage
+from manifold_index.app.pages.overview_page import OverviewPage
+from manifold_index.app.pages.dehn_filling_page import DehnFillingPage
 from manifold_index.app.pages.export_page import ExportPage
 from manifold_index.app.workers import (
-    PipelineResult,
-    PipelineWorker,
     RefinedIndexWorker,
-    DehnFillingWorker,
-)
-from manifold_index.core.basis_selection import (
-    BasisSelection,
-    apply_basis_changes,
-    make_basis_selection,
+    DehnFillingPipelineWorker,
 )
 
 
 # ---------------------------------------------------------------------------
-# Evaluation grid builder (moved from old gui.py, cleaned up)
+# Evaluation grid builder
 # ---------------------------------------------------------------------------
 
-def _build_eval_grid(
-    bs: BasisSelection,
-    nz_changed,
-    m_max: int,
-    e_max: int,
-) -> list[tuple[list[int], list]]:
-    """Build the list of (m_ext, e_ext) evaluation points.
+def _build_eval_grid(r: int) -> list[tuple[list[int], list]]:
+    """Build the 25^r evaluation grid for refined index + Weyl extraction.
 
     For each cusp:
-        m ∈ {−m_max, …, +m_max}           (step 1, integers)
-        e ∈ {−e_max, −e_max+½, …, +e_max} (step ½, half-integers)
+        m ∈ {-2, -1, 0, 1, 2}
+        e ∈ {-1, -1/2, 0, 1/2, 1}
 
-    Then Cartesian product across cusps.
+    The extended range (including negative values) is required so that
+    ``compute_ab_vectors`` can find conjugate-charge pairs:
+
+      • (m, 0) / (−m, 0)   →  determines **b**
+      • (0, e) / (0, −e)   →  determines **a**
+
+    Returns list of (m_ext, e_ext) tuples.
     """
-    per_cusp: list[list[tuple[int, Fraction]]] = []
-    for _ch in bs.choices:
-        m_vals = list(range(-m_max, m_max + 1))
-        e_vals = [Fraction(k, 2) for k in range(-2 * e_max, 2 * e_max + 1)]
-        per_cusp.append([(m, e) for m in m_vals for e in e_vals])
-
+    per_cusp = [
+        (m, Fraction(k, 2))
+        for m in (-2, -1, 0, 1, 2)
+        for k in (-2, -1, 0, 1, 2)
+    ]
     eval_points: list[tuple[list[int], list]] = []
-    for combo in itertools_product(*per_cusp):
+    for combo in itertools_product(*([per_cusp] * r)):
         m_list = [pair[0] for pair in combo]
         e_list = [pair[1] for pair in combo]
         eval_points.append((m_list, e_list))
@@ -112,27 +111,32 @@ class MainWindow(QMainWindow):
         hlayout.addWidget(self._stack, 1)
 
         self._page_setup = SetupPage()
-        self._page_basis = BasisPage()
-        self._page_results = ResultsPage()
+        self._page_overview = OverviewPage()
+        self._page_dehn = DehnFillingPage()
         self._page_export = ExportPage()
-        self._page_export.set_results_page(self._page_results)
+        self._page_export.set_results_page(self._page_overview)
 
-        self._stack.addWidget(self._page_setup)    # 0
-        self._stack.addWidget(self._page_basis)    # 1
-        self._stack.addWidget(self._page_results)  # 2
-        self._stack.addWidget(self._page_export)   # 3
+        self._stack.addWidget(self._page_setup)      # 0
+        self._stack.addWidget(self._page_overview)    # 1
+        self._stack.addWidget(self._page_dehn)        # 2
+        self._stack.addWidget(self._page_export)      # 3
+
+        # ── State ─────────────────────────────────────────────────
+        self._nz_data = None
+        self._manifold_name: str = ""
+        self._q_order_half: int = 10
 
         # ── Workers ───────────────────────────────────────────────
-        self._pipeline_worker: PipelineWorker | None = None
         self._refined_worker: RefinedIndexWorker | None = None
-        self._dehn_worker: DehnFillingWorker | None = None
+        self._dehn_pipeline_worker: DehnFillingPipelineWorker | None = None
 
         # ── Connections ───────────────────────────────────────────
         self._sidebar.page_requested.connect(self._go_to_page)
-        self._page_setup.run_requested.connect(self._start_pipeline)
-        self._page_basis.compute_requested.connect(self._start_refined_index)
-        self._page_basis.back_requested.connect(lambda: self._go_to_page(0))
-        self._page_results.dehn_fill_requested.connect(self._start_dehn_filling)
+        self._page_setup.run_requested.connect(self._start_compute)
+        self._page_overview.continue_requested.connect(lambda: self._go_to_page(2))
+        self._page_overview.back_requested.connect(lambda: self._go_to_page(0))
+        self._page_dehn.compute_requested.connect(self._start_dehn_pipeline)
+        self._page_dehn.back_requested.connect(lambda: self._go_to_page(1))
 
         # ── Keyboard shortcuts ────────────────────────────────────
         QShortcut(QKeySequence("Ctrl+1"), self, lambda: self._go_to_page(0))
@@ -158,24 +162,17 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(index)
         self._sidebar.set_active(index)
         if index == 3:
-            # Prepare export page with current manifold name
             name = self._page_setup.manifold_name()
             if name:
                 self._page_export.prepare(name)
 
     # ------------------------------------------------------------------
-    # Pipeline launch  (Step 4-5)
+    # Initial compute  (NZ + refined index for ℤ/2 sectors)
     # ------------------------------------------------------------------
 
-    @Slot(str, int, object, object)
-    def _start_pipeline(
-        self,
-        name: str,
-        q_order_half: int,
-        p_range: range,
-        q_range: range,
-    ) -> None:
-        # Steps 1-3 run in the main thread (SnaPy SQLite thread-safety)
+    @Slot(str, int)
+    def _start_compute(self, name: str, q_order_half: int) -> None:
+        """Load manifold, build NZ data, compute refined index for H₁ sectors."""
         from manifold_index.core.manifold import load_manifold
         from manifold_index.core.phase_space import find_easy_edges
         from manifold_index.core.neumann_zagier import build_neumann_zagier
@@ -192,95 +189,32 @@ class MainWindow(QMainWindow):
             )
             return
 
-        self.statusBar().showMessage(f"Loaded '{name}' — searching slopes …")
-
-        # Keep raw data for the full report export
+        self._manifold_name = name
+        self._q_order_half = q_order_half
+        self._nz_data = nz
         self._manifold_data = data
         self._easy_result = easy
 
-        # Switch to basis page
+        self.statusBar().showMessage(
+            f"Loaded '{name}' — computing refined index for ℤ/2 sectors …"
+        )
+
+        # Build evaluation grid  (25^r points for Weyl extraction)
+        eval_points = _build_eval_grid(nz.r)
+
+        # Switch to overview page
         self._sidebar.enable_up_to(1)
         self._go_to_page(1)
-        self._page_basis.reset()
-        self._page_basis.update_status(
-            f"Loaded '{name}' ({nz.r} cusp(s)).  Searching slopes …"
-        )
+        self._page_overview.reset(name, nz, q_order_half)
 
-        worker = PipelineWorker(
-            name=name,
-            nz_data=nz,
-            q_order_half=q_order_half,
-            p_range=p_range,
-            q_range=q_range,
-        )
-        worker.status.connect(self._page_basis.update_status)
-        worker.slope_progress.connect(self._page_basis.update_slope_progress)
-        worker.finished.connect(self._attach_raw_data)
-        worker.finished.connect(self._page_basis.pipeline_finished)
-        worker.finished.connect(
-            lambda _: self.statusBar().showMessage(f"'{name}' pipeline complete.")
-        )
-        worker.error.connect(self._on_pipeline_error)
-
-        self._pipeline_worker = worker
-        worker.start()
-
-    @Slot(str)
-    def _on_pipeline_error(self, msg: str) -> None:
-        QMessageBox.critical(self, "Pipeline error", msg)
-        self._go_to_page(0)
-
-    @Slot(object)
-    def _attach_raw_data(self, result: PipelineResult) -> None:
-        """Attach ManifoldData and EasyEdgeResult to the pipeline result."""
-        result.manifold_data = getattr(self, "_manifold_data", None)
-        result.easy_result = getattr(self, "_easy_result", None)
-
-    # ------------------------------------------------------------------
-    # Refined index launch  (Step 8)
-    # ------------------------------------------------------------------
-
-    @Slot(object, object, int, int)
-    def _start_refined_index(
-        self,
-        pipeline_result: PipelineResult,
-        pq_choices: list,
-        m_max: int,
-        e_max: int,
-    ) -> None:
-        nz = pipeline_result.nz_data
-
-        try:
-            bs = make_basis_selection(
-                nz, pipeline_result.cycle_results, pq_choices, strict=False,
-            )
-        except ValueError as exc:
-            QMessageBox.critical(self, "Basis selection error", str(exc))
-            return
-
-        try:
-            nz_changed = apply_basis_changes(nz, bs)
-        except Exception as exc:
-            QMessageBox.critical(self, "Basis change error", str(exc))
-            return
-
-        eval_points = _build_eval_grid(bs, nz_changed, m_max, e_max)
-
-        # Switch to results page
-        self._sidebar.enable_up_to(2)
-        self._go_to_page(2)
-        self._page_results.reset(pipeline_result, bs, nz_changed)
-        self.statusBar().showMessage(
-            f"Computing refined index — {len(eval_points)} evaluation point(s) …"
-        )
-
+        # Launch refined index worker
         worker = RefinedIndexWorker(
-            nz_data=nz_changed,
+            nz_data=nz,
             eval_points=eval_points,
-            q_order_half=pipeline_result.q_order_half,
+            q_order_half=q_order_half,
         )
-        worker.status.connect(self._page_results.update_status)
-        worker.progress.connect(self._page_results.update_progress)
+        worker.status.connect(self._page_overview.update_status)
+        worker.progress.connect(self._page_overview.update_progress)
         worker.finished.connect(self._on_refined_finished)
         worker.error.connect(self._on_refined_error)
 
@@ -289,47 +223,57 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _on_refined_finished(self, result: list) -> None:
-        self._page_results.computation_finished(result)
-        self._sidebar.enable_up_to(3)  # unlock export page
-        self.statusBar().showMessage("Computation complete.")
+        self._page_overview.computation_finished(result)
+        # Unlock Dehn filling and export pages
+        self._sidebar.enable_up_to(3)
+        # Prepare the Dehn filling page
+        self._page_dehn.reset(
+            self._manifold_name, self._nz_data, self._q_order_half
+        )
+        self.statusBar().showMessage("Refined index computation complete.")
 
     @Slot(str)
     def _on_refined_error(self, msg: str) -> None:
         QMessageBox.critical(self, "Refined index error", msg)
 
     # ------------------------------------------------------------------
-    # Dehn filling launch
+    # Dehn filling pipeline
     # ------------------------------------------------------------------
 
-    @Slot(object, int, int, int, int, int)
-    def _start_dehn_filling(
+    @Slot(object, int, int, int, int, object, object)
+    def _start_dehn_pipeline(
         self,
         nz_data,
         cusp_idx: int,
-        P: int,
-        Q: int,
+        P_user: int,
+        Q_user: int,
         q_order_half: int,
-        eta_order: int,
+        p_range: range,
+        q_range: range,
     ) -> None:
+        """Launch the full Dehn filling pipeline."""
         self.statusBar().showMessage(
-            f"Computing refined Dehn filling at slope ({P}, {Q}) …"
+            f"Dehn filling cusp {cusp_idx} at ({P_user}, {Q_user}) …"
         )
-        worker = DehnFillingWorker(
+
+        worker = DehnFillingPipelineWorker(
             nz_data=nz_data,
             cusp_idx=cusp_idx,
-            P=P,
-            Q=Q,
+            P_user=P_user,
+            Q_user=Q_user,
             q_order_half=q_order_half,
-            eta_order=eta_order,
+            p_range=p_range,
+            q_range=q_range,
         )
-        worker.status.connect(self._page_results.update_status)
-        worker.finished.connect(self._page_results.dehn_filling_finished)
+        worker.status.connect(self._page_dehn.update_status)
+        worker.progress.connect(self._page_dehn.update_progress)
+        worker.finished.connect(self._page_dehn.dehn_filling_finished)
         worker.finished.connect(
             lambda _: self.statusBar().showMessage("Dehn filling complete.")
         )
         worker.error.connect(self._on_dehn_error)
 
-        self._dehn_worker = worker
+        self._dehn_pipeline_worker = worker
         worker.start()
 
     @Slot(str)
