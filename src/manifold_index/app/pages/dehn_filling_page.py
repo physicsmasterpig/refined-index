@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from manifold_index.app.style import monospace_font
 from manifold_index.app.formatters import _fmt_frac
+from manifold_index.app.widgets.math_display import MathDisplay
 
 
 class DehnFillingPage(QWidget):
@@ -79,14 +80,14 @@ class DehnFillingPage(QWidget):
         subtitle.setStyleSheet("color: palette(mid); font-size: 12px; margin-bottom: 4px;")
         root.addWidget(subtitle)
 
-        # ── Manifold info panel ───────────────────────────────────
+        # ── Manifold info panel (scrollable) ──────────────────────
         self._info_group = QGroupBox("Manifold & Edge Data")
         info_vbox = QVBoxLayout(self._info_group)
-        self._info_label = QLabel("(not loaded)")
-        self._info_label.setFont(monospace_font(11))
-        self._info_label.setWordWrap(True)
-        self._info_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        info_vbox.addWidget(self._info_label)
+        self._info_edit = QTextEdit()
+        self._info_edit.setReadOnly(True)
+        self._info_edit.setFont(monospace_font(11))
+        self._info_edit.setMaximumHeight(200)
+        info_vbox.addWidget(self._info_edit)
         self._info_group.hide()
         root.addWidget(self._info_group)
 
@@ -154,15 +155,15 @@ class DehnFillingPage(QWidget):
         self._status_label.setStyleSheet("font-size: 11px; color: palette(mid);")
         root.addWidget(self._status_label)
 
-        # ── Results ───────────────────────────────────────────────
+        # ── Results (KaTeX-rendered) ──────────────────────────────
         self._results_group = QGroupBox("Dehn Filling Results")
         results_vbox = QVBoxLayout(self._results_group)
 
-        self._results_edit = QTextEdit()
-        self._results_edit.setReadOnly(True)
-        self._results_edit.setFont(monospace_font())
-        self._results_edit.setMinimumHeight(160)
-        results_vbox.addWidget(self._results_edit, 1)
+        self._results_display = MathDisplay(min_height=160)
+        results_vbox.addWidget(self._results_display, 1)
+
+        # Keep plain-text cache for copy
+        self._results_text_cache = ""
 
         self._results_group.hide()
         root.addWidget(self._results_group, 1)
@@ -196,7 +197,7 @@ class DehnFillingPage(QWidget):
         self._status_label.setText("")
         self._progress_bar.hide()
         self._results_group.hide()
-        self._results_edit.clear()
+        self._results_display.clear()
         self._build_cusp_rows(nz_data.r)
         self._compute_btn.setEnabled(nz_data.r > 0)
         self._populate_manifold_info(name, nz_data, manifold_data, easy_result, weyl_result)
@@ -214,20 +215,7 @@ class DehnFillingPage(QWidget):
 
     @Slot(object)
     def dehn_filling_finished(self, result_info: dict) -> None:
-        """Called when the full Dehn filling pipeline completes.
-
-        Parameters
-        ----------
-        result_info : dict with keys:
-            'cusp_idx' : int
-            'P_user', 'Q_user' : int  (user's slope)
-            'non_closable_cycles' : list of (P_nc, Q_nc)
-            'results' : list of dicts with keys:
-                'P_nc', 'Q_nc' : int (non-closable cycle)
-                'a', 'b' : int (Bézout coefficients)
-                'P_new', 'Q_new' : int (transformed slope)
-                'filled_result' : FilledRefinedResult
-        """
+        """Called when the full Dehn filling pipeline completes."""
         self._progress_bar.hide()
         self._compute_btn.setEnabled(True)
 
@@ -243,38 +231,55 @@ class DehnFillingPage(QWidget):
         except ImportError:
             hj_continued_fraction = None
 
-        lines: list[str] = []
-        lines.append(f"Cusp {cusp_idx}: Dehn filling with slope ({P_user}, {Q_user})")
-        lines.append(f"  = {P_user}·α_{cusp_idx} + {Q_user}·β_{cusp_idx}")
+        # Build KaTeX-rendered HTML
+        html: list[str] = []
+        html.append(
+            f'<h3>Cusp {cusp_idx}: Dehn filling with slope $({P_user}, {Q_user})$</h3>'
+        )
+        html.append(
+            f'<p>$= {P_user}\\,\\alpha_{{{cusp_idx}}} + {Q_user}\\,\\beta_{{{cusp_idx}}}$</p>'
+        )
 
         # Show HJ-CF of the user's slope
         if hj_continued_fraction is not None and Q_user != 0:
             try:
                 hj = hj_continued_fraction(P_user, Q_user)
-                lines.append(f"  HJ continued fraction of {P_user}/{Q_user}: {hj}  (ℓ = {len(hj)})")
+                html.append(
+                    f'<p class="muted">HJ continued fraction of '
+                    f'${P_user}/{Q_user}$: $[{",\\,".join(str(x) for x in hj)}]$ '
+                    f'&nbsp;($\\ell = {len(hj)}$)</p>'
+                )
             except Exception:
                 pass
-        lines.append("")
 
         # Weyl shift status
-        if self._weyl_result is not None and self._weyl_result.ab is not None and self._weyl_result.ab.is_valid:
-            lines.append("✓ Weyl shift η^{b·m + a·e} applied BEFORE Dehn filling summation")
+        if (self._weyl_result is not None
+                and self._weyl_result.ab is not None
+                and self._weyl_result.ab.is_valid):
+            html.append(
+                '<p class="success">✓ Weyl shift '
+                '$\\eta^{b \\cdot m + a \\cdot e}$ '
+                'applied BEFORE Dehn filling summation</p>'
+            )
         else:
-            lines.append("⚠ No valid Weyl (a,b) — Dehn filling WITHOUT Weyl shift")
-        lines.append("")
+            html.append(
+                '<p class="error">⚠ No valid Weyl $(a,b)$ — '
+                'Dehn filling WITHOUT Weyl shift</p>'
+            )
 
         if not nc_cycles:
-            lines.append("⚠  No non-closable cycles found in the given range.")
-            lines.append("   Try increasing the search range.")
+            html.append(
+                '<p class="error">⚠ No non-closable cycles found in the given range. '
+                'Try increasing the search range.</p>'
+            )
             self._status_label.setText("No non-closable cycles found.")
             self._status_label.setStyleSheet("color: #d4880a; font-size: 11px;")
         else:
-            lines.append(f"Non-closable cycles found: {len(nc_cycles)}")
-            for P_nc, Q_nc in nc_cycles:
-                lines.append(f"  ({P_nc}, {Q_nc})")
-            lines.append("")
+            html.append(
+                f'<p>Non-closable cycles found: <b>{len(nc_cycles)}</b></p>'
+            )
 
-            for i, res in enumerate(results):
+            for res in results:
                 P_nc = res["P_nc"]
                 Q_nc = res["Q_nc"]
                 a_coeff = res["a"]
@@ -283,29 +288,43 @@ class DehnFillingPage(QWidget):
                 Q_new = res["Q_new"]
                 filled = res["filled_result"]
 
-                lines.append(f"── Non-closable cycle ({P_nc}, {Q_nc}) ──")
-                lines.append(f"  New meridian M' = {P_nc}·α + {Q_nc}·β")
-                lines.append(f"  New longitude L' = {2*a_coeff}·α + {b_coeff}·β")
-                lines.append(f"  Bézout: P·b − 2Q·a = {P_nc}·{b_coeff} − 2·{Q_nc}·{a_coeff} = {P_nc*b_coeff - 2*Q_nc*a_coeff}")
-                lines.append(f"  Transformed slope: ({P_user}, {Q_user}) → ({P_new}, {Q_new})")
+                html.append(f'<h3>Non-closable cycle $({P_nc}, {Q_nc})$</h3>')
+                html.append(
+                    f'<p>$M\' = {P_nc}\\,\\alpha + {Q_nc}\\,\\beta$, &nbsp; '
+                    f'$L\' = {2*a_coeff}\\,\\alpha + {b_coeff}\\,\\beta$</p>'
+                )
+                bezout_val = P_nc * b_coeff - 2 * Q_nc * a_coeff
+                html.append(
+                    f'<p class="muted">Bézout: '
+                    f'$P b - 2Q a = {P_nc} \\cdot {b_coeff} - 2 \\cdot {Q_nc} \\cdot {a_coeff} = {bezout_val}$</p>'
+                )
+                html.append(
+                    f'<p>Transformed slope: '
+                    f'$({P_user}, {Q_user}) \\to ({P_new}, {Q_new})$</p>'
+                )
 
-                # Show HJ-CF of the transformed slope
+                # HJ-CF of transformed slope
                 if hj_continued_fraction is not None and Q_new != 0:
                     try:
                         hj_new = hj_continued_fraction(P_new, Q_new)
-                        lines.append(f"  HJ-CF of {P_new}/{Q_new}: {hj_new}  (ℓ = {len(hj_new)})")
+                        html.append(
+                            f'<p class="muted">HJ-CF of ${P_new}/{Q_new}$: '
+                            f'$[{",\\,".join(str(x) for x in hj_new)}]$ '
+                            f'&nbsp;($\\ell = {len(hj_new)}$)</p>'
+                        )
                     except Exception:
                         pass
-                lines.append("")
 
                 if filled.is_zero:
-                    lines.append(f"  I^ref_{{({P_new},{Q_new})}}(η)  =  0")
-                else:
-                    text = filled.as_q_eta_string(
-                        q_var="q", eta_var="η", half_pow=True
+                    html.append(
+                        f'$$I^{{\\mathrm{{ref}}}}_{{{{{P_new},{Q_new}}}}}(\\eta) = 0$$'
                     )
-                    lines.append(f"  I^ref_{{({P_new},{Q_new})}}(η)  =  {text}")
-                lines.append("")
+                else:
+                    # Build LaTeX from the filled result
+                    latex_str = self._filled_result_to_latex(filled)
+                    html.append(
+                        f'$$I^{{\\mathrm{{ref}}}}_{{{{{P_new},{Q_new}}}}}(\\eta) = {latex_str}$$'
+                    )
 
             self._status_label.setText(
                 f"✓  Dehn filling at ({P_user}, {Q_user}) complete — "
@@ -313,8 +332,22 @@ class DehnFillingPage(QWidget):
             )
             self._status_label.setStyleSheet("color: #2ea043; font-size: 11px;")
 
-        self._results_edit.setPlainText("\n".join(lines))
+        self._results_display.set_content("\n".join(html))
         self._results_group.show()
+
+    @staticmethod
+    def _filled_result_to_latex(filled) -> str:
+        """Convert a FilledRefinedResult to a KaTeX-compatible LaTeX string."""
+        text = filled.as_q_eta_string(q_var="q", eta_var="η", half_pow=True)
+        # Convert plain-text notation to LaTeX
+        import re
+        latex = text
+        # η^{...} → \eta^{...}
+        latex = latex.replace("η", r"\eta")
+        # q^{n/2} patterns
+        latex = re.sub(r'q\^(\d+/\d+)', r'q^{\1}', latex)
+        latex = re.sub(r'q\^(\d+)', r'q^{\1}', latex)
+        return latex
 
     # ------------------------------------------------------------------
     # Internal
@@ -411,7 +444,7 @@ class DehnFillingPage(QWidget):
             lines.append("  (a, b) vectors could not be determined.")
             lines.append("")
 
-        self._info_label.setText("\n".join(lines))
+        self._info_edit.setPlainText("\n".join(lines))
         self._info_group.show()
 
     def _build_cusp_rows(self, num_cusps: int) -> None:

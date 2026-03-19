@@ -1139,3 +1139,167 @@ def auto_save_nb(
     out_path = results_dir() / f"{name}_index.nb"
     out_path.write_text(content, encoding="utf-8")
     return out_path
+
+
+# ---------------------------------------------------------------------------
+# KaTeX HTML formatters (for in-app math display)
+# ---------------------------------------------------------------------------
+
+def _html_esc(s: str) -> str:
+    """Escape text for safe embedding in HTML."""
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def format_series_katex_html(
+    entries: list,
+    num_hard: int,
+    weyl_result=None,
+) -> str:
+    """Build HTML with embedded KaTeX $$…$$ blocks for the refined index.
+
+    Parameters
+    ----------
+    entries : list of (m_ext, e_ext, RefinedIndexResult)
+    num_hard : int
+    weyl_result : WeylCheckResult | None
+
+    Returns
+    -------
+    str — HTML body with KaTeX-delimited math.
+    """
+    from manifold_index.core.weyl_check import strip_weyl_monomial
+
+    ab_valid = weyl_result is not None and weyl_result.ab_valid
+    html_parts: list[str] = []
+
+    for m_ext, e_ext, result in entries:
+        charge = _fmt_charge(m_ext, e_ext)
+        label = f"<div class=\"sector-label\">({charge})</div>"
+
+        if not result:
+            html_parts.append(
+                f'<div class="sector">{label}'
+                f'$$I({_latex_esc_charge(m_ext, e_ext)}) = 0$$'
+                f'</div>'
+            )
+            continue
+
+        lhs = f"I({_latex_esc_charge(m_ext, e_ext)})"
+
+        if ab_valid:
+            centre, stripped = strip_weyl_monomial(
+                result, m_ext, e_ext, weyl_result.ab, num_hard
+            )
+            prefix = centre_to_latex(centre, num_hard)
+            body = series_to_latex(stripped, num_hard)
+            if prefix == "1":
+                math = f"{lhs} = {body}"
+            else:
+                math = f"{lhs} = {prefix} \\left( {body} \\right)"
+        else:
+            body = series_to_latex(result, num_hard)
+            math = f"{lhs} = {body}"
+
+        html_parts.append(
+            f'<div class="sector">{label}$${math}$$</div>'
+        )
+
+    return "\n".join(html_parts) if html_parts else "<p>No sectors computed.</p>"
+
+
+def _latex_esc_charge(m_ext: list, e_ext: list) -> str:
+    """Format external charges for LaTeX."""
+    parts: list[str] = []
+    for v in m_ext:
+        parts.append(str(v) if v == 0 else f"{v:+d}")
+    for v in e_ext:
+        f = Fraction(v).limit_denominator(1000)
+        if f == 0:
+            parts.append("0")
+        elif f.denominator == 1:
+            parts.append(str(f.numerator))
+        else:
+            parts.append(rf"\tfrac{{{f.numerator}}}{{{f.denominator}}}")
+    return ",\\, ".join(parts)
+
+
+def format_manifold_info_html(
+    name: str,
+    nz_data,
+    manifold_data=None,
+    easy_result=None,
+) -> str:
+    """Build HTML for the manifold/edge info panel (no KaTeX needed)."""
+    n = nz_data.n
+    r = nz_data.r
+    num_hard = nz_data.num_hard
+    num_easy = nz_data.num_easy
+
+    lines: list[str] = []
+    lines.append(f"<h3>Manifold: {_html_esc(name)}</h3>")
+    lines.append(
+        f"<p>Tetrahedra: <b>{n}</b> &nbsp;&bull;&nbsp; "
+        f"Cusps: <b>{r}</b> &nbsp;&bull;&nbsp; "
+        f"Internal edges: <b>{n - r}</b> "
+        f"(hard: <b>{num_hard}</b>, easy: <b>{num_easy}</b>)</p>"
+    )
+
+    # SnaPy edge equations
+    if manifold_data is not None:
+        lines.append("<h3>SnaPy Edge Equations</h3>")
+        lines.append('<table class="edge-table"><tr><th>Edge</th><th>Triplets (Z, Z′, Z″) per tet</th></tr>')
+        edge_eqs = manifold_data.edge_equations
+        for i in range(n):
+            row = edge_eqs[i]
+            parts = []
+            for t in range(n):
+                triplet = row[3 * t: 3 * t + 3]
+                parts.append(f"({triplet[0]},{triplet[1]},{triplet[2]})")
+            lines.append(
+                f"<tr><td><b>E{i}</b></td><td>{_html_esc(' '.join(parts))}</td></tr>"
+            )
+        lines.append("</table>")
+
+    # Easy / hard edge classification
+    if easy_result is not None:
+        lines.append("<h3>Easy Edges</h3>")
+        lines.append('<table class="edge-table"><tr><th>#</th><th>Triplets</th><th>Role</th></tr>')
+        for idx, edge_vec in enumerate(easy_result.all_easy):
+            marker = ""
+            if idx in easy_result.independent_easy_indices:
+                basis_pos = r + num_hard + easy_result.independent_easy_indices.index(idx)
+                marker = f'<span class="success">basis row {basis_pos}</span>'
+            parts = []
+            for t in range(n):
+                triplet = edge_vec[3 * t: 3 * t + 3]
+                parts.append(f"({triplet[0]},{triplet[1]},{triplet[2]})")
+            lines.append(
+                f"<tr><td><b>E{idx}</b></td>"
+                f"<td>{_html_esc(' '.join(parts))}</td>"
+                f"<td>{marker}</td></tr>"
+            )
+        lines.append("</table>")
+        lines.append(
+            f'<p>Independent easy: <b>{len(easy_result.independent_easy_indices)}</b> '
+            f'&mdash; Indices: {easy_result.independent_easy_indices}</p>'
+        )
+
+        if easy_result.hard_padding:
+            lines.append("<h3>Hard Edges (SnaPy padding)</h3>")
+            lines.append('<table class="edge-table"><tr><th>#</th><th>Triplets</th><th>Basis row</th></tr>')
+            for h_idx, hard_vec in enumerate(easy_result.hard_padding):
+                basis_pos = r + h_idx
+                parts = []
+                for t in range(n):
+                    triplet = hard_vec[3 * t: 3 * t + 3]
+                    parts.append(f"({triplet[0]},{triplet[1]},{triplet[2]})")
+                lines.append(
+                    f"<tr><td><b>H{h_idx}</b></td>"
+                    f"<td>{_html_esc(' '.join(parts))}</td>"
+                    f"<td>row {basis_pos}</td></tr>"
+                )
+            lines.append("</table>")
+        else:
+            lines.append('<p class="muted">No hard edges — all internal edges are easy.</p>')
+
+    return "\n".join(lines)

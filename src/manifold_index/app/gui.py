@@ -205,7 +205,8 @@ class MainWindow(QMainWindow):
         # Switch to overview page
         self._sidebar.enable_up_to(1)
         self._go_to_page(1)
-        self._page_overview.reset(name, nz, q_order_half)
+        self._page_overview.reset(name, nz, q_order_half,
+                                  manifold_data=data, easy_result=easy)
 
         # Launch refined index worker
         worker = RefinedIndexWorker(
