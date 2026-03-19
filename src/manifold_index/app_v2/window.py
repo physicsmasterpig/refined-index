@@ -1,0 +1,229 @@
+"""
+app_v2/window.py — Main window for the v0.2.0 three-panel GUI.
+
+Run with:
+    python -m manifold_index.app_v2
+"""
+
+from __future__ import annotations
+
+import sys
+import traceback
+
+from PySide6.QtCore import Qt, Slot
+from PySide6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QMessageBox,
+    QSplitter,
+    QWidget,
+    QHBoxLayout,
+)
+
+from manifold_index.app_v2.style import APP_STYLESHEET
+from manifold_index.app_v2.panels.manifold_panel import ManifoldPanel
+from manifold_index.app_v2.panels.filling_panel import FillingPanel
+from manifold_index.app_v2.panels.export_panel import ExportPanel
+from manifold_index.app_v2.workers import (
+    RefinedIndexWorker,
+    DehnFillingWorker,
+    build_eval_grid,
+)
+
+
+class MainWindow(QMainWindow):
+    """Three-panel main window: Manifold | Dehn Filling | Export."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Refined 3D Index Calculator — v0.2.0")
+        self.setMinimumSize(1200, 700)
+        self.resize(1500, 850)
+
+        # ── Central widget ────────────────────────────────────
+        central = QWidget()
+        self.setCentralWidget(central)
+        root = QHBoxLayout(central)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(0)
+
+        # ── Three-panel splitter ──────────────────────────────
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(6)
+
+        self._panel1 = ManifoldPanel()
+        self._panel2 = FillingPanel()
+        self._panel3 = ExportPanel()
+
+        splitter.addWidget(self._panel1)
+        splitter.addWidget(self._panel2)
+        splitter.addWidget(self._panel3)
+
+        # Initial sizes: ~45% / ~35% / ~20%
+        splitter.setSizes([540, 420, 240])
+
+        root.addWidget(splitter)
+
+        # ── State ─────────────────────────────────────────────
+        self._nz_data = None
+        self._refined_worker: RefinedIndexWorker | None = None
+        self._dehn_worker: DehnFillingWorker | None = None
+
+        # ── Connections ───────────────────────────────────────
+        self._panel1.compute_requested.connect(self._start_compute)
+        self._panel1.data_ready.connect(self._on_panel1_ready)
+        self._panel2.fill_requested.connect(self._start_dehn_filling)
+
+        self.statusBar().showMessage("Ready — enter a manifold name and click Compute.")
+
+    # ==================================================================
+    # Panel 1 → Compute pipeline
+    # ==================================================================
+
+    @Slot(str, int)
+    def _start_compute(self, name: str, q_order_half: int) -> None:
+        """Load manifold on main thread, then launch refined index worker."""
+        from manifold_index.core.manifold import load_manifold
+        from manifold_index.core.phase_space import find_phase_space_basis
+        from manifold_index.core.neumann_zagier import build_neumann_zagier
+
+        self._panel1.set_loading(name)
+        self.statusBar().showMessage(f"Loading '{name}'…")
+
+        try:
+            md = load_manifold(name)
+            ps = find_phase_space_basis(md)
+            nz = build_neumann_zagier(md, ps)
+        except Exception as exc:
+            tb = traceback.format_exc()
+            self._panel1.set_error(str(exc))
+            QMessageBox.critical(
+                self, "Pipeline error",
+                f"Failed to load '{name}':\n{exc}\n\n{tb}",
+            )
+            return
+
+        self._nz_data = nz
+
+        # Show NZ data immediately
+        self._panel1.show_nz_data(md, ps, nz)
+        self.statusBar().showMessage(
+            f"Loaded '{name}' — computing refined index ({5 ** nz.r} display + {25 ** nz.r} Weyl)…"
+        )
+
+        # Build 25^r evaluation grid
+        eval_points = build_eval_grid(nz.r)
+
+        # Launch worker
+        worker = RefinedIndexWorker(nz, eval_points, q_order_half)
+        worker.status.connect(self._panel1.update_status)
+        worker.progress.connect(self._panel1.update_progress)
+        worker.finished.connect(self._on_refined_finished)
+        worker.error.connect(self._on_refined_error)
+
+        self._refined_worker = worker
+        worker.start()
+
+    @Slot(object)
+    def _on_refined_finished(self, results: list) -> None:
+        """Refined index computation done — run Weyl checks and update UI."""
+        from manifold_index.core.weyl_check import run_weyl_checks
+
+        nz = self._nz_data
+        entries = results  # list of (m_ext, e_ext, result)
+
+        # Run Weyl checks
+        try:
+            weyl_result = run_weyl_checks(entries, nz.num_hard)
+        except Exception:
+            weyl_result = None
+
+        self._panel1.computation_finished(entries, weyl_result)
+        self.statusBar().showMessage(
+            f"✓  Refined index complete — {len(entries)} sectors computed."
+        )
+
+    @Slot(str)
+    def _on_refined_error(self, msg: str) -> None:
+        self._panel1.set_error(msg)
+        QMessageBox.critical(self, "Refined index error", msg)
+
+    # ==================================================================
+    # Panel 1 data ready → unlock Panels 2 & 3
+    # ==================================================================
+
+    @Slot(object)
+    def _on_panel1_ready(self, data: dict) -> None:
+        """Panel 1 has all results — configure Panels 2 and 3."""
+        self._panel2.reset(data)
+        self._panel3.set_data(data)
+
+    # ==================================================================
+    # Panel 2 → Dehn filling pipeline
+    # ==================================================================
+
+    @Slot(object)
+    def _start_dehn_filling(self, payload: dict) -> None:
+        """Launch the unified Dehn filling worker (fill → NC search → NC fill)."""
+        self._panel2.set_loading()
+        self.statusBar().showMessage("Dehn filling…")
+
+        nz = payload["nz_data"]
+        cusp_configs = payload["cusp_configs"]
+        q_order_half = payload["q_order_half"]
+        p_range = payload["p_range"]
+        q_range = payload["q_range"]
+        weyl = payload.get("weyl_result")
+
+        weyl_a = None
+        weyl_b = None
+        if weyl is not None and weyl.ab is not None and weyl.ab.is_valid:
+            weyl_a = list(weyl.ab.a)
+            weyl_b = list(weyl.ab.b)
+
+        worker = DehnFillingWorker(
+            nz_data=nz,
+            cusp_configs=cusp_configs,
+            q_order_half=q_order_half,
+            p_range=p_range,
+            q_range=q_range,
+            weyl_a=weyl_a,
+            weyl_b=weyl_b,
+        )
+        worker.status.connect(self._panel2.update_status)
+        worker.progress.connect(self._panel2.update_progress)
+        worker.nc_found.connect(self._panel2.nc_search_done)
+        worker.finished.connect(self._panel2.filling_finished)
+        worker.error.connect(self._on_dehn_error)
+        worker.finished.connect(
+            lambda _: self.statusBar().showMessage("✓  Dehn filling complete.")
+        )
+
+        self._dehn_worker = worker
+        worker.start()
+
+    @Slot(str)
+    def _on_dehn_error(self, msg: str) -> None:
+        self._panel2.set_error(msg)
+        QMessageBox.critical(self, "Dehn filling error", msg)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Entry point
+# ═══════════════════════════════════════════════════════════════════════════
+
+def launch_gui() -> None:
+    """Create the QApplication and show the main window."""
+    app = QApplication.instance() or QApplication(sys.argv)
+    app.setApplicationName("Refined 3D Index Calculator v0.2.0")
+    app.setOrganizationName("RefinedIndex")
+    app.setStyleSheet(APP_STYLESHEET)
+
+    window = MainWindow()
+    window.show()
+
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    launch_gui()

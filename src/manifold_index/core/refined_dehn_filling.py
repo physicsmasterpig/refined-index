@@ -1077,7 +1077,7 @@ def compute_filled_refined_index(
     m_other: Sequence[int] | None = None,
     e_other: Sequence[int | Fraction] | None = None,
     q_order_half: int = 10,
-    eta_order: int = 5,
+    eta_order: int | None = None,
     m1_range: int | None = None,
     weyl_a: list[Fraction] | None = None,
     weyl_b: list[Fraction] | None = None,
@@ -1113,8 +1113,10 @@ def compute_filled_refined_index(
         Values for the remaining cusps. Defaults to all zeros.
     q_order_half : int
         Series cutoff in q^{1/2} powers (= qq_order).
-    eta_order : int
+    eta_order : int or None
         Maximum |cusp η exponent| to retain in IS kernels.
+        Default (None): auto-set to ``q_order_half`` so that the
+        η summation is bounded only by the q-order truncation.
     m1_range : int or None
         Scan range for intermediate (m_1, e_1) variables.
         Default: 2 * q_order_half.
@@ -1142,6 +1144,13 @@ def compute_filled_refined_index(
 
     if m1_range is None:
         m1_range = 2 * q_order_half
+
+    # Auto-compute eta_order: for a given qq_order the tetrahedron
+    # index I_Δ(m, e) is naturally zero for |e| ≫ qq_order, so the IS
+    # kernel's η sum is self-bounding.  Setting eta_order = qq_order is
+    # generous and avoids artificial η truncation artifacts.
+    if eta_order is None:
+        eta_order = q_order_half
 
     qq_order = q_order_half
 
@@ -1236,16 +1245,14 @@ def compute_filled_refined_index(
     # ------------------------------------------------------------------
     # Step 3: ℓ ≥ 2 — Grid scan of (m, e) with non-zero I^ref
     # ------------------------------------------------------------------
-    # The IS kernel's η-sum truncation produces artifacts at high qq
-    # powers.  The stable region of the IS kernel is approximately
-    # qq ≤ qq_internal − 2·eta_order.  To ensure the final result is
-    # reliable up to the user-requested qq_order, inflate the internal
-    # truncation order and trim the output at the end.
-    qq_internal = qq_order + 2 * eta_order
+    # With eta_order derived from qq_order, the η summation captures all
+    # contributing terms and no qq-inflation is needed for artifact
+    # compensation.
+    qq_internal = qq_order
     if verbose:
         print(
             f"[refined_filling] ℓ={ell}: qq_order={qq_order}, "
-            f"qq_internal={qq_internal} (inflated by 2·η_order={2*eta_order})"
+            f"qq_internal={qq_internal}, eta_order={eta_order}"
         )
         print(f"[refined_filling] scanning (m,e) grid for I^ref ≠ 0")
 

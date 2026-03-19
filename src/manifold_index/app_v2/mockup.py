@@ -4,7 +4,7 @@ app_v2/mockup.py — Visual mockup of the v0.2.0 three-panel GUI.
 Run with:
     .venv/bin/python -m manifold_index.app_v2.mockup
 
-All content is hardcoded placeholder data (m003) to show the layout.
+All content is hardcoded placeholder data (m125) to show the layout.
 """
 
 from __future__ import annotations
@@ -222,6 +222,7 @@ th {{
     border-bottom: 1px solid {border};
 }}
 tr:nth-child(even) {{ background: rgba(128,128,128,0.04); }}
+/* Index alignment table */
 table.idx {{
     border-collapse: collapse;
     margin: 6px 0;
@@ -244,6 +245,7 @@ table.nc {{
     border-collapse: collapse;
     margin: 4px 0;
     font-size: 12px;
+    width: max-content;
 }}
 table.nc th {{
     font-weight: 600;
@@ -325,90 +327,268 @@ def _make_math_view(html_body: str, min_h: int = 100) -> QWidget:
 
 
 # ---------------------------------------------------------------------------
-# Hardcoded m003 placeholder data for the mockup
+# Hardcoded m125 placeholder data for the mockup
 # ---------------------------------------------------------------------------
 
 PANEL1_MANIFOLD_HTML = """
 <h3>Manifold</h3>
-<p><b>m003</b> &nbsp;—&nbsp; Figure-eight knot sibling</p>
-<p>Tetrahedra: <b>2</b> &nbsp;&bull;&nbsp; Cusps: <b>1</b></p>
-<p>Internal edges: <b>1</b> &nbsp;(hard: <b>1</b>, easy: <b>0</b>)</p>
+<p><b>m125</b></p>
+<p>Tetrahedra: <b>4</b> &nbsp;&bull;&nbsp; Cusps: <b>2</b></p>
+<p>Internal edges: <b>2</b> &nbsp;(easy: <b>1</b>, hard: <b>1</b>)</p>
 
 <h3>Gluing Equations (SnaPy)</h3>
 <table>
-<tr><th>Edge</th><th>$(Z_1, Z_1', Z_1'')$</th><th>$(Z_2, Z_2', Z_2'')$</th></tr>
-<tr><td><b>0</b></td><td>$(2, 0, 0)$</td><td>$(0, 2, 0)$</td></tr>
-<tr><td><b>1</b></td><td>$(0, 2, 0)$</td><td>$(2, 0, 0)$</td></tr>
+<tr><th>Edge</th><th>$(Z_1, Z_1', Z_1'')$</th><th>$(Z_2, Z_2', Z_2'')$</th>
+    <th>$(Z_3, Z_3', Z_3'')$</th><th>$(Z_4, Z_4', Z_4'')$</th></tr>
+<tr><td><b>0</b></td><td>$(2, 0, 0)$</td><td>$(0, 0, 2)$</td>
+    <td>$(0, 0, 0)$</td><td>$(0, 0, 0)$</td></tr>
+<tr><td><b>1</b></td><td>$(0, 0, 2)$</td><td>$(0, 2, 0)$</td>
+    <td>$(0, 2, 0)$</td><td>$(0, 2, 0)$</td></tr>
+<tr><td><b>2</b></td><td>$(0, 2, 0)$</td><td>$(2, 0, 0)$</td>
+    <td>$(2, 0, 0)$</td><td>$(2, 0, 0)$</td></tr>
+<tr><td><b>3</b></td><td>$(0, 0, 0)$</td><td>$(0, 0, 0)$</td>
+    <td>$(0, 0, 2)$</td><td>$(0, 0, 2)$</td></tr>
 </table>
 
 <h3>Edge Classification</h3>
-<p class="muted">No easy edges found — all internal edges are hard.</p>
 <table>
-<tr><th>Hard</th><th>Triplets</th><th>Role</th></tr>
-<tr><td><b>H0</b></td><td>$(2,0,0)\\;(0,2,0)$</td><td>basis row 1</td></tr>
+<tr><th></th><th>Triplets</th><th>Origin</th><th>Role</th></tr>
+<tr><td><b>E0</b> <span class="muted">(easy)</span></td>
+    <td>$(0,0,1)\\;(0,1,0)\\;(0,1,0)\\;(0,1,0)$</td>
+    <td>edge 1</td><td>basis row 1</td></tr>
+<tr><td><b>H0</b> <span class="muted">(hard)</span></td>
+    <td>$(0,1,0)\\;(0,1,1)\\;(1,0,0)\\;(0,1,1)$</td>
+    <td>—</td><td>basis row 2</td></tr>
 </table>
 
 <h3>Neumann–Zagier Data</h3>
-<p>$g_{\\text{NZ}} \\in \\mathrm{Sp}(2r,\\,\\mathbb{Q})$, &nbsp; $r = 2$ tetrahedra &nbsp;→&nbsp; $4 \\times 4$ matrix</p>
-<p class="muted">Columns: $(Z_1,\\, Z_2,\\, Z_1'',\\, Z_2'')$.
-&nbsp; Rows: meridian, hard edge, longitude$/2$, $\\Gamma_0$.</p>
+<p>$g_{\\text{NZ}} \\in \\mathrm{Sp}(2r,\\,\\mathbb{Q})$, &nbsp;
+$r = 4$ tetrahedra &nbsp;→&nbsp; $8 \\times 8$ matrix</p>
 $$g_{\\text{NZ}} = \\begin{pmatrix}
-  2 & 2 & 2 & 0 \\\\
-  2 & 2 & 1 & 1 \\\\
-  \\tfrac{1}{2} & \\tfrac{3}{2} & \\tfrac{1}{2} & \\tfrac{1}{2} \\\\
-  1 & 0 & 1 & 0
+  -2   & -1   &  0   & -2   & -1   &  0   &  0   & -1  \\\\
+   1   &  0   &  0   & -1   &  1   &  0   & -1   & -1  \\\\
+  -1   & -1   &  1   & -1   & -1   &  0   &  0   &  0  \\\\
+   0   & -1   & -1   & -1   &  1   & -1   & -1   & -1  \\\\
+   0   & -\\tfrac{1}{2} & -\\tfrac{1}{2} & 0 & 0 & 0 & -\\tfrac{1}{2} & -\\tfrac{1}{2}  \\\\
+   0   & -\\tfrac{1}{2} &  0   &  0   & \\tfrac{1}{2} &  0   &  0   & -\\tfrac{1}{2}  \\\\
+  -1   & -\\tfrac{1}{2} &  2   & -1   & -\\tfrac{3}{2} &  0   &  1   & \\tfrac{1}{2}  \\\\
+   0   &  1   &  0   &  0   &  0   &  0   &  0   &  0
 \\end{pmatrix}$$
-<p>Affine shifts: &nbsp; $\\nu_x = (-2,\\,-2)$, &nbsp; $\\nu_p = (-1,\\, 0)$</p>
+<p>Affine shifts: &nbsp;
+$\\nu_x = (2,\\, 0,\\, 1,\\, 1)$, &nbsp;
+$\\nu_p = (\\tfrac{1}{2},\\, 0,\\, 0,\\, 0)$</p>
 
 <h3>Weyl Symmetry</h3>
-<p>Convention: $f(\\eta) = \\eta^{b \\cdot m + a \\cdot e} \\cdot I(m,e)$, &nbsp; $f(\\eta) = f(\\eta^{-1})$</p>
-<p>$a_0 = 1, \\quad b_0 = 0$</p>
-<p class="success">✓ &nbsp; $a \\in \\mathbb{Z}$ — Dehn filling compatible</p>
+<p>Convention: $f(\\eta) = \\eta^{b \\cdot m + a \\cdot e} \\cdot I(m,e)$, &nbsp;
+$f(\\eta) = f(\\eta^{-1})$</p>
+<p>$a_0 = -\\tfrac{2}{3}, \\quad b_0 = 0$</p>
+<p class="warn">⚠ &nbsp; $a \\notin \\mathbb{Z}$ — Dehn filling <b>not</b> compatible</p>
 
 <h3>Refined Index</h3>
-<p class="muted">$N_{\\max} = 10$, &nbsp; $q$-order up to $q^5$. &nbsp;
-Label: $I(m,e) \\to I(-e\\,\\alpha_1 + \\tfrac{m}{2}\\,\\beta_1)$.</p>
+<p class="muted">$N_{\\max} = 10$, &nbsp; $q$-order up to $q^5$. &nbsp;m00
+Charges per cusp: $0,\\, \\pm\\tfrac{1}{2},\\, \\pm 1$ &nbsp;→&nbsp; $5^2 = 25$ sectors.
+Label: $I(m_i, e_i) \\to I(-e_i\\,\\alpha_i + \\tfrac{m_i}{2}\\,\\beta_i)$.</p>
 
 <table class="idx">
 <tr>
   <td class="i">$I($</td>
-  <td class="al">$0\\,\\alpha_1$</td>
-  <td class="bl">$+\\; 0\\,\\beta_1$</td>
+  <td class="al">$0\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
   <td class="cp">$)$</td>
   <td class="eq">$=$</td>
-  <td class="sr">$1 - q - q^2 + q^5 + \\cdots$</td>
+  <td class="sr">$1 - 3q + (\\eta^{-2v_0} - 1 + \\eta^{2v_0})q^2 + \\cdots$</td>
 </tr>
 <tr>
   <td class="i">$I($</td>
-  <td class="al">$0\\,\\alpha_1$</td>
-  <td class="bl">$+\\; \\tfrac{1}{2}\\,\\beta_1$</td>
+  <td class="al">$0\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; \\tfrac{1}{2}\\,\\beta_2$</td>
   <td class="cp">$)$</td>
   <td class="eq">$=$</td>
-  <td class="sr">$\\eta^{v_0}(1 - q^2 - q^3 + q^5 + \\cdots)$</td>
+  <td class="sr">$0$</td>
 </tr>
 <tr>
   <td class="i">$I($</td>
-  <td class="al">$-\\tfrac{1}{2}\\,\\alpha_1$</td>
-  <td class="bl">$+\\; 0\\,\\beta_1$</td>
+  <td class="al">$0\\,\\alpha_1 -\\; \\tfrac{1}{2}\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
   <td class="cp">$)$</td>
   <td class="eq">$=$</td>
-  <td class="sr">$\\eta^{v_0/2}(1 - q - q^2 + \\cdots)$</td>
+  <td class="sr">$0$</td>
 </tr>
 <tr>
   <td class="i">$I($</td>
-  <td class="al">$0\\,\\alpha_1$</td>
-  <td class="bl">$+\\; 1\\,\\beta_1$</td>
+  <td class="al">$0\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; 1\\,\\beta_2$</td>
   <td class="cp">$)$</td>
   <td class="eq">$=$</td>
-  <td class="sr">$\\eta^{2v_0}(1 - 2q^2 + q^4 + \\cdots)$</td>
+  <td class="sr">$-q + (\\eta^{-2v_0}+1)q^2 + (2\\eta^{-2v_0}+6+\\eta^{2v_0})q^3 + \\cdots$</td>
 </tr>
 <tr>
   <td class="i">$I($</td>
-  <td class="al">$-1\\,\\alpha_1$</td>
-  <td class="bl">$+\\; 0\\,\\beta_1$</td>
+  <td class="al">$0\\,\\alpha_1 -\\; 1\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
   <td class="cp">$)$</td>
   <td class="eq">$=$</td>
-  <td class="sr">$\\eta^{v_0}(1 - q - q^2 + q^5 + \\cdots)$</td>
+  <td class="sr">$-q + (1+\\eta^{2v_0})q^2 + (\\eta^{-2v_0}+6+2\\eta^{2v_0})q^3 + \\cdots$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$0\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; \\tfrac{1}{2}\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$0$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$0\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; \\tfrac{1}{2}\\,\\beta_1 +\\; \\tfrac{1}{2}\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$0$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$0\\,\\alpha_1 -\\; \\tfrac{1}{2}\\,\\alpha_2$</td>
+  <td class="bl">$+\\; \\tfrac{1}{2}\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$0$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$0\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; \\tfrac{1}{2}\\,\\beta_1 +\\; 1\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$0$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$0\\,\\alpha_1 -\\; 1\\,\\alpha_2$</td>
+  <td class="bl">$+\\; \\tfrac{1}{2}\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$0$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$-\\tfrac{1}{2}\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$0$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$-\\tfrac{1}{2}\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; \\tfrac{1}{2}\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$-(\\eta^{-2v_0}+1)q + (\\eta^{-2v_0}+1)q^2 + \\cdots$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$-\\tfrac{1}{2}\\,\\alpha_1 -\\; \\tfrac{1}{2}\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$0$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$-\\tfrac{1}{2}\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; 1\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$0$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$-\\tfrac{1}{2}\\,\\alpha_1 -\\; 1\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$0$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$0\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 1\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$-q + (\\eta^{-2v_0}+1)q^2 + (2\\eta^{-2v_0}+6+\\eta^{2v_0})q^3 + \\cdots$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$0\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 1\\,\\beta_1 +\\; \\tfrac{1}{2}\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$0$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$0\\,\\alpha_1 -\\; \\tfrac{1}{2}\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 1\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$0$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$0\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 1\\,\\beta_1 +\\; 1\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$(\\eta^{-2v_0}+1)q^2 + (\\eta^{-2v_0}+3)q^3 + \\cdots$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$0\\,\\alpha_1 -\\; 1\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 1\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$q^2 + (\\eta^{-2v_0}+3+\\eta^{2v_0})q^3 + \\cdots$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$-1\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$-\\eta^{-2v_0}q + (\\eta^{-2v_0}+1)q^2 + (\\eta^{-4v_0}+6\\eta^{-2v_0}+2)q^3 + \\cdots$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$-1\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; \\tfrac{1}{2}\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$0$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$-1\\,\\alpha_1 -\\; \\tfrac{1}{2}\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$0$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$-1\\,\\alpha_1 +\\; 0\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; 1\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$\\eta^{-2v_0}q^2 + (\\eta^{-4v_0}+3\\eta^{-2v_0}+1)q^3 + \\cdots$</td>
+</tr>
+<tr>
+  <td class="i">$I($</td>
+  <td class="al">$-1\\,\\alpha_1 -\\; 1\\,\\alpha_2$</td>
+  <td class="bl">$+\\; 0\\,\\beta_1 +\\; 0\\,\\beta_2$</td>
+  <td class="cp">$)$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$(\\eta^{-2v_0}+1)q^2 + (3\\eta^{-2v_0}+1)q^3 + \\cdots$</td>
 </tr>
 </table>
 """
@@ -421,7 +601,7 @@ PANEL2_FILLING_HTML_BEFORE = """
 
 PANEL2_FILLING_HTML_AFTER = """
 <h3>Non-closable Cycles</h3>
-<p>Found <b>4</b> non-closable cycles at cusp 0:</p>
+<p>Found <b>3</b> non-closable cycles at cusp 0:</p>
 <table class="nc">
 <tr>
   <th colspan="2">$\\gamma_0$</th>
@@ -447,36 +627,64 @@ PANEL2_FILLING_HTML_AFTER = """
 <tr>
   <td class="r">$1\\,\\alpha_0$</td><td class="l">$+\\; 1\\,\\beta_0$</td>
   <td class="sp"></td>
-  <td class="r">$1\\,\\alpha_0$</td><td class="l">$+\\; 1\\,\\beta_0$</td>
+  <td class="r">$-1\\,\\alpha_0$</td><td class="l">$+\\; 1\\,\\beta_0$</td>
   <td class="sp"></td>
   <td class="r">$1\\,\\gamma_0$</td><td class="l">$-\\; 2\\,\\delta_0$</td>
 </tr>
+</table>
+
+<p>Found <b>2</b> non-closable cycles at cusp 1:</p>
+<table class="nc">
 <tr>
-  <td class="r">$-1\\,\\alpha_0$</td><td class="l">$-\\; 1\\,\\beta_0$</td>
+  <th colspan="2">$\\gamma_1$</th>
+  <th class="sp"></th>
+  <th colspan="2">$\\delta_1$</th>
+  <th class="sp"></th>
+  <th colspan="2">Dehn filling slope</th>
+</tr>
+<tr>
+  <td class="r">$1\\,\\alpha_1$</td><td class="l">$+\\; 0\\,\\beta_1$</td>
   <td class="sp"></td>
-  <td class="r">$-1\\,\\alpha_0$</td><td class="l">$-\\; 1\\,\\beta_0$</td>
+  <td class="r">$0\\,\\alpha_1$</td><td class="l">$+\\; 1\\,\\beta_1$</td>
   <td class="sp"></td>
-  <td class="r">$-1\\,\\gamma_0$</td><td class="l">$+\\; 2\\,\\delta_0$</td>
+  <td class="r">$2\\,\\gamma_1$</td><td class="l">$+\\; 1\\,\\delta_1$</td>
+</tr>
+<tr>
+  <td class="r">$-1\\,\\alpha_1$</td><td class="l">$+\\; 0\\,\\beta_1$</td>
+  <td class="sp"></td>
+  <td class="r">$0\\,\\alpha_1$</td><td class="l">$-\\; 1\\,\\beta_1$</td>
+  <td class="sp"></td>
+  <td class="r">$-2\\,\\gamma_1$</td><td class="l">$-\\; 1\\,\\delta_1$</td>
 </tr>
 </table>
 
 <h3>Filled Refined Index</h3>
+<p class="warn">⚠ &nbsp; $a \\notin \\mathbb{Z}$: Dehn filling results may be unreliable.</p>
 <table class="idx">
 <tr>
   <td class="i" colspan="4" style="text-align:right; padding-right:6px;">
-    <span class="muted">$\\gamma_0 = \\alpha_0$:</span> &nbsp; $I^{\\mathrm{ref}}_{3\\gamma_0+\\delta_0}$</td>
+    <span class="muted">cusp 0, $\\gamma_0 = \\alpha_0$:</span> &nbsp;
+    $I^{\\mathrm{ref}}_{3\\gamma_0+\\delta_0}$</td>
   <td class="eq">$=$</td>
   <td class="sr">$1 + q + q^{3/2} + 2q^2 + \\cdots$</td>
 </tr>
 <tr>
   <td class="i" colspan="4" style="text-align:right; padding-right:6px;">
-    <span class="muted">$\\gamma_0 = \\alpha_0+\\beta_0$:</span> &nbsp; $I^{\\mathrm{ref}}_{\\gamma_0-2\\delta_0}$</td>
+    <span class="muted">cusp 0, $\\gamma_0 = \\alpha_0+\\beta_0$:</span> &nbsp;
+    $I^{\\mathrm{ref}}_{\\gamma_0-2\\delta_0}$</td>
+  <td class="eq">$=$</td>
+  <td class="sr">$1 + q + q^{3/2} + 2q^2 + \\cdots$</td>
+</tr>
+<tr>
+  <td class="i" colspan="4" style="text-align:right; padding-right:6px;">
+    <span class="muted">cusp 1, $\\gamma_1 = \\alpha_1$:</span> &nbsp;
+    $I^{\\mathrm{ref}}_{2\\gamma_1+\\delta_1}$</td>
   <td class="eq">$=$</td>
   <td class="sr">$1 + q + q^{3/2} + 2q^2 + \\cdots$</td>
 </tr>
 </table>
 
-<p class="success">✓ &nbsp; Results agree across non-closable cycles.</p>
+<p class="success">✓ &nbsp; Results agree across non-closable cycles (both cusps).</p>
 """
 
 
@@ -547,7 +755,7 @@ def build_panel_manifold() -> QFrame:
 
     name_edit = QLineEdit()
     name_edit.setPlaceholderText("e.g.  m003  m004  4_1  L5a1  …")
-    name_edit.setText("m003")
+    name_edit.setText("m125")
     name_edit.setFixedHeight(32)
     input_row.addWidget(name_edit, 1)
 
@@ -567,12 +775,12 @@ def build_panel_manifold() -> QFrame:
 
     # ── Progress ──────────────────────────────────────────────
     progress = QProgressBar()
-    progress.setRange(0, 25)
-    progress.setValue(25)
+    progress.setRange(0, 100)
+    progress.setValue(100)
     progress.setFixedHeight(12)
     layout.addWidget(progress)
 
-    status = QLabel("✓  25/25 sectors computed  ·  m003  ·  2 tet, 1 cusp, 1 hard edge")
+    status = QLabel("✓  1129 sectors computed  ·  m125  ·  4 tet, 2 cusps, 1 easy, 1 hard")
     status.setStyleSheet("color: #2ea043; font-size: 11px;")
     layout.addWidget(status)
 
@@ -599,35 +807,67 @@ def build_panel_filling() -> QFrame:
     cusp_layout.setContentsMargins(0, 0, 0, 0)
     cusp_layout.setSpacing(6)
 
-    lbl = _section_label("Cusp 0")
-    cusp_layout.addWidget(lbl)
+    # --- Cusp 0 ---
+    lbl0 = _section_label("Cusp 0")
+    cusp_layout.addWidget(lbl0)
 
-    row = QWidget()
-    row_h = QHBoxLayout(row)
-    row_h.setContentsMargins(0, 0, 0, 0)
-    row_h.setSpacing(8)
+    row0 = QWidget()
+    row0_h = QHBoxLayout(row0)
+    row0_h.setContentsMargins(0, 0, 0, 0)
+    row0_h.setSpacing(8)
 
-    chk = QCheckBox("Fill cusp 0")
-    chk.setChecked(True)
-    row_h.addWidget(chk)
-    row_h.addSpacing(8)
+    chk0 = QCheckBox("Fill cusp 0")
+    chk0.setChecked(True)
+    row0_h.addWidget(chk0)
+    row0_h.addSpacing(8)
 
-    row_h.addWidget(QLabel("P:"))
-    p_spin = QSpinBox()
-    p_spin.setRange(-999, 999)
-    p_spin.setValue(3)
-    p_spin.setFixedWidth(60)
-    row_h.addWidget(p_spin)
+    row0_h.addWidget(QLabel("P:"))
+    p0_spin = QSpinBox()
+    p0_spin.setRange(-999, 999)
+    p0_spin.setValue(3)
+    p0_spin.setFixedWidth(60)
+    row0_h.addWidget(p0_spin)
 
-    row_h.addWidget(QLabel("Q:"))
-    q_spin = QSpinBox()
-    q_spin.setRange(-999, 999)
-    q_spin.setValue(1)
-    q_spin.setFixedWidth(60)
-    row_h.addWidget(q_spin)
+    row0_h.addWidget(QLabel("Q:"))
+    q0_spin = QSpinBox()
+    q0_spin.setRange(-999, 999)
+    q0_spin.setValue(1)
+    q0_spin.setFixedWidth(60)
+    row0_h.addWidget(q0_spin)
 
-    row_h.addStretch()
-    cusp_layout.addWidget(row)
+    row0_h.addStretch()
+    cusp_layout.addWidget(row0)
+
+    # --- Cusp 1 ---
+    lbl1 = _section_label("Cusp 1")
+    cusp_layout.addWidget(lbl1)
+
+    row1 = QWidget()
+    row1_h = QHBoxLayout(row1)
+    row1_h.setContentsMargins(0, 0, 0, 0)
+    row1_h.setSpacing(8)
+
+    chk1 = QCheckBox("Fill cusp 1")
+    chk1.setChecked(True)
+    row1_h.addWidget(chk1)
+    row1_h.addSpacing(8)
+
+    row1_h.addWidget(QLabel("P:"))
+    p1_spin = QSpinBox()
+    p1_spin.setRange(-999, 999)
+    p1_spin.setValue(2)
+    p1_spin.setFixedWidth(60)
+    row1_h.addWidget(p1_spin)
+
+    row1_h.addWidget(QLabel("Q:"))
+    q1_spin = QSpinBox()
+    q1_spin.setRange(-999, 999)
+    q1_spin.setValue(1)
+    q1_spin.setFixedWidth(60)
+    row1_h.addWidget(q1_spin)
+
+    row1_h.addStretch()
+    cusp_layout.addWidget(row1)
 
     # NC search range
     range_lbl = QLabel("NC search:  P ∈ [−2, 2],  Q ∈ [−2, 2]")
@@ -649,12 +889,12 @@ def build_panel_filling() -> QFrame:
 
     # ── Progress ──────────────────────────────────────────────
     progress = QProgressBar()
-    progress.setRange(0, 4)
-    progress.setValue(4)
+    progress.setRange(0, 5)
+    progress.setValue(5)
     progress.setFixedHeight(12)
     layout.addWidget(progress)
 
-    status = QLabel("✓  4 non-closable cycles found · filling complete")
+    status = QLabel("✓  5 non-closable cycles found · filling complete")
     status.setStyleSheet("color: #2ea043; font-size: 11px;")
     layout.addWidget(status)
 
@@ -740,7 +980,7 @@ def build_panel_export() -> QFrame:
     prefix_h.setSpacing(4)
     prefix_h.addWidget(QLabel("Prefix:"))
     prefix_edit = QLineEdit()
-    prefix_edit.setText("m003_index")
+    prefix_edit.setText("m125_index")
     prefix_edit.setFixedHeight(28)
     prefix_h.addWidget(prefix_edit, 1)
     layout.addWidget(prefix_row)
