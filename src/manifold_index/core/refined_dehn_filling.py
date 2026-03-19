@@ -1245,14 +1245,20 @@ def compute_filled_refined_index(
     # ------------------------------------------------------------------
     # Step 3: ℓ ≥ 2 — Grid scan of (m, e) with non-zero I^ref
     # ------------------------------------------------------------------
-    # With eta_order derived from qq_order, the η summation captures all
-    # contributing terms and no qq-inflation is needed for artifact
-    # compensation.
-    qq_internal = qq_order
+    # The IS kernel's n_eta summation (bounded by eta_order) must stay
+    # well below qq_internal; otherwise tetrahedron-index truncation
+    # at the qq_internal boundary produces spurious high-η entries
+    # that K-factor phase shifts move into the user range.  We inflate
+    # qq_internal beyond qq_order so that the IS convolution boundary
+    # artifacts live above qq_order and are discarded at final truncation.
+    _is_buffer = qq_order // 2 + 4
+    qq_internal = qq_order + _is_buffer
+    m1_range = max(m1_range, 2 * qq_internal)
     if verbose:
         print(
             f"[refined_filling] ℓ={ell}: qq_order={qq_order}, "
-            f"qq_internal={qq_internal}, eta_order={eta_order}"
+            f"qq_internal={qq_internal} (buffer={_is_buffer}), "
+            f"eta_order={eta_order}"
         )
         print(f"[refined_filling] scanning (m,e) grid for I^ref ≠ 0")
 
