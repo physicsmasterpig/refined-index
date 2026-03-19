@@ -226,9 +226,13 @@ class MainWindow(QMainWindow):
         self._page_overview.computation_finished(result)
         # Unlock Dehn filling and export pages
         self._sidebar.enable_up_to(3)
-        # Prepare the Dehn filling page
+        # Prepare the Dehn filling page with manifold data and Weyl info
+        weyl_result = self._page_overview.weyl_result
         self._page_dehn.reset(
-            self._manifold_name, self._nz_data, self._q_order_half
+            self._manifold_name, self._nz_data, self._q_order_half,
+            manifold_data=getattr(self, '_manifold_data', None),
+            easy_result=getattr(self, '_easy_result', None),
+            weyl_result=weyl_result,
         )
         self.statusBar().showMessage("Refined index computation complete.")
 
@@ -256,6 +260,14 @@ class MainWindow(QMainWindow):
             f"Dehn filling cusp {cusp_idx} at ({P_user}, {Q_user}) …"
         )
 
+        # Extract Weyl (a, b) vectors from the overview page's Weyl check
+        weyl_result = self._page_overview.weyl_result
+        weyl_a = None
+        weyl_b = None
+        if weyl_result is not None and weyl_result.ab is not None and weyl_result.ab.is_valid:
+            weyl_a = list(weyl_result.ab.a)
+            weyl_b = list(weyl_result.ab.b)
+
         worker = DehnFillingPipelineWorker(
             nz_data=nz_data,
             cusp_idx=cusp_idx,
@@ -264,6 +276,8 @@ class MainWindow(QMainWindow):
             q_order_half=q_order_half,
             p_range=p_range,
             q_range=q_range,
+            weyl_a=weyl_a,
+            weyl_b=weyl_b,
         )
         worker.status.connect(self._page_dehn.update_status)
         worker.progress.connect(self._page_dehn.update_progress)

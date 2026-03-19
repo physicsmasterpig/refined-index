@@ -371,6 +371,8 @@ class DehnFillingPipelineWorker(QThread):
         p_range: range,
         q_range: range,
         eta_order: int = 5,
+        weyl_a: list | None = None,
+        weyl_b: list | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -382,6 +384,8 @@ class DehnFillingPipelineWorker(QThread):
         self._p_range = p_range
         self._q_range = q_range
         self._eta_order = eta_order
+        self._weyl_a = weyl_a
+        self._weyl_b = weyl_b
 
     def run(self) -> None:
         try:
@@ -488,6 +492,8 @@ class DehnFillingPipelineWorker(QThread):
                     Q=Q_new,
                     q_order_half=q_order_half,
                     eta_order=self._eta_order,
+                    weyl_a=self._weyl_a,
+                    weyl_b=self._weyl_b,
                     verbose=False,
                 )
 

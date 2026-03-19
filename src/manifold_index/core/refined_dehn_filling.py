@@ -34,8 +34,8 @@ I_S kernel (eq. A.5, DFK.nb `is[]`)
 
     I_S(m1, e1, m2, e2; η) =
         (1/2)·(−1)^{m1}·(q^{m1/2} + q^{−m1/2}) · ẽI_S(m1, e1, m2, e2)
-        − ẽI_S(m1, e1−1, m2, e2)
-        − ẽI_S(m1, e1+1, m2, e2)
+        − (1/2)·(−1)^{m1} · ẽI_S(m1, e1−1, m2, e2)
+        − (1/2)·(−1)^{m1} · ẽI_S(m1, e1+1, m2, e2)
 
 ────────────────────────────────────────────────────────────────────────────
 ẽI_S inner function (DFK.nb `expr8[]`)
@@ -541,6 +541,43 @@ def _enumerate_slope1_terms(
     return terms
 
 
+def _enumerate_slope1_all(
+    k: int,
+    t_range: int,
+) -> list[tuple[int, Fraction, int, int]]:
+    """Enumerate ALL (m, e, c, phase) for K(k, 1; m, e) — no symmetry shortcuts.
+
+    Unlike :func:`_enumerate_slope1_terms`, this enumerates:
+
+    - **c ∈ {−2, 0, 2}** (includes c = −2 explicitly).
+    - **t ∈ [−t_range, t_range]** for *all* c values (no positive-only
+      shortcut for c = 0).
+
+    All returned terms have implicit multiplicity = 1.  This is required
+    for the ℓ ≥ 2 IS-kernel chain, where the (m, e) → (−m, −e) symmetry
+    of the 3D index payload no longer holds for the intermediate IS state,
+    so the doubling trick used in the ℓ = 1 path is invalid.
+    """
+    terms: list[tuple[int, Fraction, int, int]] = []
+    seen: set[tuple[int, Fraction]] = set()
+
+    for c in (0, 2, -2):
+        m_c, e_c = _particular_solution(k, 1, c)
+        phase_c0 = m_c  # R·m_c + 2·S·e_c = 1·m_c + 0  (R=1, S=0 for Q=1)
+
+        for t in range(-t_range, t_range + 1):
+            m_t = m_c + t   # Q = 1
+            e_t = e_c - Fraction(k * t, 2)
+            phase_t = phase_c0 + t   # = m_t
+
+            key = (m_t, e_t)
+            if key not in seen:
+                seen.add(key)
+                terms.append((m_t, e_t, c, phase_t))
+
+    return terms
+
+
 # ---------------------------------------------------------------------------
 # Part 6 — Apply unrefined K(k, 1; m1, e1) factor to a QEtaSeries
 # ---------------------------------------------------------------------------
@@ -710,6 +747,65 @@ def _apply_k1_factor_multi(
         return {k: v * scalar for k, v in series.items() if v * scalar != 0}
 
 
+def _apply_weyl_shift(
+    refined: RefinedIndexResult,
+    m_ext: list[int],
+    e_ext: Sequence[int | Fraction],
+    weyl_a: list[Fraction],
+    weyl_b: list[Fraction],
+    num_hard: int,
+) -> RefinedIndexResult:
+    """Multiply a refined index by the Weyl monomial η^{b·m + a·e}.
+
+    This transforms I^ref(m, e; η) → f(m, e; η) = η^{b·m + a·e} · I^ref
+    so that Dehn filling operates on the Weyl-manifest form.
+
+    The shift in the 2×-encoded key convention is:
+
+        shift_x2[j] = 2·b[j]·Σm + a[j]·Σe
+
+    where ``a[j]`` stores 2·a_actual (integer) and ``b[j]`` stores b_actual
+    (half-integer).  This is the same convention as
+    :func:`~manifold_index.core.weyl_check.check_weyl_symmetry`.
+
+    Parameters
+    ----------
+    refined : RefinedIndexResult
+        Keys ``(qq_power, 2η_0, …, 2η_{k-1})``.
+    m_ext, e_ext : sequences, length r (number of cusps)
+        Meridian / longitude charges for this evaluation.
+    weyl_a, weyl_b : list[Fraction], length num_hard
+        Weyl vectors.  ``weyl_a[j]`` = 2·a_actual,
+        ``weyl_b[j]`` = b_actual.
+    num_hard : int
+        Number of hard edges.
+
+    Returns
+    -------
+    RefinedIndexResult
+        Shifted copy.
+    """
+    m_sum = sum(m_ext)
+    e_sum = sum(Fraction(v) for v in e_ext)
+    shift_x2 = [
+        int(2 * weyl_b[j] * m_sum + weyl_a[j] * e_sum)
+        for j in range(num_hard)
+    ]
+    # If all shifts are zero, return original unmodified
+    if all(s == 0 for s in shift_x2):
+        return refined
+
+    result: RefinedIndexResult = {}
+    for key, coeff in refined.items():
+        if coeff == 0:
+            continue
+        new_key = (key[0],) + tuple(
+            key[1 + j] + shift_x2[j] for j in range(num_hard)
+        )
+        result[new_key] = result.get(new_key, 0) + coeff
+    return result
+
+
 def _refined_to_multi(
     refined: RefinedIndexResult,
     append_cusp_eta: bool = False,
@@ -781,9 +877,11 @@ def _apply_is_step(
     """
     new_state: dict[tuple[int, Fraction], MultiEtaSeries] = {}
 
-    # Enumerate candidate (m1, e1) pairs from the unrefined K(k_next, 1) support
-    # (these are the only ones that can contribute at the final K step).
-    m1_terms = _enumerate_slope1_terms(k_next, m1_range)
+    # Enumerate ALL candidate (m1, e1) pairs from the K(k_next, 1) support,
+    # including both ±t for c=0 and c=−2.  The full enumeration is required
+    # because the IS kernel breaks the (m,e)→(−m,−e) symmetry that the
+    # ℓ=1 path's multiplicity trick relies on.
+    m1_terms = _enumerate_slope1_all(k_next, m1_range)
 
     for (m, e), src_series in state.items():
         if not src_series:
@@ -981,6 +1079,8 @@ def compute_filled_refined_index(
     q_order_half: int = 10,
     eta_order: int = 5,
     m1_range: int | None = None,
+    weyl_a: list[Fraction] | None = None,
+    weyl_b: list[Fraction] | None = None,
     verbose: bool = False,
 ) -> FilledRefinedResult:
     """Compute the refined Dehn-filled index I^ref_{P/Q}(η_hard, η_cusp).
@@ -1018,6 +1118,12 @@ def compute_filled_refined_index(
     m1_range : int or None
         Scan range for intermediate (m_1, e_1) variables.
         Default: 2 * q_order_half.
+    weyl_a, weyl_b : list[Fraction] or None, optional
+        Weyl-symmetry vectors from :class:`ABVectors`.  When provided, each
+        I^ref(m, e) is multiplied by η^{b·m + a·e} *before* the Dehn filling
+        kernel is applied, so that the filling operates on the Weyl-manifest
+        form.  ``weyl_a[j]`` stores 2·a_actual (integer), ``weyl_b[j]``
+        stores b_actual (half-integer).
     verbose : bool
         Print progress to stdout.
 
@@ -1091,6 +1197,12 @@ def compute_filled_refined_index(
                 continue
             n_terms += 1
 
+            # Apply Weyl shift η^{b·m + a·e} before filling
+            if weyl_a is not None and weyl_b is not None:
+                refined = _apply_weyl_shift(
+                    refined, m_ext, e_ext, weyl_a, weyl_b, num_hard
+                )
+
             # Convert to MultiEtaSeries (no cusp η dimension)
             multi = _refined_to_multi(refined, append_cusp_eta=False)
 
@@ -1124,12 +1236,22 @@ def compute_filled_refined_index(
     # ------------------------------------------------------------------
     # Step 3: ℓ ≥ 2 — Grid scan of (m, e) with non-zero I^ref
     # ------------------------------------------------------------------
+    # The IS kernel's η-sum truncation produces artifacts at high qq
+    # powers.  The stable region of the IS kernel is approximately
+    # qq ≤ qq_internal − 2·eta_order.  To ensure the final result is
+    # reliable up to the user-requested qq_order, inflate the internal
+    # truncation order and trim the output at the end.
+    qq_internal = qq_order + 2 * eta_order
     if verbose:
-        print(f"[refined_filling] ℓ={ell}: scanning (m,e) grid for I^ref ≠ 0")
+        print(
+            f"[refined_filling] ℓ={ell}: qq_order={qq_order}, "
+            f"qq_internal={qq_internal} (inflated by 2·η_order={2*eta_order})"
+        )
+        print(f"[refined_filling] scanning (m,e) grid for I^ref ≠ 0")
 
     # Scan bounds: m ∈ [-m_scan, m_scan], e ∈ [-e_scan, e_scan] step 1/2
-    m_scan = 2 * qq_order
-    e_scan = qq_order  # in half-integer units, covers ±qq_order/2
+    m_scan = 2 * qq_internal
+    e_scan = qq_internal  # in half-integer units, covers ±qq_internal/2
 
     state: dict[tuple[int, Fraction], MultiEtaSeries] = {}
     n_grid_terms = 0
@@ -1140,11 +1262,17 @@ def compute_filled_refined_index(
             m_ext, e_ext = _make_ext(m_i, e_i)
 
             refined = compute_refined_index(
-                nz_data, m_ext, e_ext, q_order_half=qq_order
+                nz_data, m_ext, e_ext, q_order_half=qq_internal
             )
             if not refined:
                 continue
             n_grid_terms += 1
+
+            # Apply Weyl shift η^{b·m + a·e} before IS convolutions
+            if weyl_a is not None and weyl_b is not None:
+                refined = _apply_weyl_shift(
+                    refined, m_ext, e_ext, weyl_a, weyl_b, num_hard
+                )
 
             # Convert to MultiEtaSeries with cusp_eta=0 appended
             multi = _refined_to_multi(refined, append_cusp_eta=True)
@@ -1175,7 +1303,7 @@ def compute_filled_refined_index(
             state,
             k_current=k_current,
             k_next=k_next,
-            qq_order=qq_order,
+            qq_order=qq_internal,
             eta_order=eta_order,
             m1_range=m1_range,
         )
@@ -1186,8 +1314,9 @@ def compute_filled_refined_index(
     # Step 5: Apply final unrefined K(k_ℓ, 1; m_{ℓ-1}, e_{ℓ-1})
     # ------------------------------------------------------------------
     k_final = hj_ks[-1]
-    final_terms = _enumerate_slope1_terms(k_final, m1_range)
-    # Build lookup: (m, e) → (c, phase, multiplicity)
+    # Use full enumeration (no ±t / ±c shortcuts) — see _enumerate_slope1_all.
+    final_terms = _enumerate_slope1_all(k_final, m1_range)
+    # Build lookup: (m, e) → (c, phase, multiplicity=1)
     final_term_info: dict[tuple[int, Fraction], tuple[int, int, int]] = {}
     seen_final: set[tuple[int, Fraction]] = set()
     for m1, e1, c_final, phase_final in final_terms:
@@ -1195,10 +1324,8 @@ def compute_filled_refined_index(
         if key in seen_final:
             continue
         seen_final.add(key)
-        m0, _ = _particular_solution(k_final, 1, c_final)
-        t_abs = abs(m1 - m0)
-        mult = 2 if (c_final == 2 or (c_final == 0 and t_abs > 0)) else 1
-        final_term_info[key] = (c_final, phase_final, mult)
+        # Multiplicity is always 1 — every (m,e) is enumerated explicitly.
+        final_term_info[key] = (c_final, phase_final, 1)
 
     total_series_ell2: MultiEtaSeries = {}
     for (m1, e1), src_series in state.items():
@@ -1209,19 +1336,29 @@ def compute_filled_refined_index(
             continue
         c_final, phase_final, mult_final = info
         contribution = _apply_k1_factor_multi(
-            src_series, c_final, phase_final, mult_final, qq_order
+            src_series, c_final, phase_final, mult_final, qq_internal
         )
         total_series_ell2 = _multi_add(total_series_ell2, contribution)
 
+        
+
+    # ------------------------------------------------------------------
+    # Step 6: Truncate to user-requested qq_order
+    # ------------------------------------------------------------------
+    truncated: MultiEtaSeries = {
+        k: v for k, v in total_series_ell2.items()
+        if k[0] <= qq_order
+    }
+
     if verbose:
         print(
-            f"[refined_filling] Done: {len(total_series_ell2)} "
-            f"non-zero multi-η entries"
+            f"[refined_filling] Done: {len(truncated)} "
+            f"non-zero multi-η entries (truncated from {len(total_series_ell2)})"
         )
 
     return FilledRefinedResult(
         P=P, Q=Q, cusp_idx=cusp_idx,
-        series=total_series_ell2,
+        series=truncated,
         qq_order=qq_order,
         eta_order=eta_order,
         hj_ks=hj_ks,

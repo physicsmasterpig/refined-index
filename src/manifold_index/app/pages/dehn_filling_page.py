@@ -43,6 +43,9 @@ class DehnFillingPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._nz_data = None
+        self._manifold_data = None
+        self._easy_result = None
+        self._weyl_result = None
         self._q_order_half: int = 10
         self._cusp_rows: list[dict] = []
         self._build_ui()
@@ -75,6 +78,17 @@ class DehnFillingPage(QWidget):
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet("color: palette(mid); font-size: 12px; margin-bottom: 4px;")
         root.addWidget(subtitle)
+
+        # ── Manifold info panel ───────────────────────────────────
+        self._info_group = QGroupBox("Manifold & Edge Data")
+        info_vbox = QVBoxLayout(self._info_group)
+        self._info_label = QLabel("(not loaded)")
+        self._info_label.setFont(monospace_font(11))
+        self._info_label.setWordWrap(True)
+        self._info_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        info_vbox.addWidget(self._info_label)
+        self._info_group.hide()
+        root.addWidget(self._info_group)
 
         # ── Per-cusp slope inputs ─────────────────────────────────
         self._slopes_group = QGroupBox("Dehn Filling Slopes")
@@ -167,9 +181,13 @@ class DehnFillingPage(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
-    def reset(self, name: str, nz_data, q_order_half: int) -> None:
+    def reset(self, name: str, nz_data, q_order_half: int,
+              manifold_data=None, easy_result=None, weyl_result=None) -> None:
         """Initialise the Dehn filling page for a given manifold."""
         self._nz_data = nz_data
+        self._manifold_data = manifold_data
+        self._easy_result = easy_result
+        self._weyl_result = weyl_result
         self._q_order_half = q_order_half
         self._title_label.setText(f"Dehn Filling — {name}")
         self._info_label.setText(
@@ -181,6 +199,7 @@ class DehnFillingPage(QWidget):
         self._results_edit.clear()
         self._build_cusp_rows(nz_data.r)
         self._compute_btn.setEnabled(nz_data.r > 0)
+        self._populate_manifold_info(name, nz_data, manifold_data, easy_result, weyl_result)
 
     @Slot(str)
     def update_status(self, msg: str) -> None:
@@ -218,9 +237,30 @@ class DehnFillingPage(QWidget):
         nc_cycles = result_info["non_closable_cycles"]
         results = result_info["results"]
 
+        # Import HJ-CF for display
+        try:
+            from manifold_index.core.refined_dehn_filling import hj_continued_fraction
+        except ImportError:
+            hj_continued_fraction = None
+
         lines: list[str] = []
         lines.append(f"Cusp {cusp_idx}: Dehn filling with slope ({P_user}, {Q_user})")
         lines.append(f"  = {P_user}·α_{cusp_idx} + {Q_user}·β_{cusp_idx}")
+
+        # Show HJ-CF of the user's slope
+        if hj_continued_fraction is not None and Q_user != 0:
+            try:
+                hj = hj_continued_fraction(P_user, Q_user)
+                lines.append(f"  HJ continued fraction of {P_user}/{Q_user}: {hj}  (ℓ = {len(hj)})")
+            except Exception:
+                pass
+        lines.append("")
+
+        # Weyl shift status
+        if self._weyl_result is not None and self._weyl_result.ab is not None and self._weyl_result.ab.is_valid:
+            lines.append("✓ Weyl shift η^{b·m + a·e} applied BEFORE Dehn filling summation")
+        else:
+            lines.append("⚠ No valid Weyl (a,b) — Dehn filling WITHOUT Weyl shift")
         lines.append("")
 
         if not nc_cycles:
@@ -248,6 +288,14 @@ class DehnFillingPage(QWidget):
                 lines.append(f"  New longitude L' = {2*a_coeff}·α + {b_coeff}·β")
                 lines.append(f"  Bézout: P·b − 2Q·a = {P_nc}·{b_coeff} − 2·{Q_nc}·{a_coeff} = {P_nc*b_coeff - 2*Q_nc*a_coeff}")
                 lines.append(f"  Transformed slope: ({P_user}, {Q_user}) → ({P_new}, {Q_new})")
+
+                # Show HJ-CF of the transformed slope
+                if hj_continued_fraction is not None and Q_new != 0:
+                    try:
+                        hj_new = hj_continued_fraction(P_new, Q_new)
+                        lines.append(f"  HJ-CF of {P_new}/{Q_new}: {hj_new}  (ℓ = {len(hj_new)})")
+                    except Exception:
+                        pass
                 lines.append("")
 
                 if filled.is_zero:
@@ -271,6 +319,100 @@ class DehnFillingPage(QWidget):
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _populate_manifold_info(self, name, nz_data, manifold_data, easy_result, weyl_result):
+        """Build and display the manifold/edge info panel."""
+        if nz_data is None:
+            self._info_group.hide()
+            return
+
+        n = nz_data.n
+        r = nz_data.r
+        num_hard = nz_data.num_hard
+        num_easy = nz_data.num_easy
+
+        lines = []
+        lines.append(f"Manifold: {name}")
+        lines.append(f"Tetrahedra: {n}   Cusps: {r}")
+        lines.append(f"Internal edges: {n - r}  (hard: {num_hard}, easy: {num_easy})")
+        lines.append("")
+
+        # ── SnaPy edge data ───────────────────────────────────────
+        if manifold_data is not None:
+            lines.append("═══ SnaPy Edge Equations ═══")
+            edge_eqs = manifold_data.edge_equations  # shape (n, 3n)
+            for i in range(n):
+                row = edge_eqs[i]
+                # Format as compact triplets: (Z, Z', Z'') per tet
+                parts = []
+                for t in range(n):
+                    triplet = row[3*t : 3*t + 3]
+                    parts.append(f"({triplet[0]},{triplet[1]},{triplet[2]})")
+                lines.append(f"  Edge {i}: {' '.join(parts)}")
+            lines.append("")
+
+        # ── Easy / hard edge classification ───────────────────────
+        if easy_result is not None:
+            lines.append("═══ Easy Edges (all found) ═══")
+            for idx, edge_vec in enumerate(easy_result.all_easy):
+                marker = ""
+                if idx in easy_result.independent_easy_indices:
+                    # Find position in basis
+                    basis_pos = (
+                        r + num_hard
+                        + easy_result.independent_easy_indices.index(idx)
+                    )
+                    marker = f"  ← basis row {basis_pos} (independent easy)"
+                # Compact display of 3n-vector as triplets
+                parts = []
+                for t in range(n):
+                    triplet = edge_vec[3*t : 3*t + 3]
+                    parts.append(f"({triplet[0]},{triplet[1]},{triplet[2]})")
+                lines.append(f"  E{idx}: {' '.join(parts)}{marker}")
+
+            lines.append("")
+            lines.append(f"Independent easy: {len(easy_result.independent_easy_indices)}")
+            lines.append(f"  Indices: {easy_result.independent_easy_indices}")
+            lines.append("")
+
+            if easy_result.hard_padding:
+                lines.append("═══ Hard Edges (SnaPy padding) ═══")
+                for h_idx, hard_vec in enumerate(easy_result.hard_padding):
+                    basis_pos = r + h_idx
+                    parts = []
+                    for t in range(n):
+                        triplet = hard_vec[3*t : 3*t + 3]
+                        parts.append(f"({triplet[0]},{triplet[1]},{triplet[2]})")
+                    lines.append(f"  H{h_idx}: {' '.join(parts)}  ← basis row {basis_pos}")
+                lines.append("")
+            else:
+                lines.append("No hard edges — all internal edges are easy.")
+                lines.append("")
+
+        # ── Weyl (a, b) vectors ───────────────────────────────────
+        if weyl_result is not None and weyl_result.ab is not None:
+            lines.append("═══ Weyl Symmetry (a, b) Vectors ═══")
+            ab = weyl_result.ab
+            for j in range(ab.num_hard):
+                a_actual = Fraction(1, 2) * ab.a[j]
+                b_val = ab.b[j]
+                lines.append(
+                    f"  Hard edge {j}: a = {_fmt_frac(a_actual)}, "
+                    f"b = {_fmt_frac(b_val)}  "
+                    f"(η^{{b·m + a·e}} shift applied before Dehn filling)"
+                )
+            if ab.is_valid:
+                lines.append("  ✓ All (a, b) valid for Dehn filling")
+            else:
+                lines.append("  ✗ Some (a, b) values invalid — filling may not be well-defined")
+            lines.append("")
+        elif weyl_result is not None:
+            lines.append("═══ Weyl Symmetry ═══")
+            lines.append("  (a, b) vectors could not be determined.")
+            lines.append("")
+
+        self._info_label.setText("\n".join(lines))
+        self._info_group.show()
 
     def _build_cusp_rows(self, num_cusps: int) -> None:
         """Build per-cusp slope input rows."""
