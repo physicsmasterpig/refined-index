@@ -1182,10 +1182,13 @@ def compute_filled_refined_index(
     if m1_range is None:
         m1_range = 2 * q_order_half
 
-    # Auto-compute eta_order: for a given qq_order the tetrahedron
-    # index I_Δ(m, e) is naturally zero for |e| ≫ qq_order, so the IS
-    # kernel's η sum is self-bounding.  Setting eta_order = qq_order is
-    # generous and avoids artificial η truncation artifacts.
+    # Auto-compute eta_order: the diamond truncation rule
+    # (qq_power + |cusp_eta| ≤ qq_order) ensures that only terms with
+    # |cusp_eta| ≤ qq_order survive in the output.  However, the IS
+    # kernel computes at qq_internal (= qq_order + buffer), so the
+    # internal η sum can be tighter than qq_internal.  We use qq_order
+    # itself as the η budget: this is exact for the diamond rule and
+    # avoids wasting time on high-η terms that will be discarded.
     if eta_order is None:
         eta_order = q_order_half
 
@@ -1395,17 +1398,30 @@ def compute_filled_refined_index(
         
 
     # ------------------------------------------------------------------
-    # Step 6: Truncate to user-requested qq_order
+    # Step 6: Truncate to user-requested qq_order  +  diamond cutoff
     # ------------------------------------------------------------------
+    # Standard truncation: qq_power ≤ qq_order.
+    # Diamond truncation on cusp η:  qq_power + |cusp_eta| ≤ qq_order.
+    #
+    # The IS convolution produces cusp-η terms whose reliability is
+    # limited by distance from the qq truncation boundary.  A term
+    # q^a · η_c^e requires ~|e| extra qq-budget to be fully resolved;
+    # terms near the boundary (a + |e| > qq_order) are artifacts of the
+    # finite series truncation and are not stable under changes in
+    # qq_order.  The diamond rule removes exactly these artifacts.
+    #
+    # The cusp η is always the LAST key dimension (appended in step 3).
     truncated: MultiEtaSeries = {
         k: v for k, v in total_series_ell2.items()
-        if k[0] <= qq_order
+        if k[0] + abs(k[-1]) <= qq_order
     }
 
     if verbose:
+        n_raw = sum(1 for k, v in total_series_ell2.items() if k[0] <= qq_order and v != 0)
         print(
             f"[refined_filling] Done: {len(truncated)} "
-            f"non-zero multi-η entries (truncated from {len(total_series_ell2)})"
+            f"non-zero multi-η entries (diamond from {n_raw} raw, "
+            f"pre-truncation {len(total_series_ell2)})"
         )
 
     return FilledRefinedResult(
