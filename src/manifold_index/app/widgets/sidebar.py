@@ -74,7 +74,7 @@ class Sidebar(QWidget):
         layout.addStretch()
 
         # Version label at bottom
-        ver = QLabel("v1.0")
+        ver = QLabel("v0.2.3")
         ver.setAlignment(Qt.AlignCenter)
         ver.setStyleSheet("color: palette(mid); font-size: 10px; padding-top: 8px;")
         layout.addWidget(ver)

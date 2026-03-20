@@ -192,8 +192,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleName": "Manifold Index",
         "CFBundleDisplayName": "Manifold Index Calculator",
-        "CFBundleShortVersionString": "0.1.0",
-        "CFBundleVersion": "0.1.0",
+        "CFBundleShortVersionString": "0.2.3",
+        "CFBundleVersion": "0.2.3",
         "NSHighResolutionCapable": True,
         "NSRequiresAquaSystemAppearance": False,  # support Dark Mode
         "LSMinimumSystemVersion": "11.0",

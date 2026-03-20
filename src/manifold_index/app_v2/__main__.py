@@ -1,5 +1,5 @@
 """
-app_v2 — Refined 3D Index Calculator v0.2.0 GUI.
+app_v2 — Refined 3D Index Calculator v0.2.3 GUI.
 
 Run with:
     python -m manifold_index.app_v2
