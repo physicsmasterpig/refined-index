@@ -157,7 +157,7 @@
 
     <!-- ── Download ────────────────────────────────── -->
     <div class="download-card">
-      <div class="version">v0.2.0</div>
+      <div class="version">v0.2.3</div>
       <div class="platform">macOS&ensp;·&ensp;Apple&nbsp;Silicon (arm64)&ensp;·&ensp;macOS 11+</div>
       <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/latest/download/ManifoldIndex.zip">
         ⬇ Download .app
@@ -237,6 +237,31 @@
         <li><code>pip install -e ".[dev]"</code></li>
         <li><code>manifold-index</code>&ensp;to launch the GUI</li>
         <li><code>pytest tests/</code>&ensp;to run the test suite</li>
+      </ul>
+    </section>
+
+    <!-- ── Changelog ─────────────────────────────── -->
+    <section>
+      <h2>Changelog</h2>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.2.3</h3>
+      <ul>
+        <li>Diamond cusp-η truncation: <code>qq_power + |cusp_η| ≤ qq_order</code></li>
+        <li>Removes IS-convolution boundary artifacts in the ℓ ≥ 2 filling path</li>
+        <li>m003 (1,0) filling now returns clean 0; non-trivial fillings preserve all stable terms</li>
+      </ul>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.2.2</h3>
+      <ul>
+        <li>Simplified Weyl convention — single <code>(a, b)</code> shift per cusp</li>
+        <li>Per-cusp extraction of Weyl vectors from <code>ABVectors</code></li>
+        <li>η collapse for incompatible edges via <code>collapse_eta_edges()</code></li>
+      </ul>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.2.1</h3>
+      <ul>
+        <li>Rebuild Neumann-Zagier data per NC cycle via general SL(2,ℤ) basis change</li>
+        <li>Decoupled <code>qq_internal</code> from <code>eta_order</code> in ℓ ≥ 2 IS convolution</li>
       </ul>
     </section>
 
