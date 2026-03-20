@@ -144,7 +144,8 @@ def _series_to_katex(
         sorted_eta = sorted(eta_dict.keys())
         q_str = _q_factor(q_half)
 
-        # Collect coefficient parts for this q-power
+        # Collect coefficient+η parts (WITHOUT q factor — q is applied
+        # once at the group level so it is not duplicated).
         sub_parts: list[str] = []
         for eta_key in sorted_eta:
             c = eta_dict[eta_key]
@@ -152,41 +153,35 @@ def _series_to_katex(
                 continue
             eta_str = _eta_part(eta_key)
 
-            if not q_str and not eta_str:
-                # Pure constant term
+            if not eta_str:
+                # Pure coefficient (possibly ×q, added below)
                 sub_parts.append(str(c))
-            elif not eta_str:
-                # Pure q term
-                if c == 1:
-                    sub_parts.append(q_str)
-                elif c == -1:
-                    sub_parts.append(f"-{q_str}")
-                else:
-                    sub_parts.append(f"{c}{q_str}")
-            elif not q_str:
-                # Pure eta (no q factor — only at q^0)
+            else:
                 if c == 1:
                     sub_parts.append(eta_str)
                 elif c == -1:
                     sub_parts.append(f"-{eta_str}")
                 else:
                     sub_parts.append(f"{c}{eta_str}")
-            else:
-                if c == 1:
-                    sub_parts.append(f"{eta_str}{q_str}")
-                elif c == -1:
-                    sub_parts.append(f"-{eta_str}{q_str}")
-                else:
-                    sub_parts.append(f"{c}{eta_str}{q_str}")
 
         if not sub_parts:
             continue
 
-        # Group terms with the same q-power using parentheses
+        # Combine sub_parts and attach the q factor once
         if len(sub_parts) == 1:
-            terms.append(sub_parts[0])
+            part = sub_parts[0]
+            if q_str:
+                # Single coefficient × q^k
+                if part == "1":
+                    terms.append(q_str)
+                elif part == "-1":
+                    terms.append(f"-{q_str}")
+                else:
+                    terms.append(f"{part}{q_str}")
+            else:
+                terms.append(part)
         else:
-            # Combine: (coeff1 + coeff2 + ...)q^k
+            # Multiple η terms at same q-power: (c₁η₁ + c₂η₂ + …)q^k
             inner = sub_parts[0]
             for sp in sub_parts[1:]:
                 if sp.startswith("-"):

@@ -1108,7 +1108,8 @@ def compute_filled_refined_index(
     cusp_idx : int
         Which cusp to fill (0-based).
     P, Q : int
-        Coprime integers defining the slope.
+        Coprime integers defining the slope **in the original (α, β) basis**
+        of nz_data.  The filling cycle is P·α + Q·β.
     m_other, e_other : sequences of length r−1, optional
         Values for the remaining cusps. Defaults to all zeros.
     q_order_half : int

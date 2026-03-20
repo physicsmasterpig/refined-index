@@ -217,6 +217,9 @@ class DehnFillingWorker(QThread):
         from manifold_index.core.refined_dehn_filling import (
             compute_filled_refined_index,
         )
+        from manifold_index.core.neumann_zagier import (
+            apply_general_cusp_basis_change,
+        )
 
         nz = self._nz_data
         r = nz.r
@@ -339,6 +342,21 @@ class DehnFillingWorker(QThread):
             p = S * P_user - R * Q_user
             q = -Q_nc * P_user + P_nc * Q_user
 
+            # ── Rebuild NZ data in the new cusp basis ──
+            #
+            # The SL(2,ℤ) matrix [[P_nc, Q_nc], [R, S]] maps
+            #   new_μ = P_nc·old_μ + Q_nc·old_λ   (= NC cycle γ)
+            #   new_λ = R·old_μ    + S·old_λ       (= complement δ)
+            #
+            # After this change the filling slope becomes (p, q) in the
+            # new (μ′, λ′) basis and the NZ data correctly reflects the
+            # new peripheral-curve convention.  The charges (m, e) in the
+            # new basis correspond to different physical cycles than in
+            # the original basis.
+            nz_nc = apply_general_cusp_basis_change(
+                nz, cusp_idx, a=P_nc, b=Q_nc, c=R, d=S,
+            )
+
             # Build external-charge combos for unfilled cusps
             n_unfilled = r - 1
             if n_unfilled == 0:
@@ -366,7 +384,7 @@ class DehnFillingWorker(QThread):
 
                 try:
                     fr = compute_filled_refined_index(
-                        nz_data=nz,
+                        nz_data=nz_nc,
                         cusp_idx=cusp_idx,
                         P=p,
                         Q=q,

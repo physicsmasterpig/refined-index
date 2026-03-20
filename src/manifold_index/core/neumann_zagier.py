@@ -499,6 +499,102 @@ def apply_cusp_basis_change(
     )
 
 
+def apply_general_cusp_basis_change(
+    nz_data: NeumannZagierData,
+    cusp_idx: int,
+    a: int,
+    b: int,
+    c: int,
+    d: int,
+) -> NeumannZagierData:
+    """Apply a *general* SL(2,ℤ) basis change at one cusp.
+
+    The SL(2,ℤ) matrix ``[[a, b], [c, d]]`` (with ``a·d − b·c = 1``)
+    acts on the peripheral curves ``(μ, λ)`` as
+
+        new_μ = a·μ + b·λ
+        new_λ = c·μ + d·λ
+
+    In the NZ convention ``(M, L/2)`` where ``M ↔ μ`` and ``L ↔ λ``,
+    the transformed rows are:
+
+        new_M   =  a · M  +  2b · (L/2)
+        new_L/2 = (c/2) · M  +  d · (L/2)
+
+    The symplectic pairing is preserved:
+
+        {new_M, new_L/2} = a·d − b·c = 1.
+
+    Unlike :func:`apply_cusp_basis_change`, this function does **not**
+    require ``a`` to be odd; the resulting ``new_L/2`` row may acquire
+    half-integer entries (which the NZ data already supports).
+
+    Parameters
+    ----------
+    nz_data : NeumannZagierData
+    cusp_idx : int
+        Zero-based cusp index.
+    a, b, c, d : int
+        Entries of the SL(2,ℤ) matrix ``[[a, b], [c, d]]``, satisfying
+        ``a·d − b·c = 1``.
+
+    Returns
+    -------
+    NeumannZagierData
+        New NZ data with the cusp-k rows and affine shifts updated.
+
+    Raises
+    ------
+    ValueError
+        If the matrix determinant is not 1 or cusp_idx is out of range.
+    """
+    n = nz_data.n
+    k = cusp_idx
+
+    if not (0 <= k < nz_data.r):
+        raise ValueError(
+            f"apply_general_cusp_basis_change: cusp_idx={k} "
+            f"out of range [0, {nz_data.r})"
+        )
+
+    det = a * d - b * c
+    if det != 1:
+        raise ValueError(
+            f"apply_general_cusp_basis_change: "
+            f"det [[{a},{b}],[{c},{d}]] = {det} ≠ 1"
+        )
+
+    # ---- build new g_NZ ----
+    g_NZ_new = nz_data.g_NZ.copy()
+
+    old_pos = nz_data.g_NZ[k].copy()       # M_k  (integer entries)
+    old_mom = nz_data.g_NZ[n + k].copy()   # L_k/2 (may be half-integer)
+
+    # new_M   =  a · M  +  2b · (L/2)     → always integer
+    g_NZ_new[k] = a * old_pos + 2 * b * old_mom
+
+    # new_L/2 = (c/2) · M  +  d · (L/2)   → entries in Z/2
+    g_NZ_new[n + k] = (c / 2) * old_pos + d * old_mom
+
+    # ---- update affine shifts ----
+    nu_x_float = nz_data.nu_x.astype(float)
+    nu_x_float[k] = a * float(nz_data.nu_x[k]) + 2 * b * float(nz_data.nu_p[k])
+    nu_x_new = np.round(nu_x_float).astype(int)
+
+    nu_p_new = nz_data.nu_p.copy()
+    nu_p_new[k] = (c / 2) * float(nz_data.nu_x[k]) + d * float(nz_data.nu_p[k])
+
+    return NeumannZagierData(
+        g_NZ=g_NZ_new,
+        nu_x=nu_x_new,
+        nu_p=nu_p_new,
+        n=nz_data.n,
+        r=nz_data.r,
+        num_hard=nz_data.num_hard,
+        num_easy=nz_data.num_easy,
+    )
+
+
 def build_neumann_zagier(
     data: ManifoldData,
     easy_result: EasyEdgeResult,
