@@ -293,7 +293,6 @@ class FillingPanel(QFrame):
         html = format_panel2_html(
             nc_results=nc_results,
             nz=self._nz_data,
-            weyl=self._weyl_result,
         )
         self._set_math_content(html)
         # Don't re-enable button — filling still running.
@@ -305,7 +304,6 @@ class FillingPanel(QFrame):
             nc_results=self._nc_results,
             transformed_results=transformed_results,
             nz=self._nz_data,
-            weyl=self._weyl_result,
         )
         self._set_math_content(html)
 

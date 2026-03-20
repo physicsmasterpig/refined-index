@@ -86,47 +86,89 @@ class ABVectors:
     """
     Weyl-symmetry vectors (a, b) for the refined index.
 
+    The physical Weyl monomial is  ``η^{a·e + b·m}``, so:
+
+    * ``a[j]`` couples to the longitude charge *e*
+    * ``b[j]`` couples to the meridian charge *m*
+
+    An edge *j* is **compatible** with Dehn filling iff ``a[j] ∈ ℤ``
+    and ``2·b[j] ∈ ℤ``.  (This ensures the doubled-exponent shift
+    ``2(a·e + b·m)`` is always an integer for half-integer *e* and
+    integer *m*.)  Incompatible edges must have their refinement
+    turned off (η_j = 1, v_j = 0).
+
     Attributes
     ----------
     a : list[Fraction]
-        One entry per hard edge.  Must be an integer (ℤ) for the Dehn
-        filling to be well-defined.
+        One entry per hard edge.  Compatible iff ``a[j] ∈ ℤ``.
     b : list[Fraction]
-        One entry per hard edge.  Must be a half-integer (ℤ/2) for the
-        Dehn filling to be well-defined.
+        One entry per hard edge.  Compatible iff ``2·b[j] ∈ ℤ``.
     num_hard : int
         Number of hard edges.
-    a_is_integer : list[bool]
-        ``a[j] in ℤ`` for each j.
-    b_is_half_integer : list[bool]
-        ``2*b[j] in ℤ`` for each j.
     warnings : list[str]
         Non-fatal messages (e.g., inconsistency between different pair
         estimates, or missing data for some components).
-
-    Properties
-    ----------
-    is_valid : bool
-        True iff all integrality constraints are satisfied.
     """
 
     a: list[Fraction]
     b: list[Fraction]
     num_hard: int
-    a_is_integer: list[bool] = field(default_factory=list)
-    b_is_half_integer: list[bool] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
-    def __post_init__(self) -> None:
-        if not self.a_is_integer:
-            self.a_is_integer = [v.denominator == 1 for v in self.a]
-        if not self.b_is_half_integer:
-            self.b_is_half_integer = [(v * 2).denominator == 1 for v in self.b]
+    @property
+    def a_is_integer(self) -> list[bool]:
+        """``a[j] ∈ ℤ`` for each j."""
+        return [v.denominator == 1 for v in self.a]
+
+    @property
+    def b_is_half_integer(self) -> list[bool]:
+        """``2·b[j] ∈ ℤ`` for each j."""
+        return [(v * 2).denominator == 1 for v in self.b]
 
     @property
     def is_valid(self) -> bool:
-        """True iff a ∈ ℤ^num_hard and b ∈ (ℤ/2)^num_hard."""
+        """True iff every edge is compatible: a ∈ ℤ and 2b ∈ ℤ."""
         return all(self.a_is_integer) and all(self.b_is_half_integer)
+
+    @property
+    def edge_compatible(self) -> list[bool]:
+        """Per-edge compatibility with Dehn filling.
+
+        Edge *j* is compatible iff ``a[j] ∈ ℤ`` and ``2·b[j] ∈ ℤ``.
+        Incompatible edges must be turned off: η_j = 1 (v_j = 0).
+        """
+        return [
+            a_ok and b_ok
+            for a_ok, b_ok in zip(self.a_is_integer, self.b_is_half_integer)
+        ]
+
+    def make_filling_compatible(self) -> "ABVectors":
+        """Return a copy with incompatible edges zeroed out.
+
+        For each hard edge j where :attr:`edge_compatible` is False,
+        sets ``a[j] = 0`` and ``b[j] = 0`` (i.e., η_j = 1 during
+        filling).  Compatible edges are kept unchanged.
+        """
+        mask = self.edge_compatible
+        a_new = [
+            self.a[j] if mask[j] else Fraction(0)
+            for j in range(self.num_hard)
+        ]
+        b_new = [
+            self.b[j] if mask[j] else Fraction(0)
+            for j in range(self.num_hard)
+        ]
+        zeroed = [j for j in range(self.num_hard) if not mask[j]]
+        new_warnings = list(self.warnings)
+        if zeroed:
+            new_warnings.append(
+                f"Edges {zeroed} incompatible with half-integer e; "
+                f"set η_j=1 (v_j=0) for filling"
+            )
+        return ABVectors(
+            a=a_new, b=b_new, num_hard=self.num_hard,
+            warnings=new_warnings,
+        )
 
     def __str__(self) -> str:
         def _fmt(v: Fraction) -> str:
@@ -217,10 +259,14 @@ def _eta_center_at_leading_q(
     Unlike :func:`extract_leading_eta_exponents` (component-wise minimum),
     the centre is the midpoint of the η-polynomial, which satisfies
 
-        centre(m, e) = b · m + (a/2) · e
+        centre(m, e) = −(b · m + (a/2) · e)
 
-    and enables correct extraction of both *a* (integer) and *b*
-    (half-integer) from conjugate charge pairs.
+    where (a, b) are the stored Weyl vectors.  The negative sign arises
+    because the Weyl monomial  f = η^{b·m + (a/2)·e} · I^ref  cancels
+    the centre shift, making f Weyl-symmetric.
+
+    This enables correct extraction of both *a* and *b* from conjugate
+    charge pairs.
     """
     if not result:
         return None
@@ -272,7 +318,7 @@ def compute_ab_vectors(
 
     * **a[j]** from longitude pairs  (0, e) / (0, −e)  with sum(e) > 0:
 
-          a[j]  =  −[centre_j(0, +e) − centre_j(0, −e)] / sum(|e|)
+          a[j]  =  −[centre_j(0, +e) − centre_j(0, −e)] / (2 · sum(|e|))
 
     Multiple pairs are used for robustness; consistency is checked across
     them.  Only pairs from the "positive" side (m_sum > 0 or e_sum > 0) are
@@ -345,7 +391,7 @@ def compute_ab_vectors(
                     seen_pairs_a.add(pair_tag)
                     total_e = sum(abs(e) for e in e_key)  # = sum(e_key) > 0
                     a_vec = [
-                        -(c_pos[j] - c_neg[j]) / total_e
+                        -(c_pos[j] - c_neg[j]) / (2 * total_e)
                         for j in range(num_hard)
                     ]
                     a_estimates.append(a_vec)
@@ -415,6 +461,170 @@ def compute_ab_vectors(
 
 
 # ---------------------------------------------------------------------------
+# Per-cusp Weyl vector extraction
+# ---------------------------------------------------------------------------
+
+def compute_ab_vectors_for_cusp(
+    nz_data,  # NeumannZagierData — late import to avoid circular deps
+    cusp_idx: int,
+    q_order_half: int = 20,
+) -> ABVectors | None:
+    r"""
+    Compute Weyl vectors (a, b) for a *single* cusp by numerical probing.
+
+    Evaluates :func:`~manifold_index.core.refined_index.compute_refined_index`
+    at a small set of charge configurations where **only** cusp *cusp_idx*
+    has nonzero charges (all other cusps are at ``m = 0, e = 0``), then
+    extracts the per-cusp Weyl column ``(a^{(I)}, b^{(I)})`` from the
+    η-centre shift.
+
+    This is the correct approach for the matrix Weyl model:
+
+    .. math::
+
+        f = \prod_{i=1}^{\text{num\_hard}}
+            \eta_i^{\sum_{I=1}^{d}(a^{(i)}_I e_{n+I} + b^{(i)}_I m_{n+I})}
+            \cdot \mathcal{I}^{\text{ref}}
+
+    where *I* indexes filled cusps.  Each column
+    ``(a^{(\cdot)}_I, b^{(\cdot)}_I)`` is extracted independently by varying
+    only cusp *I*'s charges.
+
+    The function is designed to be called **after** the NC basis change
+    (i.e. on the rebased ``nz_nc``), so that the returned (a, b) are in
+    the correct cusp basis for filling.
+
+    Parameters
+    ----------
+    nz_data : NeumannZagierData
+        Neumann–Zagier data (potentially after cusp basis change).
+    cusp_idx : int
+        Which cusp to extract Weyl vectors for (0-based).
+    q_order_half : int
+        Series cutoff for the refined index evaluations.
+
+    Returns
+    -------
+    ABVectors or None
+        Weyl vectors of length ``num_hard``.
+        ``a[j]`` is the physical longitude Weyl coupling (may be half-integer).
+        ``b[j]`` is the physical meridian Weyl coupling (may be half-integer).
+        An edge is compatible with filling iff ``a[j] ∈ ℤ`` and ``2·b[j] ∈ ℤ``.
+        Returns ``None`` if extraction fails.
+    """
+    from manifold_index.core.refined_index import compute_refined_index
+
+    r = nz_data.r
+    num_hard = nz_data.num_hard
+
+    if num_hard == 0:
+        return ABVectors(a=[], b=[], num_hard=0)
+
+    # Evaluation grid: vary only cusp_idx, all others at (0, 0)
+    _m_vals = [-2, -1, 0, 1, 2]
+    _e_halves = [-2, -1, 0, 1, 2]  # e = k/2
+
+    entries: list[tuple[list[int], list[Fraction], RefinedIndexResult]] = []
+    for m_i in _m_vals:
+        for e_half in _e_halves:
+            e_i = Fraction(e_half, 2)
+            # Build full (m_ext, e_ext): only cusp_idx is nonzero
+            m_ext = [0] * r
+            e_ext: list[Fraction] = [Fraction(0)] * r
+            m_ext[cusp_idx] = m_i
+            e_ext[cusp_idx] = e_i
+            result = compute_refined_index(
+                nz_data, m_ext, e_ext, q_order_half=q_order_half,
+            )
+            entries.append((m_ext, e_ext, result))
+
+    # ------------------------------------------------------------------
+    # Extract centres and compute (a, b) using per-cusp charges
+    # ------------------------------------------------------------------
+    indexed: dict[tuple[int, Fraction], list[Fraction] | None] = {}
+    for m_ext, e_ext, result in entries:
+        m_i = m_ext[cusp_idx]
+        e_i = e_ext[cusp_idx]
+        indexed[(m_i, e_i)] = _eta_center_at_leading_q(result, num_hard)
+
+    def get_c(m_i: int, e_i: Fraction) -> list[Fraction] | None:
+        return indexed.get((m_i, e_i))
+
+    b_estimates: list[list[Fraction]] = []
+    a_estimates: list[list[Fraction]] = []
+
+    # ---- meridian pairs: e_i = 0, m_i > 0 ----
+    for m_i in [1, 2]:
+        c_pos = get_c(m_i, Fraction(0))
+        c_neg = get_c(-m_i, Fraction(0))
+        if c_pos is not None and c_neg is not None:
+            b_vec = [
+                -(c_pos[j] - c_neg[j]) / (2 * m_i)
+                for j in range(num_hard)
+            ]
+            b_estimates.append(b_vec)
+
+    # ---- longitude pairs: m_i = 0, e_i > 0 ----
+    for e_i in [Fraction(1, 2), Fraction(1)]:
+        c_pos = get_c(0, e_i)
+        c_neg = get_c(0, -e_i)
+        if c_pos is not None and c_neg is not None:
+            a_vec = [
+                -(c_pos[j] - c_neg[j]) / (2 * abs(e_i))
+                for j in range(num_hard)
+            ]
+            a_estimates.append(a_vec)
+
+    # Fallback: compare to zero-charge centre
+    if not b_estimates:
+        c_zero = get_c(0, Fraction(0))
+        if c_zero is not None:
+            for m_i in [1, 2]:
+                c_pos = get_c(m_i, Fraction(0))
+                if c_pos is not None:
+                    b_vec = [
+                        -(c_pos[j] - c_zero[j]) / m_i
+                        for j in range(num_hard)
+                    ]
+                    b_estimates.append(b_vec)
+
+    # ------------------------------------------------------------------
+    # Consensus
+    # ------------------------------------------------------------------
+    warnings: list[str] = []
+
+    def _consensus(
+        estimates: list[list[Fraction]], label: str,
+    ) -> list[Fraction] | None:
+        if not estimates:
+            return None
+        ref = estimates[0]
+        for est in estimates[1:]:
+            for j, (r_j, e_j) in enumerate(zip(ref, est)):
+                if r_j != e_j:
+                    warnings.append(
+                        f"{label}[{j}]: inconsistent estimates "
+                        f"{r_j} vs {e_j} (using first)"
+                    )
+        return ref
+
+    b_vec = _consensus(b_estimates, "b")
+    a_vec = _consensus(a_estimates, "a")
+
+    if b_vec is None and a_vec is None:
+        return None
+
+    if b_vec is None:
+        warnings.append("b: no meridian pairs found; defaulting to 0")
+        b_vec = [Fraction(0)] * num_hard
+    if a_vec is None:
+        warnings.append("a: no longitude pairs found; defaulting to 0")
+        a_vec = [Fraction(0)] * num_hard
+
+    return ABVectors(a=a_vec, b=b_vec, num_hard=num_hard, warnings=warnings)
+
+
+# ---------------------------------------------------------------------------
 # Check Weyl symmetry
 # ---------------------------------------------------------------------------
 
@@ -424,9 +634,9 @@ def check_weyl_symmetry(
     ab: ABVectors,
 ) -> dict[tuple, bool]:
     """
-    For each entry verify  f(m, e) = η^{b·m + a·e} · I(m, e)  is Weyl-symmetric.
+    For each entry verify  f(m, e) = η^{a·e + b·m} · I(m, e)  is Weyl-symmetric.
 
-    Computes the shifted series  f = η^{shift} · I  (where shift = b·m + a·e)
+    Computes the shifted series  f = η^{shift} · I  (where shift = a·e + b·m)
     and checks that  f(η) = f(η^{−1}).
 
     A series ``f(η)`` is Weyl-symmetric (under the diagonal η_j → η_j^{−1})
@@ -440,15 +650,11 @@ def check_weyl_symmetry(
     results: dict[tuple, bool] = {}
 
     for m_ext, e_ext, result in entries:
-        # expected η-centre for this (m, e):
-        # centre_j = b[j]*m + (a[j]/2)*e
-        # In 2x-scaled integer grid: 2*centre_j = 2*b[j]*m + a[j]*e
         m_sum = sum(m_ext)
         e_sum = sum(e_ext)
-        # shift_j = b[j]*m + (a[j]/2)*e  (multiplier exponent in user convention)
-        # In 2x-scaled integer grid: 2*shift_j = 2*b[j]*m + a[j]*e
+        # shift_x2 = 2·(a·e + b·m) in the doubled-exponent encoding
         shift_x2 = [
-            int(2 * ab.b[j] * m_sum + ab.a[j] * e_sum)
+            int(2 * (ab.a[j] * e_sum + ab.b[j] * m_sum))
             for j in range(num_hard)
         ]
 
@@ -490,9 +696,9 @@ def strip_weyl_monomial(
 ) -> "tuple[list[Fraction], RefinedIndexResult]":
     """Factor out the Weyl η-monomial from a single entry.
 
-    In the multiplier convention  f(m,e) = η^{b·m + a·e} · I(m,e),
+    In the multiplier convention  f(m,e) = η^{a·e + b·m} · I(m,e),
     this function computes the Weyl-manifest series ``f`` by multiplying
-    ``I(m,e)`` by ``η^{b·m + a·e}``.
+    ``I(m,e)`` by ``η^{a·e + b·m}``.
 
     Returns the per-edge factored-exponent in *I* (i.e. the *negative* of
     the multiplier exponent) and the stripped (Weyl-manifest) series.
@@ -518,19 +724,19 @@ def strip_weyl_monomial(
     -------
     centre : list[Fraction]
         Exponent of the η-monomial **in I** (the factored-form exponent).
-        Equal to ``−(b·m + a·e)`` where *b* = ``ab.b`` and *a* = ``ab.a/2``.
+        Equal to ``−(a·e + b·m)`` where *a* = ``ab.a`` and *b* = ``ab.b``.
         Used to display  ``I(m,e) = η^{centre} · f(η)``.
     stripped : RefinedIndexResult
-        The Weyl-manifest series ``f = η^{b·m + a·e} · I``.  Stored in
+        The Weyl-manifest series ``f = η^{a·e + b·m} · I``.  Stored in
         the same doubled-exponent encoding as *result*.
     """
     m_sum = sum(m_ext)
     e_sum = sum(Fraction(v) for v in e_ext)
     shift_x2 = [
-        int(2 * ab.b[j] * m_sum + ab.a[j] * e_sum)
+        int(2 * (ab.a[j] * e_sum + ab.b[j] * m_sum))
         for j in range(num_hard)
     ]
-    # centre[j] = −(b[j]*m + (a[j]/2)*e) = the exponent in I(m,e) = η^{centre} · f
+    # centre[j] = −(a[j]·e + b[j]·m)
     centre = [Fraction(-s, 2) for s in shift_x2]
     stripped: RefinedIndexResult = {}
     for key, coeff in result.items():

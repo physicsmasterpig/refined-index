@@ -754,19 +754,23 @@ def _apply_weyl_shift(
     weyl_a: list[Fraction],
     weyl_b: list[Fraction],
     num_hard: int,
+    cusp_idx: int = 0,
 ) -> RefinedIndexResult:
-    """Multiply a refined index by the Weyl monomial η^{b·m + a·e}.
+    """Multiply a refined index by the Weyl monomial η^{a·e_I + b·m_I}.
 
-    This transforms I^ref(m, e; η) → f(m, e; η) = η^{b·m + a·e} · I^ref
+    This transforms I^ref(m, e; η) → f(m, e; η) = η^{a·e_I + b·m_I} · I^ref
     so that Dehn filling operates on the Weyl-manifest form.
+
+    In the matrix Weyl model, each filled cusp *I* has its own column of
+    Weyl vectors (a^{(I)}, b^{(I)}).  The shift uses **only the charges of
+    the filled cusp** (not a sum over all cusps).
 
     The shift in the 2×-encoded key convention is:
 
-        shift_x2[j] = 2·b[j]·Σm + a[j]·Σe
+        shift_x2[j] = 2·(a[j]·e_I + b[j]·m_I)
 
-    where ``a[j]`` stores 2·a_actual (integer) and ``b[j]`` stores b_actual
-    (half-integer).  This is the same convention as
-    :func:`~manifold_index.core.weyl_check.check_weyl_symmetry`.
+    where ``a[j]`` and ``b[j]`` are the physical Weyl vectors, and
+    ``m_I = m_ext[cusp_idx]``, ``e_I = e_ext[cusp_idx]``.
 
     Parameters
     ----------
@@ -775,20 +779,21 @@ def _apply_weyl_shift(
     m_ext, e_ext : sequences, length r (number of cusps)
         Meridian / longitude charges for this evaluation.
     weyl_a, weyl_b : list[Fraction], length num_hard
-        Weyl vectors.  ``weyl_a[j]`` = 2·a_actual,
-        ``weyl_b[j]`` = b_actual.
+        Physical Weyl vectors for the cusp being filled.
     num_hard : int
         Number of hard edges.
+    cusp_idx : int
+        Index of the cusp being filled (0-based).
 
     Returns
     -------
     RefinedIndexResult
         Shifted copy.
     """
-    m_sum = sum(m_ext)
-    e_sum = sum(Fraction(v) for v in e_ext)
+    m_I = m_ext[cusp_idx]
+    e_I = Fraction(e_ext[cusp_idx])
     shift_x2 = [
-        int(2 * weyl_b[j] * m_sum + weyl_a[j] * e_sum)
+        int(2 * (weyl_a[j] * e_I + weyl_b[j] * m_I))
         for j in range(num_hard)
     ]
     # If all shifts are zero, return original unmodified
@@ -964,6 +969,38 @@ class FilledRefinedResult:
         """True if no non-zero coefficients."""
         return len(self.series) == 0
 
+    def collapse_eta_edges(self, edges: list[int]) -> "FilledRefinedResult":
+        """Set η_j = 1 (v_j = 0) for the given hard-edge indices.
+
+        For each edge j in *edges*, the doubled-exponent at position 1+j in
+        every key is set to 0 and coefficients with identical collapsed keys
+        are summed.  Returns a new ``FilledRefinedResult``.
+
+        This is used when edge *j* is incompatible with Dehn filling
+        (``a[j] ∉ ℤ``), so the refinement for that edge must be turned off.
+        """
+        if not edges:
+            return self
+        positions = [1 + j for j in edges]  # key indices to zero out
+        new_series: MultiEtaSeries = {}
+        for key, coeff in self.series.items():
+            if coeff == 0:
+                continue
+            new_key = list(key)
+            for pos in positions:
+                new_key[pos] = 0
+            new_key = tuple(new_key)
+            new_series[new_key] = new_series.get(new_key, 0) + coeff
+        # Remove zeros
+        new_series = {k: v for k, v in new_series.items() if v != 0}
+        return FilledRefinedResult(
+            P=self.P, Q=self.Q, cusp_idx=self.cusp_idx,
+            series=new_series, qq_order=self.qq_order,
+            eta_order=self.eta_order, hj_ks=self.hj_ks,
+            n_kernel_terms=self.n_kernel_terms,
+            num_hard=self.num_hard, has_cusp_eta=self.has_cusp_eta,
+        )
+
     def eta1_series(self) -> dict[int, Fraction]:
         """Set all η variables to 1: pure qq-series."""
         result: dict[int, Fraction] = {}
@@ -1122,11 +1159,10 @@ def compute_filled_refined_index(
         Scan range for intermediate (m_1, e_1) variables.
         Default: 2 * q_order_half.
     weyl_a, weyl_b : list[Fraction] or None, optional
-        Weyl-symmetry vectors from :class:`ABVectors`.  When provided, each
-        I^ref(m, e) is multiplied by η^{b·m + a·e} *before* the Dehn filling
-        kernel is applied, so that the filling operates on the Weyl-manifest
-        form.  ``weyl_a[j]`` stores 2·a_actual (integer), ``weyl_b[j]``
-        stores b_actual (half-integer).
+        Physical Weyl-symmetry vectors from :class:`ABVectors`.  When
+        provided, each I^ref(m, e) is multiplied by η^{a·e + b·m} *before*
+        the Dehn filling kernel is applied, so that the filling operates on
+        the Weyl-manifest form.
     verbose : bool
         Print progress to stdout.
 
@@ -1207,10 +1243,11 @@ def compute_filled_refined_index(
                 continue
             n_terms += 1
 
-            # Apply Weyl shift η^{b·m + a·e} before filling
+            # Apply Weyl shift η^{b·m_I + a·e_I} before filling
             if weyl_a is not None and weyl_b is not None:
                 refined = _apply_weyl_shift(
-                    refined, m_ext, e_ext, weyl_a, weyl_b, num_hard
+                    refined, m_ext, e_ext, weyl_a, weyl_b, num_hard,
+                    cusp_idx=cusp_idx,
                 )
 
             # Convert to MultiEtaSeries (no cusp η dimension)
@@ -1282,10 +1319,11 @@ def compute_filled_refined_index(
                 continue
             n_grid_terms += 1
 
-            # Apply Weyl shift η^{b·m + a·e} before IS convolutions
+            # Apply Weyl shift η^{b·m_I + a·e_I} before IS convolutions
             if weyl_a is not None and weyl_b is not None:
                 refined = _apply_weyl_shift(
-                    refined, m_ext, e_ext, weyl_a, weyl_b, num_hard
+                    refined, m_ext, e_ext, weyl_a, weyl_b, num_hard,
+                    cusp_idx=cusp_idx,
                 )
 
             # Convert to MultiEtaSeries with cusp_eta=0 appended

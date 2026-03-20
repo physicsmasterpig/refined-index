@@ -118,6 +118,12 @@ class TransformedFillResult:
         Each entry is ``(m_other, e_other, fr)`` where ``m_other`` and
         ``e_other`` are the charges on the *unfilled* cusps.
         For a 1-cusp manifold this is a single entry with empty lists.
+    weyl_a_phys : list[Fraction] | None
+        Physical Weyl vector *a* (per hard edge).  Compatible iff ``a[j] ∈ ℤ``.
+        None if unavailable.
+    weyl_b_phys : list[Fraction] | None
+        Physical Weyl vector *b* (per hard edge).  Compatible iff ``2·b[j] ∈ ℤ``.
+        None if unavailable.
     """
     cusp_idx: int
     P_nc: int       # NC cycle in (α, β) basis
@@ -129,6 +135,8 @@ class TransformedFillResult:
     P_user: int     # user's original slope in (α, β) basis
     Q_user: int
     fill_results: list  # list[tuple[list[int], list, FilledRefinedResult]]
+    weyl_a_phys: list | None = None  # a_physical per hard edge
+    weyl_b_phys: list | None = None  # b_physical per hard edge
 
 
 def _canonicalize_nc_cycles(cycles: list) -> list:
@@ -186,8 +194,6 @@ class DehnFillingWorker(QThread):
         q_order_half: int,
         p_range: range,
         q_range: range,
-        weyl_a: list | None = None,
-        weyl_b: list | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -196,8 +202,6 @@ class DehnFillingWorker(QThread):
         self._q_order_half = q_order_half
         self._p_range = p_range
         self._q_range = q_range
-        self._weyl_a = weyl_a
-        self._weyl_b = weyl_b
 
     def run(self) -> None:
         try:
@@ -220,6 +224,7 @@ class DehnFillingWorker(QThread):
         from manifold_index.core.neumann_zagier import (
             apply_general_cusp_basis_change,
         )
+        from manifold_index.core.weyl_check import compute_ab_vectors_for_cusp
 
         nz = self._nz_data
         r = nz.r
@@ -357,6 +362,56 @@ class DehnFillingWorker(QThread):
                 nz, cusp_idx, a=P_nc, b=Q_nc, c=R, d=S,
             )
 
+            # ── Compute Weyl vectors in the new cusp basis ──
+            #
+            # The Weyl vectors (a, b) are basis-dependent and form a
+            # matrix (num_hard × d) where d = number of filled cusps.
+            # Each column is extracted independently by probing I^ref at
+            # charge configs that vary only the filled cusp's charges.
+            # This is done AFTER the NC basis change so that the returned
+            # (a, b) are correct for the new (μ′, λ′) basis.
+            self.status.emit(
+                f"Step 2/2 — Cusp {cusp_idx}, NC ({P_nc},{Q_nc}): "
+                f"extracting Weyl vectors…"
+            )
+            ab_nc = compute_ab_vectors_for_cusp(
+                nz_nc, cusp_idx, q_order_half=q_order_half,
+            )
+            # Weyl vectors for display (always physical a, b)
+            if ab_nc is not None:
+                weyl_a_phys = list(ab_nc.a)
+                weyl_b_phys = list(ab_nc.b)
+            else:
+                weyl_a_phys = None
+                weyl_b_phys = None
+
+            if ab_nc is not None:
+                # Identify incompatible edges (a ∉ ℤ or 2b ∉ ℤ)
+                incompat_edges = [
+                    j for j, ok in enumerate(ab_nc.edge_compatible) if not ok
+                ]
+                # Zero out incompatible edges for the Weyl shift
+                ab_compat = ab_nc.make_filling_compatible()
+                weyl_a_nc = list(ab_compat.a)
+                weyl_b_nc = list(ab_compat.b)
+                # If all edges were zeroed, skip Weyl shift entirely
+                if all(a == 0 and b == 0 for a, b in zip(weyl_a_nc, weyl_b_nc)):
+                    self.status.emit(
+                        f"  NC ({P_nc},{Q_nc}): all edges incompatible "
+                        f"→ Weyl shift disabled"
+                    )
+                    weyl_a_nc = None
+                    weyl_b_nc = None
+                if incompat_edges:
+                    self.status.emit(
+                        f"  NC ({P_nc},{Q_nc}): edges {incompat_edges} "
+                        f"incompatible → setting v_j=0"
+                    )
+            else:
+                weyl_a_nc = None
+                weyl_b_nc = None
+                incompat_edges = []
+
             # Build external-charge combos for unfilled cusps
             n_unfilled = r - 1
             if n_unfilled == 0:
@@ -391,9 +446,12 @@ class DehnFillingWorker(QThread):
                         m_other=list(m_o) if m_o else None,
                         e_other=list(e_o) if e_o else None,
                         q_order_half=q_order_half,
-                        weyl_a=self._weyl_a,
-                        weyl_b=self._weyl_b,
+                        weyl_a=weyl_a_nc,
+                        weyl_b=weyl_b_nc,
                     )
+                    # Collapse η_j = 1 for incompatible edges
+                    if incompat_edges:
+                        fr = fr.collapse_eta_edges(incompat_edges)
                     fill_results.append((list(m_o), list(e_o), fr))
                 except Exception as exc:
                     self.status.emit(
@@ -408,6 +466,8 @@ class DehnFillingWorker(QThread):
                 p=p, q=q,
                 P_user=P_user, Q_user=Q_user,
                 fill_results=fill_results,
+                weyl_a_phys=weyl_a_phys,
+                weyl_b_phys=weyl_b_phys,
             ))
 
         n_nc_total = len(all_nc)

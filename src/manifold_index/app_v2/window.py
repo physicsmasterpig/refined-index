@@ -173,13 +173,6 @@ class MainWindow(QMainWindow):
         q_order_half = payload["q_order_half"]
         p_range = payload["p_range"]
         q_range = payload["q_range"]
-        weyl = payload.get("weyl_result")
-
-        weyl_a = None
-        weyl_b = None
-        if weyl is not None and weyl.ab is not None and weyl.ab.is_valid:
-            weyl_a = list(weyl.ab.a)
-            weyl_b = list(weyl.ab.b)
 
         worker = DehnFillingWorker(
             nz_data=nz,
@@ -187,8 +180,6 @@ class MainWindow(QMainWindow):
             q_order_half=q_order_half,
             p_range=p_range,
             q_range=q_range,
-            weyl_a=weyl_a,
-            weyl_b=weyl_b,
         )
         worker.status.connect(self._panel2.update_status)
         worker.progress.connect(self._panel2.update_progress)

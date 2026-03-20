@@ -205,7 +205,7 @@ class ManifoldPanel(QFrame):
 
         html = format_panel1_html(
             self._md, self._ps, self._nz_data,
-            entries=entries, weyl=weyl_result,
+            entries=entries,
         )
         self._set_math_content(html)
 

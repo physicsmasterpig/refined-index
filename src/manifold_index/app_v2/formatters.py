@@ -518,7 +518,6 @@ def format_panel1_html(
     ps: EasyEdgeResult,
     nz: NeumannZagierData,
     entries: list[tuple[list[int], list, RefinedIndexResult]] | None = None,
-    weyl: WeylCheckResult | None = None,
     max_q_terms: int = 4,
 ) -> str:
     """Assemble the full Panel 1 HTML body from all components.
@@ -531,8 +530,6 @@ def format_panel1_html(
         format_edge_classification(ps),
         format_nz_matrix(nz),
     ]
-    if weyl is not None:
-        parts.append(format_weyl_check(weyl, nz))
     if entries is not None:
         parts.append(format_refined_index_table(entries, nz, max_q_terms))
     return "\n".join(parts)
@@ -569,7 +566,6 @@ def format_nc_cycles(
 
 def format_transformed_fill_results(
     transformed_results: list,  # list[TransformedFillResult]
-    weyl=None,  # WeylCheckResult | None
     nz=None,    # NeumannZagierData | None — needed for multi-cusp charge labels
 ) -> str:
     """Format the unified NC cycle table + filled refined index results.
@@ -582,9 +578,6 @@ def format_transformed_fill_results(
         return ""
 
     html = ""
-
-    if weyl is not None and weyl.ab is not None and not weyl.ab.is_valid:
-        html += '<p class="warn">⚠ &nbsp; $a \\notin \\mathbb{Z}$: Dehn filling results may be unreliable.</p>\n'
 
     # Group by cusp
     by_cusp: dict[int, list] = {}
@@ -612,6 +605,8 @@ def format_transformed_fill_results(
             '<th>$\\delta_i$</th>'
             '<th>Transformed slope</th>'
             '<th>$\\mathbf{k}$</th>'
+            '<th>$a$</th>'
+            '<th>$b$</th>'
             '</tr>\n'
         )
 
@@ -631,6 +626,18 @@ def format_transformed_fill_results(
             else:
                 k_str = "—"
 
+            # Weyl vectors (physical values): a_phys, b_phys per hard edge
+            if tr.weyl_a_phys is not None:
+                a_entries = [_frac_to_latex(v) for v in tr.weyl_a_phys]
+                a_str = "$(" + ",\\;".join(a_entries) + ")$"
+            else:
+                a_str = "—"
+            if tr.weyl_b_phys is not None:
+                b_entries = [_frac_to_latex(v) for v in tr.weyl_b_phys]
+                b_str = "$(" + ",\\;".join(b_entries) + ")$"
+            else:
+                b_str = "—"
+
             html += (
                 f'<tr>'
                 f'<td><b>{i}</b></td>'
@@ -638,6 +645,8 @@ def format_transformed_fill_results(
                 f'<td>{delta_str}</td>'
                 f'<td>{slope_str}</td>'
                 f'<td>{k_str}</td>'
+                f'<td>{a_str}</td>'
+                f'<td>{b_str}</td>'
                 f'</tr>\n'
             )
 
@@ -886,7 +895,6 @@ def format_panel2_html(
     nc_results: list | None = None,
     transformed_results: list | None = None,
     nz: NeumannZagierData | None = None,
-    weyl: WeylCheckResult | None = None,
 ) -> str:
     """Assemble the full Panel 2 HTML body.
 
@@ -914,7 +922,7 @@ The pipeline will:<br>
     if transformed_results is not None and len(transformed_results) > 0:
         # ── Final display: unified NC table + index results ───
         parts.append(format_transformed_fill_results(
-            transformed_results, weyl, nz=nz,
+            transformed_results, nz=nz,
         ))
     elif nc_results is not None:
         # ── Intermediate display: NC search in progress ───────
