@@ -88,23 +88,45 @@ class KernelTable:
     e_scan: int
     compute_time_s: float = 0.0
 
-    # Lazily computed integer-scaled, η-grouped representation
-    _lcd: int = field(default=0, init=False, repr=False)
-    _int_grouped: dict | None = field(default=None, init=False, repr=False)
+    # Persistent fast representation (survives pickling)
+    # lcd: least common denominator of all Fraction coefficients
+    # int_grouped: (m,e) → {η_cusp: (min_qq, np.ndarray[int64])}
+    #   where the array is a dense kernel vector scaled by lcd,
+    #   offset so that array[i] corresponds to qq = i + min_qq.
+    _fast_lcd: int = field(default=0, repr=False)
+    _fast_grouped: dict | None = field(default=None, repr=False)
 
     def get_int_grouped(
         self,
-    ) -> tuple[int, dict[tuple[int, Fraction], dict[int, dict[int, int]]]]:
-        """Return (lcd, grouped) where grouped[(m,e)][eta_cusp][qq_k] = int.
+    ) -> tuple[int, dict[tuple[int, Fraction], dict[int, tuple[int, np.ndarray]]]]:
+        """Return ``(lcd, grouped)`` for numpy-accelerated convolution.
 
-        The kernel coefficients are scaled by the LCD of all denominators
-        so the convolution can be done entirely in integer arithmetic.
-        The result is cached on first call.
+        ``grouped[(m,e)][eta_cusp] = (min_qq, arr)`` where *arr* is a
+        dense ``int64`` numpy array with ``arr[i]`` = kernel coefficient
+        at ``qq = i + min_qq``, scaled by *lcd*.
+
+        The representation is **built once** (lazily on first call or
+        eagerly at save-time via :meth:`ensure_fast_repr`) and cached
+        on the instance.  It survives pickling so subsequent loads skip
+        the conversion entirely.
         """
-        if self._int_grouped is not None:
-            return self._lcd, self._int_grouped
+        if self._fast_grouped is not None:
+            return self._fast_lcd, self._fast_grouped
+        self.ensure_fast_repr()
+        return self._fast_lcd, self._fast_grouped
 
-        # Compute LCD
+    def ensure_fast_repr(self) -> None:
+        """Build the fast (lcd, int-grouped-numpy) representation.
+
+        Idempotent — does nothing if already built.
+        Called automatically by :meth:`get_int_grouped` and
+        explicitly by :func:`save_kernel_table` so the representation
+        is persisted to disk.
+        """
+        if self._fast_grouped is not None:
+            return
+
+        # Compute LCD of all Fraction denominators
         denoms: set[int] = set()
         for entry in self.table.values():
             for c in entry.values():
@@ -113,17 +135,26 @@ class KernelTable:
         for d in denoms:
             lcd = lcd * d // _gcd(lcd, d)
 
-        # Build int-grouped representation
-        grouped: dict[tuple[int, Fraction], dict[int, dict[int, int]]] = {}
+        # Build int-grouped representation with pre-built numpy arrays
+        grouped: dict[tuple[int, Fraction], dict[int, tuple[int, np.ndarray]]] = {}
         for me, entry in self.table.items():
-            by_eta: dict[int, dict[int, int]] = {}
+            # First pass: group by eta_cusp → {qq_k: int_coeff}
+            by_eta_dict: dict[int, dict[int, int]] = {}
             for (qq_k, eta_cusp), c in entry.items():
-                by_eta.setdefault(eta_cusp, {})[qq_k] = int(lcd * c)
+                by_eta_dict.setdefault(eta_cusp, {})[qq_k] = int(lcd * c)
+            # Second pass: convert each eta_cusp group to (offset, dense array)
+            by_eta: dict[int, tuple[int, np.ndarray]] = {}
+            for eta_cusp, qq_map in by_eta_dict.items():
+                min_qk = min(qq_map)
+                max_qk = max(qq_map)
+                arr = np.zeros(max_qk - min_qk + 1, dtype=np.int64)
+                for qq_k, c_k in qq_map.items():
+                    arr[qq_k - min_qk] = c_k
+                by_eta[eta_cusp] = (min_qk, arr)
             grouped[me] = by_eta
 
-        self._lcd = lcd
-        self._int_grouped = grouped
-        return lcd, grouped
+        self._fast_lcd = lcd
+        self._fast_grouped = grouped
 
 
 # ---------------------------------------------------------------------------
@@ -141,14 +172,23 @@ def save_kernel_table(
 ) -> Path:
     """Save a KernelTable to disk (gzipped pickle).
 
+    Eagerly builds the fast int-grouped representation so it is
+    persisted and subsequent loads skip the Fraction→int conversion.
+
     Returns the path written.
     """
+    kt.ensure_fast_repr()
     d = Path(cache_dir) if cache_dir else _DEFAULT_CACHE_DIR
     d.mkdir(parents=True, exist_ok=True)
     path = d / _kernel_filename(kt.P, kt.Q, kt.qq_order)
     with gzip.open(path, "wb") as f:
         pickle.dump(kt, f, protocol=pickle.HIGHEST_PROTOCOL)
     return path
+
+
+# In-memory cache: (P, Q, qq_order, cache_dir) → KernelTable | None
+# Avoids repeated gzip decompression + pickle loads for the same kernel.
+_kernel_mem_cache: dict[tuple, KernelTable | None] = {}
 
 
 def load_kernel_table(
@@ -159,12 +199,20 @@ def load_kernel_table(
 ) -> KernelTable | None:
     """Load a KernelTable from disk, or return None if not found.
 
+    Results are cached in memory so repeated calls for the same
+    (P, Q, qq_order) avoid disk I/O entirely.
+
     First tries an exact match on *qq_order*.  If none exists, falls
     back to the **smallest** cached kernel whose ``stored_qq ≥ qq_order``
     for the same (P, Q).  A higher-order kernel is a mathematical
     superset — extra terms are harmless because the caller's diamond
     truncation discards anything above the requested qq_order.
     """
+    cache_key = (P, Q, qq_order, cache_dir)
+    cached = _kernel_mem_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     d = Path(cache_dir) if cache_dir else _DEFAULT_CACHE_DIR
 
     # 1. Exact match (fast path)
@@ -173,6 +221,7 @@ def load_kernel_table(
         with gzip.open(path, "rb") as f:
             kt = pickle.load(f)
         if isinstance(kt, KernelTable):
+            _kernel_mem_cache[cache_key] = kt
             return kt
 
     # 2. Fallback: smallest stored_qq ≥ qq_order for same (P, Q)
@@ -193,7 +242,16 @@ def load_kernel_table(
             continue
         if best is None or candidate.qq_order < best.qq_order:
             best = candidate
+    if best is not None:
+        _kernel_mem_cache[cache_key] = best
     return best
+
+
+def clear_kernel_cache() -> int:
+    """Clear the in-memory kernel cache.  Returns evicted count."""
+    n = len(_kernel_mem_cache)
+    _kernel_mem_cache.clear()
+    return n
 
 
 def list_cached_kernels(
@@ -600,13 +658,15 @@ def apply_precomputed_kernel(
         return m_ext, e_ext
 
     # ----- Numpy-accelerated integer convolution -----
-    # Kernel coefficients have small denominators (typically {1,2,4}).
-    # We scale to integers (×LCD), group by η_cusp, and use numpy.convolve
-    # for the qq-dimension — giving ~5× speedup over pure-Python loops.
+    # Kernel coefficients are pre-scaled to integers (×LCD) and stored as
+    # dense numpy arrays (one per η_cusp, keyed by offset).  The convolution
+    # accumulates into dense per-suffix numpy arrays — no Python-level
+    # per-element dict ops in the inner loop.
     lcd, k_grouped = kernel.get_int_grouped()
 
-    # Accumulate in pure integers (scaled by lcd)
-    accum: dict[tuple[int, ...], int] = {}
+    # Dense accumulators: suffix → int64 array of length qq_internal+1
+    # where suffix = (2η_0, …, 2η_{H-1}, η_cusp).
+    accum_arrays: dict[tuple[int, ...], np.ndarray] = {}
     n_hits = 0
 
     for (m_i, e_i), by_eta_k in k_grouped.items():
@@ -629,45 +689,57 @@ def apply_precomputed_kernel(
             continue
         n_hits += 1
 
-        # Group I^ref by η_hard pattern → {η_hard: {qq_r: coeff}}
-        iref_by_eta: dict[tuple[int, ...], dict[int, int]] = {}
+        # Group I^ref by η_hard pattern → {η_hard: dense int64 array}
+        iref_by_eta: dict[tuple[int, ...], np.ndarray] = {}
         for key, c in refined.items():
-            iref_by_eta.setdefault(key[1:], {})[key[0]] = c
+            eta_h = key[1:]
+            qq_r = key[0]
+            arr = iref_by_eta.get(eta_h)
+            if arr is None:
+                arr = np.zeros(qq_internal + 1, dtype=np.int64)
+                iref_by_eta[eta_h] = arr
+            if qq_r <= qq_internal:
+                arr[qq_r] = c
 
-        # For each (η_hard, η_cusp) pair, convolve qq dimension via numpy
-        for eta_h, iref_qq in iref_by_eta.items():
-            # Dense I^ref array: iref_arr[qq_r] = coeff
-            max_qq_r = max(iref_qq)
-            iref_arr = np.zeros(max_qq_r + 1, dtype=np.int64)
-            for qq_r, c_r in iref_qq.items():
-                iref_arr[qq_r] = c_r
+        # For each (η_hard, η_cusp) pair, convolve and accumulate via numpy
+        for eta_h, iref_arr in iref_by_eta.items():
+            # Trim trailing zeros for smaller convolution
+            nz_pos = np.flatnonzero(iref_arr)
+            if len(nz_pos) == 0:
+                continue
+            iref_trimmed = iref_arr[: int(nz_pos[-1]) + 1]
 
-            for eta_c, kern_qq in by_eta_k.items():
+            for eta_c, (min_qk, kern_arr) in by_eta_k.items():
                 suffix = eta_h + (eta_c,)
 
-                # Dense kernel array for this η_cusp
-                min_qk = min(kern_qq)
-                max_qk = max(kern_qq)
-                kern_arr = np.zeros(max_qk - min_qk + 1, dtype=np.int64)
-                for qq_k, c_k in kern_qq.items():
-                    kern_arr[qq_k - min_qk] = c_k
+                # 1-D convolution (C-level)
+                conv = np.convolve(iref_trimmed, kern_arr)
 
-                # 1-D convolution (C-level, ~100× faster than Python loop)
-                conv = np.convolve(iref_arr, kern_arr)
                 # conv[i] corresponds to qq = i + min_qk
-                lo = max(0, -min_qk)
-                hi = min(len(conv), qq_internal + 1 - min_qk)
-                for i in range(lo, hi):
-                    val = int(conv[i])
-                    if val != 0:
-                        result_key = (i + min_qk,) + suffix
-                        accum[result_key] = accum.get(result_key, 0) + val
+                # We want qq ∈ [0, qq_internal], so:
+                #   i + min_qk ≥ 0  →  i ≥ -min_qk
+                #   i + min_qk ≤ qq_internal  →  i ≤ qq_internal - min_qk
+                src_lo = max(0, -min_qk)
+                src_hi = min(len(conv), qq_internal + 1 - min_qk)
+                if src_lo >= src_hi:
+                    continue
 
-    # Convert accumulated ints → Fractions (divide by lcd), drop zeros
+                dst_lo = src_lo + min_qk
+                dst_hi = src_hi + min_qk
+
+                # Accumulate directly into dense numpy array (no Python loop)
+                acc = accum_arrays.get(suffix)
+                if acc is None:
+                    acc = np.zeros(qq_internal + 1, dtype=np.int64)
+                    accum_arrays[suffix] = acc
+                acc[dst_lo:dst_hi] += conv[src_lo:src_hi]
+
+    # Convert dense int64 arrays → sparse Fraction dict, drop zeros
     total_series: MultiEtaSeries = {}
-    for key, val in accum.items():
-        if val != 0:
-            total_series[key] = Fraction(val, lcd)
+    for suffix, arr in accum_arrays.items():
+        nz_idx = np.flatnonzero(arr)
+        for qi in nz_idx:
+            total_series[(int(qi),) + suffix] = Fraction(int(arr[qi]), lcd)
 
     if verbose:
         print(

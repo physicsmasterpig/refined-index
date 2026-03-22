@@ -182,6 +182,10 @@ def clear_filling_caches() -> dict[str, int]:
     stats["_iref_cache"] = len(_iref_cache)
     _iref_cache.clear()
 
+    # Also clear the in-memory kernel table cache
+    from manifold_index.core.kernel_cache import clear_kernel_cache
+    stats["_kernel_mem_cache"] = clear_kernel_cache()
+
     return stats
 
 
