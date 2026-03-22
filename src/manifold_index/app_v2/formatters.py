@@ -741,8 +741,9 @@ def _filled_series_to_katex(
 ) -> str:
     """Convert a FilledRefinedResult's MultiEtaSeries to compact KaTeX.
 
-    Displays hard-edge η^{±2v_a} and cusp η_c^{k} in the same format
-    as Panel 1's ``_series_to_katex``, extended with the cusp-η dimension.
+    Displays hard-edge η^{±2v_a} and cusp η_{c,i}^{k} in the same format
+    as Panel 1's ``_series_to_katex``, extended with cusp-η dimensions.
+    Supports multiple cusp η's from sequential multi-cusp filling.
     Coefficients are Fraction-valued.
     """
     if fr.is_zero:
@@ -751,6 +752,7 @@ def _filled_series_to_katex(
     series = fr.series
     num_hard = fr.num_hard
     has_cusp_eta = fr.has_cusp_eta
+    num_cusp_eta = getattr(fr, "num_cusp_eta", 1 if has_cusp_eta else 0)
 
     # ── Group by qq-power ──
     by_q: dict[int, dict[tuple[int, ...], Fraction]] = {}
@@ -785,15 +787,26 @@ def _filled_series_to_katex(
                 parts.append(rf"\eta^{{-v_{a}}}")
             else:
                 parts.append(rf"\eta^{{{exp2}v_{a}}}")
-        # Cusp η (integer exponent, last dimension)
-        if has_cusp_eta and len(eta_pows) > num_hard:
-            ce = eta_pows[num_hard]
+        # Cusp η's (integer exponents, after hard-edge dimensions)
+        # For one cusp η: render as η_c
+        # For multiple:   render as η_{c,0}, η_{c,1}, …
+        for ci in range(num_cusp_eta):
+            pos = num_hard + ci
+            if pos >= len(eta_pows):
+                break
+            ce = eta_pows[pos]
+            if ce == 0:
+                continue
+            if num_cusp_eta == 1:
+                label = r"\eta_c"
+            else:
+                label = rf"\eta_{{c,{ci}}}"
             if ce == 1:
-                parts.append(r"\eta_c")
+                parts.append(label)
             elif ce == -1:
-                parts.append(r"\eta_c^{-1}")
-            elif ce != 0:
-                parts.append(rf"\eta_c^{{{ce}}}")
+                parts.append(label + "^{-1}")
+            else:
+                parts.append(label + f"^{{{ce}}}")
         return "".join(parts)
 
     def _q_factor(q_half: int) -> str:
@@ -891,9 +904,104 @@ def _filled_series_to_katex(
     return f"${result_str}$"
 
 
+def format_multi_cusp_fill_results(
+    multi_results: list,  # list[MultiCuspFillResult]
+    nz=None,              # NeumannZagierData | None
+) -> str:
+    """Format multi-cusp sequential filling results.
+
+    Displays one section per NC cycle combination, with a per-cusp
+    table showing γ_i, δ_i, transformed slope, Weyl vectors,
+    followed by the single combined filled refined index.
+    """
+    if not multi_results:
+        return ""
+
+    html = '<h3>Multi-Cusp Dehn Filling (Sequential)</h3>\n'
+
+    # All combinations share the same user slopes — extract from first
+    first = multi_results[0]
+    slopes_parts = []
+    for ci in first.cusp_info:
+        slopes_parts.append(
+            f'Cusp {ci.cusp_idx}: '
+            f'${_slope_latex(ci.P_user, ci.Q_user, "\\\\alpha", "\\\\beta")}$'
+        )
+    html += '<p>User slopes: ' + ' &nbsp;|&nbsp; '.join(slopes_parts) + '</p>\n'
+    html += f'<p class="muted">{len(multi_results)} NC cycle combination(s)</p>\n'
+
+    for combo_idx, mr in enumerate(multi_results, 1):
+        cusp_infos = mr.cusp_info
+        fill_result = mr.fill_result
+
+        html += f'<h4 style="margin-top:16px;">Combination #{combo_idx}</h4>\n'
+
+        # ── Per-cusp NC cycle table ──────────────────────────
+        html += '<table class="nc">\n'
+        html += (
+            '<tr>'
+            '<th>Cusp</th>'
+            '<th>$\\gamma$</th>'
+            '<th>$\\delta$</th>'
+            '<th>Transformed slope</th>'
+            '<th>$a$</th>'
+            '<th>$b$</th>'
+            '</tr>\n'
+        )
+
+        for ci in cusp_infos:
+            gamma_str = f"${_slope_latex(ci.P_nc, ci.Q_nc)}$"
+            delta_str = f"${_slope_latex(ci.R, ci.S)}$"
+
+            g_sym = f"\\gamma_{{{ci.cusp_idx}}}"
+            d_sym = f"\\delta_{{{ci.cusp_idx}}}"
+            slope_str = f"${_slope_latex(ci.p, ci.q, g_sym, d_sym)}$"
+
+            if ci.weyl_a_phys is not None:
+                a_entries = [_frac_to_latex(v) for v in ci.weyl_a_phys]
+                a_str = "$(" + ",\\;".join(a_entries) + ")$"
+            else:
+                a_str = "—"
+            if ci.weyl_b_phys is not None:
+                b_entries = [_frac_to_latex(v) for v in ci.weyl_b_phys]
+                b_str = "$(" + ",\\;".join(b_entries) + ")$"
+            else:
+                b_str = "—"
+
+            html += (
+                f'<tr>'
+                f'<td><b>{ci.cusp_idx}</b></td>'
+                f'<td>{gamma_str}</td>'
+                f'<td>{delta_str}</td>'
+                f'<td>{slope_str}</td>'
+                f'<td>{a_str}</td>'
+                f'<td>{b_str}</td>'
+                f'</tr>\n'
+            )
+
+        html += '</table>\n'
+
+        # ── Combined filled refined index ────────────────────
+        if fill_result is not None:
+            series_str = _filled_series_to_katex(fill_result, max_q_terms=6)
+            html += '<table class="idx">\n'
+            html += (
+                f'<tr>'
+                f'<td class="eq">$=$</td>'
+                f'<td class="sr">{series_str}</td>'
+                f'</tr>\n'
+            )
+            html += '</table>\n'
+        else:
+            html += '<p class="warn">No result computed.</p>\n'
+
+    return html
+
+
 def format_panel2_html(
     nc_results: list | None = None,
     transformed_results: list | None = None,
+    multi_cusp_results: list | None = None,
     nz: NeumannZagierData | None = None,
 ) -> str:
     """Assemble the full Panel 2 HTML body.
@@ -901,10 +1009,14 @@ def format_panel2_html(
     Workflow display:
       1. NC cycles found (from search)
       2. User's slope transformed into each NC basis → filled refined index
+
+    For multi-cusp filling (all cusps filled simultaneously), pass
+    *multi_cusp_results* instead of *transformed_results*.
     """
     parts = []
 
-    if nc_results is None and transformed_results is None:
+    if (nc_results is None and transformed_results is None
+            and multi_cusp_results is None):
         parts.append("""
 <h3>Dehn Filling</h3>
 <p class="muted">Set slopes for each cusp, configure the NC search range,
@@ -919,8 +1031,13 @@ The pipeline will:<br>
 """)
         return "\n".join(parts)
 
-    if transformed_results is not None and len(transformed_results) > 0:
-        # ── Final display: unified NC table + index results ───
+    if multi_cusp_results is not None and len(multi_cusp_results) > 0:
+        # ── Multi-cusp sequential filling ─────────────────────
+        parts.append(format_multi_cusp_fill_results(
+            multi_cusp_results, nz=nz,
+        ))
+    elif transformed_results is not None and len(transformed_results) > 0:
+        # ── Single-cusp filling ───────────────────────────────
         parts.append(format_transformed_fill_results(
             transformed_results, nz=nz,
         ))

@@ -73,6 +73,7 @@ pure integer q powers.
 
 from __future__ import annotations
 
+import functools
 import math
 from dataclasses import dataclass
 from fractions import Fraction
@@ -115,6 +116,74 @@ QEtaSeries = dict[tuple[int, int], Fraction]
 # For ℓ≥2 Dehn filling: key = (qq_power, 2*η_0, ..., 2*η_{k-1}, cusp_eta)
 #   Appends one additional IS kernel η-variable (integer exponent).
 MultiEtaSeries = dict[tuple[int, ...], Fraction]
+
+# ---------------------------------------------------------------------------
+# Module-level caches
+# ---------------------------------------------------------------------------
+# _is_kernel and _etilde_is are pure functions of their (hashable) arguments.
+# They are cached via @functools.lru_cache on the functions themselves.
+#
+# compute_refined_index depends on a NeumannZagierData object (not directly
+# hashable), so we wrap it in a manual dict cache keyed by id(nz_data) and
+# hashable representations of the remaining args.  This gives cross-P/Q
+# memoisation: the I^ref grid scan for a second filling of the same manifold
+# reuses previously computed values.
+
+_CACHE_MISS = object()
+
+_iref_cache: dict[tuple, dict] = {}
+
+
+def _cached_compute_refined_index(
+    nz_data: "NeumannZagierData",
+    m_ext: list[int],
+    e_ext: Sequence[int | Fraction],
+    q_order_half: int,
+) -> "RefinedIndexResult":
+    """Wrapper around ``compute_refined_index`` with memoisation.
+
+    The cache key uses ``id(nz_data)`` (valid as long as the same Python
+    object is alive) and tuple-ified charge vectors.
+    """
+    key = (
+        id(nz_data),
+        tuple(m_ext),
+        tuple(Fraction(e) for e in e_ext),
+        q_order_half,
+    )
+    cached = _iref_cache.get(key, _CACHE_MISS)
+    if cached is not _CACHE_MISS:
+        return cached
+    result = compute_refined_index(nz_data, m_ext, e_ext, q_order_half)
+    _iref_cache[key] = result
+    return result
+
+
+def clear_filling_caches() -> dict[str, int]:
+    """Clear all module-level filling caches.
+
+    Call this when switching to a different manifold or to reclaim memory.
+
+    Returns
+    -------
+    dict  mapping cache name → number of entries that were evicted.
+    """
+    stats: dict[str, int] = {}
+
+    # _etilde_is and _is_kernel are @lru_cache — use .cache_clear()
+    info_etilde = _etilde_is.cache_info()
+    _etilde_is.cache_clear()
+    stats["_etilde_is"] = info_etilde.currsize
+
+    info_is = _is_kernel.cache_info()
+    _is_kernel.cache_clear()
+    stats["_is_kernel"] = info_is.currsize
+
+    stats["_iref_cache"] = len(_iref_cache)
+    _iref_cache.clear()
+
+    return stats
+
 
 # ---------------------------------------------------------------------------
 # Part 1 — Hirzebruch-Jung continued fraction
@@ -240,6 +309,7 @@ def _int_qqseries_convolve(
 # ---------------------------------------------------------------------------
 
 
+@functools.lru_cache(maxsize=None)
 def _etilde_is(
     m1: int,
     e1: Fraction,
@@ -402,6 +472,7 @@ def _etilde_is(
 # ---------------------------------------------------------------------------
 
 
+@functools.lru_cache(maxsize=None)
 def _is_kernel(
     m1: int,
     e1: Fraction,
@@ -700,12 +771,21 @@ def _apply_k1_factor_multi(
     phase: int,
     multiplicity: int,
     qq_order: int,
+    truncate: bool = True,
 ) -> MultiEtaSeries:
     """Apply unrefined K(k, 1; m, e) factor to a MultiEtaSeries.
 
     Identical logic to ``_apply_k1_factor`` but operates on multi-
     dimensional keys.  Only the qq_power (first element) is shifted;
     all η dimensions are untouched.
+
+    Parameters
+    ----------
+    truncate : bool
+        If True (default), keep only terms with ``0 ≤ new_qq ≤ qq_order``.
+        If False, skip the bounds check — used when building
+        manifold-independent kernel tables so that the deferred
+        truncation happens after convolution with I^ref.
     """
     sign = Fraction(1 if phase % 2 == 0 else -1)
     half = Fraction(1, 2)
@@ -722,7 +802,7 @@ def _apply_k1_factor_multi(
             rest = key[1:]
             # +phase shift
             new_qq_a = qq_p + phase
-            if 0 <= new_qq_a <= qq_order:
+            if not truncate or 0 <= new_qq_a <= qq_order:
                 new_key = (new_qq_a,) + rest
                 v = result.get(new_key, Fraction(0)) + scaled
                 if v == 0:
@@ -731,7 +811,7 @@ def _apply_k1_factor_multi(
                     result[new_key] = v
             # -phase shift
             new_qq_b = qq_p - phase
-            if 0 <= new_qq_b <= qq_order:
+            if not truncate or 0 <= new_qq_b <= qq_order:
                 new_key = (new_qq_b,) + rest
                 v = result.get(new_key, Fraction(0)) + scaled
                 if v == 0:
@@ -921,7 +1001,7 @@ def _apply_is_step(
 
 @dataclass
 class FilledRefinedResult:
-    """Result of refined Dehn filling I^ref_{P/Q}(η_hard, [η_cusp]).
+    """Result of refined Dehn filling I^ref_{P/Q}(η_hard, [η_cusp, …]).
 
     The series carries:
     - For ℓ=1 (|Q|=1, no IS kernel):
@@ -930,13 +1010,16 @@ class FilledRefinedResult:
     - For ℓ≥2 (IS kernel chain):
         key = (qq_power, 2*η_0_exp, …, 2*η_{k-1}_exp, cusp_eta_exp)
         Hard-edge fugacities + one cusp η from the IS chain.
+    - For multi-cusp sequential filling (two fillings with ℓ≥2):
+        key = (qq, 2*η_0, …, 2*η_{k-1}, cusp_eta_0, cusp_eta_1)
+        Hard-edge fugacities + one cusp η per filling step.
 
     Attributes
     ----------
     P, Q : int
         Slope (physical cycle P·M + Q·L).
     cusp_idx : int
-        Index of the filled cusp.
+        Index of the filled cusp (or -1 for multi-cusp).
     series : MultiEtaSeries
         Multi-dimensional η-polynomial in q^{1/2}.
     qq_order : int
@@ -950,7 +1033,10 @@ class FilledRefinedResult:
     num_hard : int
         Number of hard-edge η dimensions.
     has_cusp_eta : bool
-        True for ℓ≥2 (cusp η is the last key dimension).
+        True if any cusp η dimension is present.
+    num_cusp_eta : int
+        Number of cusp-η dimensions (0 for ℓ=1, 1 for single ℓ≥2,
+        2 for two sequential ℓ≥2 fillings, etc.).
     """
 
     P: int
@@ -963,6 +1049,7 @@ class FilledRefinedResult:
     n_kernel_terms: int
     num_hard: int
     has_cusp_eta: bool
+    num_cusp_eta: int = 0
 
     @property
     def is_zero(self) -> bool:
@@ -999,6 +1086,7 @@ class FilledRefinedResult:
             eta_order=self.eta_order, hj_ks=self.hj_ks,
             n_kernel_terms=self.n_kernel_terms,
             num_hard=self.num_hard, has_cusp_eta=self.has_cusp_eta,
+            num_cusp_eta=self.num_cusp_eta,
         )
 
     def eta1_series(self) -> dict[int, Fraction]:
@@ -1031,9 +1119,12 @@ class FilledRefinedResult:
                     pass
                 else:
                     contrib *= Fraction(eta_val ** (half_exp // 2))
-            # Cusp η (if present)
-            if self.has_cusp_eta:
-                cusp_exp = key[-1]
+            # Cusp η's (one per filling step)
+            for ci in range(self.num_cusp_eta):
+                pos = 1 + self.num_hard + ci
+                if pos >= len(key):
+                    break
+                cusp_exp = key[pos]
                 if cusp_exp != 0 and eta_val != 1:
                     contrib *= Fraction(eta_val ** cusp_exp)
             new = result.get(qq_p, Fraction(0)) + contrib
@@ -1091,15 +1182,20 @@ class FilledRefinedResult:
                     eta_parts.append(f"{eta_var}_{a}^{exp2 // 2}")
                 else:
                     eta_parts.append(f"{eta_var}_{a}^({exp2}/2)")
-            # Cusp η
-            if self.has_cusp_eta:
-                cusp_exp = key[-1]
+            # Cusp η's (one per filling step, after hard-edge η's)
+            n_ce = self.num_cusp_eta
+            for ci in range(n_ce):
+                pos = 1 + self.num_hard + ci
+                if pos >= len(key):
+                    break
+                cusp_exp = key[pos]
+                label = f"{eta_var}_c" if n_ce == 1 else f"{eta_var}_{{c{ci}}}"
                 if cusp_exp == 1:
-                    eta_parts.append(f"{eta_var}_c")
+                    eta_parts.append(label)
                 elif cusp_exp == -1:
-                    eta_parts.append(f"{eta_var}_c^(-1)")
+                    eta_parts.append(f"{label}^(-1)")
                 elif cusp_exp != 0:
-                    eta_parts.append(f"{eta_var}_c^{cusp_exp}")
+                    eta_parts.append(f"{label}^{cusp_exp}")
             h_str = "·".join(eta_parts)
             monomial = (q_str + ("·" + h_str if h_str else "")) or "1"
             parts.append(f"{c}*{monomial}" if c != 1 else monomial)
@@ -1239,7 +1335,7 @@ def compute_filled_refined_index(
             m_ext, e_ext = _make_ext(m_t, e_t)
             # Extra qq budget for c=0 terms that shift by ±phase
             extra_q = abs(phase_t) if c_val == 0 else 0
-            refined = compute_refined_index(
+            refined = _cached_compute_refined_index(
                 nz_data, m_ext, e_ext, q_order_half=qq_order + extra_q
             )
             if not refined:
@@ -1281,10 +1377,57 @@ def compute_filled_refined_index(
             n_kernel_terms=n_terms,
             num_hard=num_hard,
             has_cusp_eta=False,
+            num_cusp_eta=0,
         )
 
     # ------------------------------------------------------------------
-    # Step 3: ℓ ≥ 2 — Grid scan of (m, e) with non-zero I^ref
+    # Step 3: ℓ ≥ 2 — Check for pre-computed kernel (fast path)
+    # ------------------------------------------------------------------
+    from manifold_index.core.kernel_cache import (
+        apply_precomputed_kernel,
+        load_kernel_table,
+    )
+
+    cached_kernel = load_kernel_table(P, Q, qq_order)
+    if cached_kernel is not None:
+        if verbose:
+            extra = ""
+            if cached_kernel.qq_order > qq_order:
+                extra = f", stored at qq={cached_kernel.qq_order}"
+            print(
+                f"[refined_filling] ℓ={ell}: using pre-computed kernel "
+                f"({len(cached_kernel.table)} entries{extra})"
+            )
+        total_series_fast = apply_precomputed_kernel(
+            cached_kernel,
+            nz_data,
+            cusp_idx=cusp_idx,
+            m_other=m_other,
+            e_other=e_other,
+            weyl_a=weyl_a,
+            weyl_b=weyl_b,
+            qq_order=qq_order,
+            verbose=verbose,
+        )
+        # Apply diamond truncation: qq + |cusp_eta| ≤ qq_order
+        truncated: MultiEtaSeries = {
+            k: v for k, v in total_series_fast.items()
+            if k[0] + abs(k[-1]) <= qq_order
+        }
+        return FilledRefinedResult(
+            P=P, Q=Q, cusp_idx=cusp_idx,
+            series=truncated,
+            qq_order=qq_order,
+            eta_order=eta_order,
+            hj_ks=hj_ks,
+            n_kernel_terms=len(cached_kernel.table),
+            num_hard=num_hard,
+            has_cusp_eta=True,
+            num_cusp_eta=1,
+        )
+
+    # ------------------------------------------------------------------
+    # Step 3b: ℓ ≥ 2 — Grid scan of (m, e) with non-zero I^ref
     # ------------------------------------------------------------------
     # The IS kernel's n_eta summation (bounded by eta_order) must stay
     # well below qq_internal; otherwise tetrahedron-index truncation
@@ -1315,7 +1458,7 @@ def compute_filled_refined_index(
             e_i = Fraction(e_half, 2)
             m_ext, e_ext = _make_ext(m_i, e_i)
 
-            refined = compute_refined_index(
+            refined = _cached_compute_refined_index(
                 nz_data, m_ext, e_ext, q_order_half=qq_internal
             )
             if not refined:
@@ -1433,4 +1576,740 @@ def compute_filled_refined_index(
         n_kernel_terms=n_grid_terms,
         num_hard=num_hard,
         has_cusp_eta=True,
+        num_cusp_eta=1,
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Part 9 — Multi-cusp sequential filling
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _apply_filling_kernel_to_intermediate(
+    intermediate: dict[tuple[int, Fraction], MultiEtaSeries],
+    P: int,
+    Q: int,
+    qq_order: int,
+    eta_order: int | None = None,
+    m1_range: int | None = None,
+    num_hard: int = 0,
+    num_cusp_eta_in: int = 0,
+    verbose: bool = False,
+) -> FilledRefinedResult:
+    """Apply the refined Dehn filling kernel to precomputed intermediate series.
+
+    This is the multi-cusp analogue of ``compute_filled_refined_index``.
+    Instead of computing I^ref from NZ data, it looks up results from
+    *intermediate*, which maps ``(m, e)`` charges (for the cusp being
+    filled) to MultiEtaSeries from previous filling steps.
+
+    The maths are identical to ``compute_filled_refined_index``; only the
+    input source differs.
+
+    Parameters
+    ----------
+    intermediate : dict[(int, Fraction), MultiEtaSeries]
+        Precomputed series from a previous filling step, keyed by the
+        (m, e) charges of the cusp now being filled.
+    P, Q : int
+        Coprime slope for this cusp filling.
+    qq_order : int
+        Series truncation in q^{1/2} powers.
+    eta_order : int or None
+        Maximum |cusp η exponent|.  Default: qq_order.
+    m1_range : int or None
+        Scan range for intermediate variables.  Default: 2 * qq_order.
+    num_hard : int
+        Number of hard-edge η dimensions (for metadata).
+    num_cusp_eta_in : int
+        Number of cusp-η dimensions already present in the intermediate
+        series (from previous filling steps).
+    verbose : bool
+
+    Returns
+    -------
+    FilledRefinedResult
+    """
+    if eta_order is None:
+        eta_order = qq_order
+    if m1_range is None:
+        m1_range = 2 * qq_order
+
+    hj_ks = hj_continued_fraction(P, Q)
+    ell = len(hj_ks)
+
+    if verbose:
+        print(
+            f"[multi_fill] P={P}, Q={Q}, HJ-CF={hj_ks}, ℓ={ell}, "
+            f"|intermediate|={len(intermediate)}, "
+            f"num_cusp_eta_in={num_cusp_eta_in}"
+        )
+
+    # ------------------------------------------------------------------
+    # ℓ = 1: direct K(k1, 1) application — no new cusp η added
+    # ------------------------------------------------------------------
+    # The ℓ=1 kernel is unrefined, so it does NOT introduce a new cusp η.
+    # However the intermediate series may already carry cusp η's from
+    # previous filling steps; those are preserved through _apply_k1_factor_multi.
+    if ell == 1:
+        k1 = hj_ks[0]
+        slope1_terms = _enumerate_slope1_terms(k1, m1_range)
+
+        total_series: MultiEtaSeries = {}
+        n_terms = 0
+
+        for m_t, e_t, c_val, phase_t in slope1_terms:
+            multi = intermediate.get((m_t, Fraction(e_t)))
+            if multi is None:
+                multi = intermediate.get((m_t, e_t))
+            if not multi:
+                continue
+            n_terms += 1
+
+            m0, _ = _particular_solution(k1, 1, c_val)
+            t_abs = abs(m_t - m0)
+            mult = 2 if (c_val == 2 or (c_val == 0 and t_abs > 0)) else 1
+
+            contribution = _apply_k1_factor_multi(
+                multi, c_val, phase_t, mult, qq_order
+            )
+            total_series = _multi_add(total_series, contribution)
+
+        if verbose:
+            print(
+                f"[multi_fill] ℓ=1 done: {n_terms} terms, "
+                f"{len(total_series)} entries"
+            )
+
+        # ℓ=1 does NOT add a new cusp η → num_cusp_eta stays the same
+        num_cusp_eta_out = num_cusp_eta_in
+        return FilledRefinedResult(
+            P=P, Q=Q, cusp_idx=-1,
+            series=total_series,
+            qq_order=qq_order,
+            eta_order=0,
+            hj_ks=hj_ks,
+            n_kernel_terms=n_terms,
+            num_hard=num_hard,
+            has_cusp_eta=(num_cusp_eta_out > 0),
+            num_cusp_eta=num_cusp_eta_out,
+        )
+
+    # ------------------------------------------------------------------
+    # ℓ ≥ 2: IS convolution chain
+    # ------------------------------------------------------------------
+    _is_buffer = qq_order // 2 + 4
+    qq_internal = qq_order + _is_buffer
+    m1_range = max(m1_range, 2 * qq_internal)
+
+    if verbose:
+        print(
+            f"[multi_fill] ℓ={ell}: qq_internal={qq_internal}, "
+            f"eta_order={eta_order}"
+        )
+
+    # Build state from intermediate — extend each series with cusp_eta=0
+    # for THIS filling step.  The intermediate may already have cusp_eta
+    # dimensions from previous filling steps; those are preserved and the
+    # new cusp_eta is appended as the last dimension.
+    m_scan = 2 * qq_internal
+    e_scan = qq_internal
+    state: dict[tuple[int, Fraction], MultiEtaSeries] = {}
+    n_grid_terms = 0
+
+    for m_i in range(-m_scan, m_scan + 1):
+        for e_half in range(-2 * e_scan, 2 * e_scan + 1):
+            e_i = Fraction(e_half, 2)
+            multi = intermediate.get((m_i, e_i))
+            if not multi:
+                continue
+            n_grid_terms += 1
+
+            # Extend with a new cusp_eta=0 dimension for THIS filling
+            extended: MultiEtaSeries = {}
+            for k, v in multi.items():
+                extended[k + (0,)] = v
+            state[(m_i, e_i)] = extended
+
+    if verbose:
+        print(f"[multi_fill] grid: {n_grid_terms} non-zero entries")
+
+    # IS convolution steps
+    for step_i in range(ell - 1):
+        k_current = hj_ks[step_i]
+        k_next = hj_ks[step_i + 1]
+        if verbose:
+            print(
+                f"[multi_fill] IS step {step_i+1}/{ell-1}: "
+                f"|state|={len(state)}"
+            )
+        state = _apply_is_step(
+            state,
+            k_current=k_current,
+            k_next=k_next,
+            qq_order=qq_internal,
+            eta_order=eta_order,
+            m1_range=m1_range,
+        )
+
+    # Final K(k_ℓ, 1) application
+    k_final = hj_ks[-1]
+    final_terms = _enumerate_slope1_all(k_final, m1_range)
+    final_term_info: dict[tuple[int, Fraction], tuple[int, int, int]] = {}
+    seen_final: set[tuple[int, Fraction]] = set()
+    for m1, e1, c_final, phase_final in final_terms:
+        key = (m1, e1)
+        if key in seen_final:
+            continue
+        seen_final.add(key)
+        final_term_info[key] = (c_final, phase_final, 1)
+
+    total_series_ell2: MultiEtaSeries = {}
+    for (m1, e1), src_series in state.items():
+        if not src_series:
+            continue
+        info = final_term_info.get((m1, e1))
+        if info is None:
+            continue
+        c_final, phase_final, mult_final = info
+        contribution = _apply_k1_factor_multi(
+            src_series, c_final, phase_final, mult_final, qq_internal
+        )
+        total_series_ell2 = _multi_add(total_series_ell2, contribution)
+
+    # Diamond truncation — generalized for multiple cusp η's.
+    # Key structure: (qq, 2*η_0, …, 2*η_{H-1}, cusp_eta_0, …, cusp_eta_{C})
+    # where C = num_cusp_eta_in (from previous fillings) + 1 (this filling).
+    # Rule: qq_power + Σ|cusp_eta_i| ≤ qq_order
+    num_cusp_eta_out = num_cusp_eta_in + 1
+    cusp_start = 1 + num_hard  # index of first cusp_eta in key tuple
+
+    truncated: MultiEtaSeries = {}
+    for k, v in total_series_ell2.items():
+        cusp_eta_sum = sum(
+            abs(k[cusp_start + i])
+            for i in range(num_cusp_eta_out)
+            if cusp_start + i < len(k)
+        )
+        if k[0] + cusp_eta_sum <= qq_order:
+            truncated[k] = v
+
+    if verbose:
+        print(
+            f"[multi_fill] ℓ≥2 done: {len(truncated)} entries "
+            f"(from {len(total_series_ell2)} raw), "
+            f"num_cusp_eta={num_cusp_eta_out}"
+        )
+
+    return FilledRefinedResult(
+        P=P, Q=Q, cusp_idx=-1,
+        series=truncated,
+        qq_order=qq_order,
+        eta_order=eta_order,
+        hj_ks=hj_ks,
+        n_kernel_terms=n_grid_terms,
+        num_hard=num_hard,
+        has_cusp_eta=True,
+        num_cusp_eta=num_cusp_eta_out,
+    )
+
+
+def _refined_to_multi_with_spectators(
+    refined: RefinedIndexResult,
+    m_tag: int,
+    e_x2_tag: int,
+    append_cusp_eta: bool = False,
+) -> MultiEtaSeries:
+    """Convert a RefinedIndexResult to MultiEtaSeries with spectator dims.
+
+    Like ``_refined_to_multi`` but inserts spectator dimensions
+    ``(m_tag, e_x2_tag)`` after the hard-edge η's and before the optional
+    cusp-η dimension.
+
+    Key structure:
+        ``(qq, 2η_0, …, 2η_{H-1}, m_tag, e_x2_tag [, cusp_eta=0])``
+
+    Parameters
+    ----------
+    refined : RefinedIndexResult
+    m_tag : int
+        Spectator tag for the next cusp's meridian charge.
+    e_x2_tag : int
+        Spectator tag for the next cusp's longitude charge (``2 * e``).
+    append_cusp_eta : bool
+        Whether to append ``cusp_eta = 0`` at the end.
+
+    Returns
+    -------
+    MultiEtaSeries
+    """
+    result: MultiEtaSeries = {}
+    for key, coeff in refined.items():
+        if coeff == 0:
+            continue
+        new_key = key + (m_tag, e_x2_tag)
+        if append_cusp_eta:
+            new_key = new_key + (0,)
+        result[new_key] = Fraction(coeff)
+    return result
+
+
+def _needed_spectator_charges(
+    spec: "MultiCuspFillSpec",
+    qq_order: int,
+) -> set[tuple[int, Fraction]]:
+    """Determine which (m, e) charge pairs the given filling needs.
+
+    For an ℓ=1 filling, only the K(k,1) support matters (finite set).
+    For an ℓ≥2 filling, we return the full grid — the actual reduction
+    happens inside ``_batched_first_filling`` via probe-based filtering.
+
+    Returns
+    -------
+    set of (int, Fraction) pairs
+    """
+    hj_ks = hj_continued_fraction(spec.P, spec.Q)
+    ell = len(hj_ks)
+
+    if ell == 1:
+        # Only the K(k1, 1) support — use full enumeration
+        k1 = hj_ks[0]
+        m1_range = 2 * qq_order
+        terms = _enumerate_slope1_all(k1, m1_range)
+        return set((m, e) for m, e, _, _ in terms)
+    else:
+        # ℓ ≥ 2: return the full grid.  The _batched_first_filling
+        # function will probe to discover the actual sparse support
+        # and skip the vast majority of zero entries.
+        _is_buffer = qq_order // 2 + 4
+        qq_internal = qq_order + _is_buffer
+        m_scan = 2 * qq_internal
+        e_scan = qq_internal
+        result = set()
+        for m in range(-m_scan, m_scan + 1):
+            for e_half in range(-2 * e_scan, 2 * e_scan + 1):
+                result.add((m, Fraction(e_half, 2)))
+        return result
+
+
+def _batched_first_filling(
+    nz_data: "NeumannZagierData",
+    first_spec: "MultiCuspFillSpec",
+    next_cusp_idx: int,
+    needed_me: set[tuple[int, Fraction]],
+    qq_order: int,
+    verbose: bool = False,
+    progress_callback=None,
+) -> tuple[dict[tuple[int, Fraction], MultiEtaSeries], int]:
+    """Compute the first filling with batched spectator dimensions.
+
+    This is the performance-critical optimisation for multi-cusp filling.
+    Instead of calling ``compute_filled_refined_index`` once per
+    ``(m_next, e_next)`` charge pair (which repeats the expensive IS chain
+    each time), this function:
+
+    1. Pre-computes I^ref for all needed ``(m0, e0, m_next, e_next)``
+       combinations in a two-pass scan.
+    2. Embeds ``(m_next, e_next)`` as *spectator* dimensions in the
+       MultiEtaSeries key tuples.
+    3. Runs the HJ continued-fraction kernel chain (IS steps + final K)
+       exactly ONCE on the combined state.
+    4. Extracts per-``(m_next, e_next)`` intermediate series from the
+       batched result.
+
+    The spectator dimensions are transparent to the IS convolution
+    (which operates on the *last* key dim) and the K-factor (which shifts
+    only the *first* key dim), so no changes to the core chain functions
+    are needed.
+
+    Parameters
+    ----------
+    nz_data : NeumannZagierData
+    first_spec : MultiCuspFillSpec
+        Filling specification for the first cusp.
+    next_cusp_idx : int
+        Cusp index of the *next* cusp to be filled (the spectator).
+    needed_me : set of (int, Fraction)
+        Set of (m_next, e_next) pairs that the second filling needs.
+    qq_order : int
+    verbose : bool
+    progress_callback : callable or None
+
+    Returns
+    -------
+    intermediate : dict[(int, Fraction) → MultiEtaSeries]
+        Keyed by ``(m_next, e_next)``.  Each value is a MultiEtaSeries
+        with keys ``(qq, 2η_0, …, 2η_{H-1} [, cusp_eta])``.
+    num_cusp_eta : int
+        0 if ℓ=1 (no cusp η), 1 if ℓ≥2.
+    """
+    r = nz_data.r
+    num_hard = nz_data.num_hard
+    cusp_idx = first_spec.cusp_idx
+    P, Q = first_spec.P, first_spec.Q
+    weyl_a = first_spec.weyl_a
+    weyl_b = first_spec.weyl_b
+
+    def _status(msg: str):
+        if progress_callback:
+            progress_callback(msg)
+        if verbose:
+            print(msg)
+
+    # HJ continued fraction
+    hj_ks = hj_continued_fraction(P, Q)
+    ell = len(hj_ks)
+
+    # ------------------------------------------------------------------
+    # ℓ=1 path: per-spectator delegation (no IS chain to amortise)
+    # ------------------------------------------------------------------
+    # For ℓ=1 the filling is a single K-factor pass over the K-support
+    # lines — there is no IS chain.  Batching all spectators into one
+    # combined state provides *zero* performance benefit (the bottleneck
+    # is the per-point compute_refined_index calls, which are the same
+    # either way) and introduces subtle extra_q budget and multiplicity
+    # complications.  Instead, simply call compute_filled_refined_index
+    # for each spectator charge, which is known-correct and efficient:
+    # ~243 K-support points × ~243 spectators × 0.0014 s ≈ 83 s at
+    # qq_order = 20.
+    if ell == 1:
+        _status(
+            f"[batched] ℓ=1: per-spectator filling cusp {cusp_idx} "
+            f"({P}/{Q}), {len(needed_me)} spectator charges…"
+        )
+
+        intermediate: dict[tuple[int, Fraction], MultiEtaSeries] = {}
+        n_done = 0
+
+        for m_next, e_next in sorted(needed_me):
+            # Build m_other / e_other for this spectator value
+            m_other: list[int] = []
+            e_other: list[int | Fraction] = []
+            for j in range(r):
+                if j == cusp_idx:
+                    continue
+                if j == next_cusp_idx:
+                    m_other.append(m_next)
+                    e_other.append(e_next)
+                else:
+                    m_other.append(0)
+                    e_other.append(Fraction(0))
+
+            result = compute_filled_refined_index(
+                nz_data,
+                cusp_idx=cusp_idx,
+                P=P, Q=Q,
+                m_other=m_other,
+                e_other=e_other,
+                q_order_half=qq_order,
+                weyl_a=weyl_a,
+                weyl_b=weyl_b,
+                verbose=False,
+            )
+
+            if result.series:
+                series = result.series
+                if first_spec.incompat_edges:
+                    collapsed = result.collapse_eta_edges(
+                        first_spec.incompat_edges
+                    )
+                    series = collapsed.series
+                if series:
+                    intermediate[(m_next, e_next)] = series
+
+            n_done += 1
+            if n_done % 50 == 0:
+                _status(
+                    f"[batched] ℓ=1: {n_done}/{len(needed_me)} spectators, "
+                    f"{len(intermediate)} non-zero"
+                )
+
+        _status(
+            f"[batched] ℓ=1 done: {len(intermediate)} non-zero "
+            f"intermediates from {len(needed_me)} spectators"
+        )
+        return intermediate, 0
+
+    # ------------------------------------------------------------------
+    # ℓ ≥ 2 path: per-spectator delegation with probe-based filtering
+    # ------------------------------------------------------------------
+    # For ℓ≥2 the filling involves an IS convolution chain that is
+    # expensive (~40-60 s per call at qq_order=20).  Embedding all
+    # spectators into a single batched state makes the IS chain's
+    # per-entry convolution cost proportional to the number of
+    # spectators, giving no net speedup.
+    #
+    # Instead, we use the same per-spectator delegation as ℓ=1:
+    #   1. Probe to discover which spectators produce non-zero I^ref
+    #      (~30 s for ~18,000 probe calls).
+    #   2. Call compute_filled_refined_index once per active spectator.
+    #      Typical: ~50 active spectators × ~66 s ≈ 55 min.
+    #
+    # This is simple, correct (reuses the known-good single-cusp path),
+    # and feasible.
+    # ------------------------------------------------------------------
+    _is_buffer = qq_order // 2 + 4
+    qq_internal = qq_order + _is_buffer
+
+    m_scan = 2 * qq_internal
+    e_scan = qq_internal
+
+    # ── Probe: discover active spectator charges ─────────────────────
+    # Fix (m0=0, e0=0) for the filling cusp and scan all candidate
+    # spectator (m_next, e_next) values.  Non-zero I^ref entries identify
+    # the active spectator support.  The (0,0) probe point captures the
+    # widest support; we also sample a few extreme grid points.
+    full_grid_size = (2 * m_scan + 1) * (4 * e_scan + 1)
+    _status(
+        f"[batched] ℓ={ell}: probing {full_grid_size} spectator "
+        f"charges at (m0=0, e0=0)…"
+    )
+
+    def _make_ext_probe(m_fill, e_fill, m_sp, e_sp):
+        m_ext, e_ext = [], []
+        for j in range(r):
+            if j == cusp_idx:
+                m_ext.append(m_fill); e_ext.append(e_fill)
+            elif j == next_cusp_idx:
+                m_ext.append(m_sp); e_ext.append(e_sp)
+            else:
+                m_ext.append(0); e_ext.append(Fraction(0))
+        return m_ext, e_ext
+
+    probe_spectators: set[tuple[int, Fraction]] = set()
+    for m_next in range(-m_scan, m_scan + 1):
+        for e_half_next in range(-2 * e_scan, 2 * e_scan + 1):
+            e_next = Fraction(e_half_next, 2)
+            m_ext, e_ext = _make_ext_probe(0, Fraction(0), m_next, e_next)
+            refined = _cached_compute_refined_index(
+                nz_data, m_ext, e_ext, q_order_half=qq_internal
+            )
+            if refined:
+                probe_spectators.add((m_next, e_next))
+
+    _status(
+        f"[batched] probe done: {len(probe_spectators)} active "
+        f"spectators of {full_grid_size}"
+    )
+
+    # Intersect with what the second filling actually needs
+    active_me = needed_me & probe_spectators
+    if not active_me:
+        # Fall back: use all probed spectators
+        active_me = probe_spectators
+
+    _status(
+        f"[batched] ℓ={ell}: per-spectator filling cusp {cusp_idx} "
+        f"({P}/{Q}), {len(active_me)} active spectator charges…"
+    )
+
+    # ── Per-spectator delegation ─────────────────────────────────────
+    intermediate: dict[tuple[int, Fraction], MultiEtaSeries] = {}
+    n_done = 0
+
+    for m_next, e_next in sorted(active_me):
+        n_done += 1
+
+        # Build m_other / e_other for this spectator value
+        m_other: list[int] = []
+        e_other: list[int | Fraction] = []
+        for j in range(r):
+            if j == cusp_idx:
+                continue
+            if j == next_cusp_idx:
+                m_other.append(m_next)
+                e_other.append(e_next)
+            else:
+                m_other.append(0)
+                e_other.append(Fraction(0))
+
+        result = compute_filled_refined_index(
+            nz_data,
+            cusp_idx=cusp_idx,
+            P=P, Q=Q,
+            m_other=m_other,
+            e_other=e_other,
+            q_order_half=qq_order,
+            weyl_a=weyl_a,
+            weyl_b=weyl_b,
+            verbose=False,
+        )
+
+        if result.series:
+            series = result.series
+            if first_spec.incompat_edges:
+                collapsed = result.collapse_eta_edges(
+                    first_spec.incompat_edges
+                )
+                series = collapsed.series
+            if series:
+                intermediate[(m_next, e_next)] = series
+
+        if n_done % 5 == 0 or n_done == len(active_me):
+            _status(
+                f"[batched] ℓ={ell}: {n_done}/{len(active_me)} "
+                f"spectators, {len(intermediate)} non-zero"
+            )
+
+    _status(
+        f"[batched] ℓ={ell} done: {len(intermediate)} non-zero "
+        f"intermediates from {len(active_me)} spectators"
+    )
+    num_cusp_eta_out = 1  # ℓ ≥ 2 always adds one cusp η
+    return intermediate, num_cusp_eta_out
+
+
+@dataclass
+class MultiCuspFillSpec:
+    """Specification for filling one cusp in a multi-cusp filling."""
+    cusp_idx: int
+    P: int          # slope in NC-transformed basis
+    Q: int
+    weyl_a: list[Fraction] | None = None
+    weyl_b: list[Fraction] | None = None
+    incompat_edges: list[int] | None = None
+
+
+def compute_multi_cusp_filled_refined_index(
+    nz_data: NeumannZagierData,
+    fill_specs: list[MultiCuspFillSpec],
+    q_order_half: int = 10,
+    verbose: bool = False,
+    progress_callback=None,
+) -> FilledRefinedResult:
+    """Sequentially fill multiple cusps of a manifold.
+
+    Fills cusps one at a time.  After filling cusp *j*, the intermediate
+    result is a function of the remaining unfilled cusp charges.  The next
+    filling operates on these intermediate results.
+
+    Algorithm
+    ---------
+    For a manifold with r cusps, filling cusps j_1, j_2, …, j_k:
+
+    1. Fill cusp j_1:
+       For each (m, e) grid point of the REMAINING cusps, compute
+       ``compute_filled_refined_index(nz, cusp_idx=j_1, P_1, Q_1,
+       m_other=[…], e_other=[…])``.
+       Store results keyed by the next cusp's (m, e).
+
+    2. Fill cusp j_2:
+       Apply ``_apply_filling_kernel_to_intermediate(intermediate, P_2, Q_2)``
+       where intermediate maps (m_{j_2}, e_{j_2}) → MultiEtaSeries.
+
+    3. Repeat for remaining cusps.
+
+    Parameters
+    ----------
+    nz_data : NeumannZagierData
+    fill_specs : list[MultiCuspFillSpec]
+        One spec per cusp to fill, in the order they should be processed.
+        The NZ data should already have cusp basis changes applied.
+    q_order_half : int
+    verbose : bool
+    progress_callback : callable or None
+        Called as ``progress_callback(msg: str)`` for status updates.
+
+    Returns
+    -------
+    FilledRefinedResult
+        Single combined result with all specified cusps filled.
+    """
+    r = nz_data.r
+    num_hard = nz_data.num_hard
+    n_fills = len(fill_specs)
+    qq_order = q_order_half
+
+    if n_fills == 0:
+        raise ValueError("No fill specs provided")
+
+    def _status(msg: str):
+        if progress_callback:
+            progress_callback(msg)
+        if verbose:
+            print(msg)
+
+    if n_fills == 1:
+        # Single-cusp case: delegate directly
+        spec = fill_specs[0]
+        _status(f"Filling cusp {spec.cusp_idx} with ({spec.P}, {spec.Q})…")
+        result = compute_filled_refined_index(
+            nz_data,
+            cusp_idx=spec.cusp_idx,
+            P=spec.P, Q=spec.Q,
+            m_other=[0] * (r - 1),
+            e_other=[0] * (r - 1),
+            q_order_half=q_order_half,
+            weyl_a=spec.weyl_a,
+            weyl_b=spec.weyl_b,
+            verbose=verbose,
+        )
+        if spec.incompat_edges:
+            result = result.collapse_eta_edges(spec.incompat_edges)
+        return result
+
+    # ------------------------------------------------------------------
+    # Multi-cusp (n_fills == 2): batched first filling + second filling
+    # ------------------------------------------------------------------
+    if n_fills > 2:
+        raise NotImplementedError(
+            "Sequential filling of >2 cusps not yet implemented. "
+            f"Have {n_fills} fill specs."
+        )
+
+    first = fill_specs[0]
+    second = fill_specs[1]
+    next_cusp = second.cusp_idx
+
+    # Step 1: determine what (m, e) pairs the second filling needs
+    needed_me = _needed_spectator_charges(second, qq_order)
+    _status(
+        f"Step 1/{n_fills}: Batched filling cusp {first.cusp_idx} "
+        f"with ({first.P}, {first.Q}), "
+        f"{len(needed_me)} spectator charges for cusp {next_cusp}…"
+    )
+
+    # Step 2: batched first filling
+    intermediate, num_cusp_eta_accum = _batched_first_filling(
+        nz_data,
+        first_spec=first,
+        next_cusp_idx=next_cusp,
+        needed_me=needed_me,
+        qq_order=qq_order,
+        verbose=verbose,
+        progress_callback=progress_callback,
+    )
+
+    _status(
+        f"Step 1/{n_fills} done: {len(intermediate)} non-zero "
+        f"intermediate entries, num_cusp_eta={num_cusp_eta_accum}"
+    )
+
+    # Step 3: second filling
+    _status(
+        f"Step 2/{n_fills}: Filling cusp {second.cusp_idx} "
+        f"with ({second.P}, {second.Q}), "
+        f"|intermediate|={len(intermediate)}, "
+        f"num_cusp_eta_so_far={num_cusp_eta_accum}…"
+    )
+
+    fill_result = _apply_filling_kernel_to_intermediate(
+        intermediate,
+        P=second.P, Q=second.Q,
+        qq_order=qq_order,
+        num_hard=num_hard,
+        num_cusp_eta_in=num_cusp_eta_accum,
+        verbose=verbose,
+    )
+    num_cusp_eta_accum = fill_result.num_cusp_eta
+
+    if second.incompat_edges:
+        fill_result = fill_result.collapse_eta_edges(second.incompat_edges)
+
+    _status(
+        f"Step 2/{n_fills} done: "
+        f"{len(fill_result.series)} entries in final result, "
+        f"num_cusp_eta={fill_result.num_cusp_eta}"
+    )
+
+    return fill_result

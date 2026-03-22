@@ -21,7 +21,10 @@ from PySide6.QtWidgets import (
 )
 
 from manifold_index.app_v2.katex import make_math_view, update_math_view
-from manifold_index.app_v2.formatters import format_panel2_html
+from manifold_index.app_v2.formatters import (
+    format_panel2_html,
+    format_multi_cusp_fill_results,
+)
 
 
 def _section_label(text: str) -> QLabel:
@@ -297,25 +300,52 @@ class FillingPanel(QFrame):
         self._set_math_content(html)
         # Don't re-enable button — filling still running.
 
-    def filling_finished(self, transformed_results: list) -> None:
-        """Called when all filling computations are complete (step 2)."""
-        self._transformed_results = transformed_results
-        html = format_panel2_html(
-            nc_results=self._nc_results,
-            transformed_results=transformed_results,
-            nz=self._nz_data,
-        )
-        self._set_math_content(html)
+    def filling_finished(self, results: list) -> None:
+        """Called when all filling computations are complete (step 2).
 
-        total_nc = sum(len(nc.cycles) for nc in (self._nc_results or []))
-        total_evals = sum(
-            len(tr.fill_results) for tr in transformed_results
+        *results* is either ``list[TransformedFillResult]`` (single-cusp
+        filling) or ``list[MultiCuspFillResult]`` (all cusps filled
+        simultaneously).
+        """
+        from manifold_index.app_v2.workers import MultiCuspFillResult
+
+        self._transformed_results = results
+
+        # Detect result type
+        is_multi = (
+            len(results) > 0
+            and isinstance(results[0], MultiCuspFillResult)
         )
-        self._progress.setValue(self._progress.maximum())
-        self._status.setText(
-            f"✓  {total_nc} NC cycle(s) · "
-            f"{total_evals} filled index evaluation(s)"
-        )
+
+        if is_multi:
+            html = format_panel2_html(
+                nc_results=self._nc_results,
+                multi_cusp_results=results,
+                nz=self._nz_data,
+            )
+            total_nc = sum(len(nc.cycles) for nc in (self._nc_results or []))
+            self._progress.setValue(self._progress.maximum())
+            self._status.setText(
+                f"✓  {total_nc} NC cycle(s) · "
+                f"{len(results)} combination(s) filled sequentially"
+            )
+        else:
+            html = format_panel2_html(
+                nc_results=self._nc_results,
+                transformed_results=results,
+                nz=self._nz_data,
+            )
+            total_nc = sum(len(nc.cycles) for nc in (self._nc_results or []))
+            total_evals = sum(
+                len(tr.fill_results) for tr in results
+            )
+            self._progress.setValue(self._progress.maximum())
+            self._status.setText(
+                f"✓  {total_nc} NC cycle(s) · "
+                f"{total_evals} filled index evaluation(s)"
+            )
+
+        self._set_math_content(html)
         self._status.setStyleSheet("color: #2ea043; font-size: 11px;")
         self._fill_btn.setEnabled(True)
 

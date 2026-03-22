@@ -139,6 +139,33 @@ class TransformedFillResult:
     weyl_b_phys: list | None = None  # b_physical per hard edge
 
 
+@dataclass
+class CuspNCInfo:
+    """Per-cusp NC cycle and basis info for multi-cusp filling."""
+    cusp_idx: int
+    P_nc: int
+    Q_nc: int
+    R: int
+    S: int
+    p: int          # user's slope in (γ, δ) basis
+    q: int
+    P_user: int
+    Q_user: int
+    weyl_a_phys: list | None = None
+    weyl_b_phys: list | None = None
+
+
+@dataclass
+class MultiCuspFillResult:
+    """Result of simultaneously filling multiple cusps.
+
+    Each entry in ``cusp_info`` describes one cusp's NC cycle and basis.
+    ``fill_result`` is the single combined filled refined index.
+    """
+    cusp_info: list[CuspNCInfo]
+    fill_result: object  # FilledRefinedResult
+
+
 def _canonicalize_nc_cycles(cycles: list) -> list:
     """Deduplicate NC cycles: keep one from each {(P,Q), (−P,−Q)} pair.
 
@@ -220,6 +247,8 @@ class DehnFillingWorker(QThread):
         )
         from manifold_index.core.refined_dehn_filling import (
             compute_filled_refined_index,
+            compute_multi_cusp_filled_refined_index,
+            MultiCuspFillSpec,
         )
         from manifold_index.core.neumann_zagier import (
             apply_general_cusp_basis_change,
@@ -230,8 +259,10 @@ class DehnFillingWorker(QThread):
         r = nz.r
         q_order_half = self._q_order_half
         active = [c for c in self._cusp_configs if c.get("fill", False)]
+        n_filling = len(active)
+        all_cusps_filled = (n_filling == r)
 
-        # ── Step 1: Search non-closable cycles ────────────────
+        # ── Step 1: Search non-closable cycles per cusp ───────
         nc_results = []
         for cfg in active:
             cusp_idx = cfg["cusp_idx"]
@@ -278,29 +309,201 @@ class DehnFillingWorker(QThread):
 
                 self.progress.emit(done_idx + 1, total)
 
-            # Deduplicate: keep one from each {γ, −γ} pair
             result.cycles = _canonicalize_nc_cycles(result.cycles)
-
             nc_results.append(result)
             n_nc = len(result.cycles)
             self.status.emit(f"Cusp {cusp_idx}: {n_nc} NC cycle(s) (deduplicated)")
 
         self.nc_found.emit(nc_results)
 
-        # ── Step 2: Transform user slope & compute filled index ─
-        #
-        # For each NC cycle we compute the filled refined index at the
-        # transformed slope (p, q).  The result is a function of the
-        # external charges (m_other, e_other) on the *unfilled* cusps.
-        # We evaluate at the same 5-point display grid per unfilled cusp
-        # that Panel 1 uses for the full index.
-        #
-        #   DISPLAY_CHARGES  →  (m, e)
-        #   (0,   0  )      →  m=0,  e=0
-        #   (0,   ½  )      →  m=1,  e=0
-        #   (-½,  0  )      →  m=0,  e=½
-        #   (0,   1  )      →  m=2,  e=0
-        #   (-1,  0  )      →  m=0,  e=1
+        # ── Step 2: compute filled index ──────────────────────
+        # Build lookup: cusp_idx → user's (P, Q)
+        user_slopes: dict[int, tuple[int, int]] = {}
+        for cfg in active:
+            user_slopes[cfg["cusp_idx"]] = (cfg["P"], cfg["Q"])
+
+        if all_cusps_filled and n_filling >= 2:
+            self._run_multi_cusp(
+                nz, nc_results, user_slopes, q_order_half,
+            )
+        else:
+            self._run_single_cusp(
+                nz, nc_results, user_slopes, q_order_half,
+            )
+
+    # ------------------------------------------------------------------
+    # Multi-cusp filling: all cusps filled simultaneously
+    # ------------------------------------------------------------------
+
+    def _run_multi_cusp(
+        self,
+        nz,
+        nc_results: list,
+        user_slopes: dict[int, tuple[int, int]],
+        q_order_half: int,
+    ) -> None:
+        """Fill all cusps simultaneously via sequential kernel application."""
+        from manifold_index.core.dehn_filling import find_rs
+        from manifold_index.core.refined_dehn_filling import (
+            compute_multi_cusp_filled_refined_index,
+            MultiCuspFillSpec,
+        )
+        from manifold_index.core.neumann_zagier import (
+            apply_general_cusp_basis_change,
+        )
+        from manifold_index.core.weyl_check import compute_ab_vectors_for_cusp
+
+        r = nz.r
+
+        # Collect NC cycles per cusp
+        nc_by_cusp: dict[int, list] = {}
+        for nc_res in nc_results:
+            nc_by_cusp[nc_res.cusp_idx] = nc_res.cycles
+
+        # Build all NC cycle combinations (one per filled cusp)
+        filled_cusps = sorted(user_slopes.keys())
+        nc_lists = [nc_by_cusp.get(ci, []) for ci in filled_cusps]
+
+        # Cartesian product of NC cycles across cusps
+        from itertools import product as itertools_product
+        nc_combos = list(itertools_product(*nc_lists))
+
+        if not nc_combos:
+            self.status.emit("No NC cycle combinations found.")
+            self.finished.emit([])
+            return
+
+        multi_results: list[MultiCuspFillResult] = []
+        total_combos = len(nc_combos)
+
+        for combo_idx, nc_combo in enumerate(nc_combos):
+            self.status.emit(
+                f"Step 2/2 — NC combination {combo_idx + 1}/{total_combos}…"
+            )
+            self.progress.emit(combo_idx, total_combos)
+
+            # For each cusp in this combo: basis change + slope transform
+            nz_transformed = nz
+            cusp_info_list: list[CuspNCInfo] = []
+            fill_specs: list[MultiCuspFillSpec] = []
+
+            for cusp_order, cyc in enumerate(nc_combo):
+                cusp_idx = filled_cusps[cusp_order]
+                P_nc, Q_nc = cyc.P, cyc.Q
+                P_user, Q_user = user_slopes[cusp_idx]
+
+                R0, S0 = find_rs(P_nc, Q_nc)
+                R_comp, S_comp = -R0, -S0
+
+                p = S_comp * P_user - R_comp * Q_user
+                q = -Q_nc * P_user + P_nc * Q_user
+
+                # Apply cusp basis change
+                nz_transformed = apply_general_cusp_basis_change(
+                    nz_transformed, cusp_idx,
+                    a=P_nc, b=Q_nc, c=R_comp, d=S_comp,
+                )
+
+                # Extract Weyl vectors for this cusp
+                self.status.emit(
+                    f"  Cusp {cusp_idx}, NC ({P_nc},{Q_nc}): "
+                    f"extracting Weyl vectors…"
+                )
+                ab_nc = compute_ab_vectors_for_cusp(
+                    nz_transformed, cusp_idx, q_order_half=q_order_half,
+                )
+
+                weyl_a_phys = list(ab_nc.a) if ab_nc else None
+                weyl_b_phys = list(ab_nc.b) if ab_nc else None
+
+                incompat_edges = []
+                weyl_a_fill = None
+                weyl_b_fill = None
+                if ab_nc is not None:
+                    incompat_edges = [
+                        j for j, ok in enumerate(ab_nc.edge_compatible)
+                        if not ok
+                    ]
+                    ab_compat = ab_nc.make_filling_compatible()
+                    weyl_a_fill = list(ab_compat.a)
+                    weyl_b_fill = list(ab_compat.b)
+                    if all(
+                        a == 0 and b == 0
+                        for a, b in zip(weyl_a_fill, weyl_b_fill)
+                    ):
+                        weyl_a_fill = None
+                        weyl_b_fill = None
+
+                cusp_info_list.append(CuspNCInfo(
+                    cusp_idx=cusp_idx,
+                    P_nc=P_nc, Q_nc=Q_nc,
+                    R=R_comp, S=S_comp,
+                    p=p, q=q,
+                    P_user=P_user, Q_user=Q_user,
+                    weyl_a_phys=weyl_a_phys,
+                    weyl_b_phys=weyl_b_phys,
+                ))
+                fill_specs.append(MultiCuspFillSpec(
+                    cusp_idx=cusp_idx,
+                    P=p, Q=q,
+                    weyl_a=weyl_a_fill,
+                    weyl_b=weyl_b_fill,
+                    incompat_edges=incompat_edges if incompat_edges else None,
+                ))
+
+            # Compute the combined filling
+            self.status.emit(
+                f"  Computing sequential filling for combination "
+                f"{combo_idx + 1}/{total_combos}…"
+            )
+
+            try:
+                combined = compute_multi_cusp_filled_refined_index(
+                    nz_transformed,
+                    fill_specs=fill_specs,
+                    q_order_half=q_order_half,
+                    verbose=False,
+                    progress_callback=lambda msg: self.status.emit(f"  {msg}"),
+                )
+                multi_results.append(MultiCuspFillResult(
+                    cusp_info=cusp_info_list,
+                    fill_result=combined,
+                ))
+            except Exception as exc:
+                self.status.emit(
+                    f"  Error in combination {combo_idx + 1}: {exc}"
+                )
+
+            self.progress.emit(combo_idx + 1, total_combos)
+
+        self.status.emit(
+            f"Done — {total_combos} NC combination(s), "
+            f"{len(multi_results)} result(s)."
+        )
+        self.finished.emit(multi_results)
+
+    # ------------------------------------------------------------------
+    # Single-cusp filling (original per-cusp logic)
+    # ------------------------------------------------------------------
+
+    def _run_single_cusp(
+        self,
+        nz,
+        nc_results: list,
+        user_slopes: dict[int, tuple[int, int]],
+        q_order_half: int,
+    ) -> None:
+        """Fill cusps independently (when not all cusps are filled)."""
+        from manifold_index.core.dehn_filling import find_rs
+        from manifold_index.core.refined_dehn_filling import (
+            compute_filled_refined_index,
+        )
+        from manifold_index.core.neumann_zagier import (
+            apply_general_cusp_basis_change,
+        )
+        from manifold_index.core.weyl_check import compute_ab_vectors_for_cusp
+
+        r = nz.r
 
         _FILL_DISPLAY_CHARGES = [
             (0, Fraction(0)),
@@ -308,24 +511,16 @@ class DehnFillingWorker(QThread):
             (0, Fraction(1, 2)),
             (2, Fraction(0)),
             (0, Fraction(1)),
-        ]  # (m, e) per unfilled cusp
-
-        # Build lookup: cusp_idx → user's (P, Q)
-        user_slopes: dict[int, tuple[int, int]] = {}
-        for cfg in active:
-            user_slopes[cfg["cusp_idx"]] = (cfg["P"], cfg["Q"])
+        ]
 
         all_nc = [
             (nc.cusp_idx, cyc) for nc in nc_results for cyc in nc.cycles
         ]
 
-        # Build the external charge grid for unfilled cusps (per cusp)
-        filled_cusp_set = set(user_slopes.keys())
-
         transformed_results: list[TransformedFillResult] = []
         total_jobs = 0
         for cusp_idx, _cyc in all_nc:
-            n_unfilled = r - 1  # other cusps
+            n_unfilled = r - 1
             n_combos = len(_FILL_DISPLAY_CHARGES) ** n_unfilled if n_unfilled > 0 else 1
             total_jobs += n_combos
         done_jobs = 0
@@ -334,42 +529,16 @@ class DehnFillingWorker(QThread):
             P_nc, Q_nc = cyc.P, cyc.Q
             P_user, Q_user = user_slopes[cusp_idx]
 
-            # find_rs gives R0, S0 with R0·Q_nc − P_nc·S0 = 1
-            # → det [[P_nc, R0], [Q_nc, S0]] = −1.
-            # Convention: δ = (−R0)·α + (−S0)·β so that
-            #   det [[P_nc, −R0], [Q_nc, −S0]] = +1  (SL(2,Z)).
             R0, S0 = find_rs(P_nc, Q_nc)
-            R, S = -R0, -S0          # complement with det = +1
+            R, S = -R0, -S0
 
-            # Transform user's slope into (γ, δ) basis:
-            #   [[P_nc, R], [Q_nc, S]] · [[p], [q]] = [[P_user], [Q_user]]
-            #   det = 1  → inverse = [[S, -R], [-Q_nc, P_nc]]
             p = S * P_user - R * Q_user
             q = -Q_nc * P_user + P_nc * Q_user
 
-            # ── Rebuild NZ data in the new cusp basis ──
-            #
-            # The SL(2,ℤ) matrix [[P_nc, Q_nc], [R, S]] maps
-            #   new_μ = P_nc·old_μ + Q_nc·old_λ   (= NC cycle γ)
-            #   new_λ = R·old_μ    + S·old_λ       (= complement δ)
-            #
-            # After this change the filling slope becomes (p, q) in the
-            # new (μ′, λ′) basis and the NZ data correctly reflects the
-            # new peripheral-curve convention.  The charges (m, e) in the
-            # new basis correspond to different physical cycles than in
-            # the original basis.
             nz_nc = apply_general_cusp_basis_change(
                 nz, cusp_idx, a=P_nc, b=Q_nc, c=R, d=S,
             )
 
-            # ── Compute Weyl vectors in the new cusp basis ──
-            #
-            # The Weyl vectors (a, b) are basis-dependent and form a
-            # matrix (num_hard × d) where d = number of filled cusps.
-            # Each column is extracted independently by probing I^ref at
-            # charge configs that vary only the filled cusp's charges.
-            # This is done AFTER the NC basis change so that the returned
-            # (a, b) are correct for the new (μ′, λ′) basis.
             self.status.emit(
                 f"Step 2/2 — Cusp {cusp_idx}, NC ({P_nc},{Q_nc}): "
                 f"extracting Weyl vectors…"
@@ -377,47 +546,26 @@ class DehnFillingWorker(QThread):
             ab_nc = compute_ab_vectors_for_cusp(
                 nz_nc, cusp_idx, q_order_half=q_order_half,
             )
-            # Weyl vectors for display (always physical a, b)
-            if ab_nc is not None:
-                weyl_a_phys = list(ab_nc.a)
-                weyl_b_phys = list(ab_nc.b)
-            else:
-                weyl_a_phys = None
-                weyl_b_phys = None
+            weyl_a_phys = list(ab_nc.a) if ab_nc else None
+            weyl_b_phys = list(ab_nc.b) if ab_nc else None
 
+            incompat_edges = []
+            weyl_a_nc = None
+            weyl_b_nc = None
             if ab_nc is not None:
-                # Identify incompatible edges (a ∉ ℤ or 2b ∉ ℤ)
                 incompat_edges = [
                     j for j, ok in enumerate(ab_nc.edge_compatible) if not ok
                 ]
-                # Zero out incompatible edges for the Weyl shift
                 ab_compat = ab_nc.make_filling_compatible()
                 weyl_a_nc = list(ab_compat.a)
                 weyl_b_nc = list(ab_compat.b)
-                # If all edges were zeroed, skip Weyl shift entirely
                 if all(a == 0 and b == 0 for a, b in zip(weyl_a_nc, weyl_b_nc)):
-                    self.status.emit(
-                        f"  NC ({P_nc},{Q_nc}): all edges incompatible "
-                        f"→ Weyl shift disabled"
-                    )
                     weyl_a_nc = None
                     weyl_b_nc = None
-                if incompat_edges:
-                    self.status.emit(
-                        f"  NC ({P_nc},{Q_nc}): edges {incompat_edges} "
-                        f"incompatible → setting v_j=0"
-                    )
-            else:
-                weyl_a_nc = None
-                weyl_b_nc = None
-                incompat_edges = []
 
-            # Build external-charge combos for unfilled cusps
             n_unfilled = r - 1
             if n_unfilled == 0:
-                ext_combos: list[tuple[list[int], list[Fraction]]] = [
-                    ([], [])
-                ]
+                ext_combos: list[tuple[list[int], list[Fraction]]] = [([], [])]
             else:
                 ext_combos = []
                 for combo in itertools_product(
@@ -441,15 +589,13 @@ class DehnFillingWorker(QThread):
                     fr = compute_filled_refined_index(
                         nz_data=nz_nc,
                         cusp_idx=cusp_idx,
-                        P=p,
-                        Q=q,
+                        P=p, Q=q,
                         m_other=list(m_o) if m_o else None,
                         e_other=list(e_o) if e_o else None,
                         q_order_half=q_order_half,
                         weyl_a=weyl_a_nc,
                         weyl_b=weyl_b_nc,
                     )
-                    # Collapse η_j = 1 for incompatible edges
                     if incompat_edges:
                         fr = fr.collapse_eta_edges(incompat_edges)
                     fill_results.append((list(m_o), list(e_o), fr))
@@ -471,7 +617,6 @@ class DehnFillingWorker(QThread):
             ))
 
         n_nc_total = len(all_nc)
-        n_computed = len(transformed_results)
         n_evals = sum(len(tr.fill_results) for tr in transformed_results)
         self.status.emit(
             f"Done — {n_nc_total} NC cycle(s), {n_evals} filled index evaluation(s)."

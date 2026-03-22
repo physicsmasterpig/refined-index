@@ -93,6 +93,7 @@ def nz_v1683():
 
 
 @skip_no_math
+@pytest.mark.slow
 def test_v1683_meridian_only_q8(nz_v1683):
     """Regression: only (1,0) should be non-closable for v1683."""
     result = find_non_closable_cycles(
@@ -105,6 +106,7 @@ def test_v1683_meridian_only_q8(nz_v1683):
 
 
 @skip_no_math
+@pytest.mark.slow
 def test_v1683_meridian_only_q4(nz_v1683):
     """Regression: buffer-clamp bug at small q_order_half."""
     result = find_non_closable_cycles(
