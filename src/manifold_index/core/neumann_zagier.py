@@ -135,6 +135,10 @@ class NeumannZagierData:
     num_hard: int
     num_easy: int
 
+    # Internal caches (not part of the public API)
+    _g_inv_cache: np.ndarray | None = field(default=None, repr=False, compare=False)
+    _g_inv_x2_cache: np.ndarray | None = field(default=None, repr=False, compare=False)
+
     # ------------------------------------------------------------------
     # Derived properties
     # ------------------------------------------------------------------
@@ -164,7 +168,11 @@ class NeumannZagierData:
         downstream callers get exact rational arithmetic.  The longitude/2
         rows of g_NZ may have half-integer entries, which float→int rounding
         would silently corrupt.
+
+        The result is cached on first call for O(1) subsequent access.
         """
+        if self._g_inv_cache is not None:
+            return self._g_inv_cache
         n = self.n
         A = self.g_NZ[:n, :n]
         B = self.g_NZ[:n, n:]
@@ -178,11 +186,45 @@ class NeumannZagierData:
         # denominator structure of g_NZ is preserved exactly).
         # limit_denominator(1000) recovers the exact fraction from the
         # float without any rounding.
-        return np.array(
+        result = np.array(
             [[Fraction(v).limit_denominator(1000) for v in row]
              for row in result_float],
             dtype=object,
         )
+        self._g_inv_cache = result
+        return result
+
+    def g_NZ_inv_x2(self) -> np.ndarray:
+        """Return ``2 * g_NZ^{-1}`` as an exact ``int64`` matrix.
+
+        Because every entry of g_NZ^{-1} has denominator dividing 2
+        (the symplectic inverse only transposes and negates blocks of g_NZ,
+        whose entries are integers or half-integers from the longitude/2
+        rows), multiplying by 2 always yields integers.
+
+        This avoids all :class:`~fractions.Fraction` construction and
+        enables pure ``int64`` matrix arithmetic in the hot path.
+
+        The result is cached on first call.
+        """
+        if self._g_inv_x2_cache is not None:
+            return self._g_inv_x2_cache
+        n = self.n
+        A = self.g_NZ[:n, :n]
+        B = self.g_NZ[:n, n:]
+        C = self.g_NZ[n:, :n]
+        D = self.g_NZ[n:, n:]
+        inv_float = np.vstack([
+            np.hstack([D.T, -B.T]),
+            np.hstack([-C.T, A.T]),
+        ])
+        x2 = inv_float * 2.0
+        result = np.round(x2).astype(np.int64)
+        # Validate: all entries must be exact integers after ×2.
+        assert np.allclose(x2, result, atol=1e-9), \
+            "g_NZ_inv has entries with denominator > 2; x2 trick not applicable"
+        self._g_inv_x2_cache = result
+        return result
 
 
 # ---------------------------------------------------------------------------

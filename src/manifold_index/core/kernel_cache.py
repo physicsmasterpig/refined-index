@@ -582,6 +582,31 @@ def _precompute_parallel(
 # Fast application: use pre-computed kernel instead of IS chain
 # ---------------------------------------------------------------------------
 
+# -- Worker helpers for parallel I^ref computation -------------------------
+
+_worker_nz_data: Any = None
+
+
+def _iref_worker_init(nz_data: Any) -> None:
+    """Initialiser for each worker process — store NZ data globally."""
+    global _worker_nz_data
+    _worker_nz_data = nz_data
+
+
+def _iref_worker_fn(
+    args: tuple[list[int], list, int],
+) -> tuple[tuple[int, ...], tuple, dict]:
+    """Compute a single I^ref in a worker process.
+
+    Returns (m_ext_tuple, e_ext_tuple, result_dict).
+    """
+    from manifold_index.core.refined_index import compute_refined_index
+
+    m_ext, e_ext, qq_internal = args
+    result = compute_refined_index(_worker_nz_data, m_ext, e_ext, qq_internal)
+    return (tuple(m_ext), tuple(e_ext), result)
+
+
 def apply_precomputed_kernel(
     kernel: KernelTable,
     nz_data: Any,
@@ -592,6 +617,7 @@ def apply_precomputed_kernel(
     weyl_b: list[Fraction] | None = None,
     qq_order: int | None = None,
     verbose: bool = False,
+    n_workers: int = 1,
 ) -> MultiEtaSeries:
     """Apply a pre-computed kernel to a manifold — the fast path.
 
@@ -616,6 +642,12 @@ def apply_precomputed_kernel(
         bounds are tight.  If *None*, falls back to the kernel's own
         qq_internal.
     verbose : bool
+    n_workers : int
+        Number of worker processes for parallel I^ref computation.
+        1 (default) = sequential.  Values > 1 use a
+        ``ProcessPoolExecutor`` to compute I^ref for each (m, e)
+        point in parallel.  Beneficial for large grids / high qq;
+        the process-spawning overhead may negate gains for small jobs.
 
     Returns
     -------
@@ -664,22 +696,60 @@ def apply_precomputed_kernel(
     # per-element dict ops in the inner loop.
     lcd, k_grouped = kernel.get_int_grouped()
 
+    # ----- Pre-compute all I^ref results (sequential or parallel) -----
+    # Build the full (m_ext, e_ext) list for every kernel entry.
+    all_me_pairs: list[tuple[tuple[int, int], list[int], list]] = []
+    for (m_i, e_i) in k_grouped:
+        m_ext, e_ext = _make_ext(m_i, e_i)
+        all_me_pairs.append(((m_i, e_i), m_ext, e_ext))
+
+    # iref_results: (m_i, e_i) → RefinedIndexResult (dict or empty dict)
+    iref_results: dict[tuple[int, int], dict] = {}
+
+    if n_workers > 1 and len(all_me_pairs) > 1:
+        # --- Parallel path: ProcessPoolExecutor with initialiser ---
+        n_workers = min(n_workers, len(all_me_pairs), os.cpu_count() or 1)
+        if verbose:
+            print(
+                f"[kernel] Parallel I^ref: {len(all_me_pairs)} (m,e) pairs "
+                f"across {n_workers} workers"
+            )
+        tasks = [
+            (m_ext, e_ext, qq_internal) for (_, m_ext, e_ext) in all_me_pairs
+        ]
+        with ProcessPoolExecutor(
+            max_workers=n_workers,
+            initializer=_iref_worker_init,
+            initargs=(nz_data,),
+        ) as executor:
+            futures = {
+                executor.submit(_iref_worker_fn, t): me_key
+                for t, (me_key, _, _) in zip(tasks, all_me_pairs)
+            }
+            for future in as_completed(futures):
+                _m_ext_t, _e_ext_t, result = future.result()
+                me_key = futures[future]
+                iref_results[me_key] = result
+    else:
+        # --- Sequential path: reuse the module-level _iref_cache ---
+        for (me_key, m_ext, e_ext) in all_me_pairs:
+            iref_results[me_key] = _cached_compute_refined_index(
+                nz_data, m_ext, e_ext, q_order_half=qq_internal,
+            )
+
     # Dense accumulators: suffix → int64 array of length qq_internal+1
     # where suffix = (2η_0, …, 2η_{H-1}, η_cusp).
     accum_arrays: dict[tuple[int, ...], np.ndarray] = {}
     n_hits = 0
 
     for (m_i, e_i), by_eta_k in k_grouped.items():
-        m_ext, e_ext = _make_ext(m_i, e_i)
-
-        refined = _cached_compute_refined_index(
-            nz_data, m_ext, e_ext, q_order_half=qq_internal,
-        )
+        refined = iref_results.get((m_i, e_i), {})
         if not refined:
             continue
 
         # Apply Weyl shift (manifold-dependent, hard-η only)
         if weyl_a is not None and weyl_b is not None:
+            m_ext, e_ext = _make_ext(m_i, e_i)
             refined = _apply_weyl_shift(
                 refined, m_ext, e_ext, weyl_a, weyl_b, num_hard,
                 cusp_idx=cusp_idx,

@@ -1219,6 +1219,7 @@ def compute_filled_refined_index(
     weyl_a: list[Fraction] | None = None,
     weyl_b: list[Fraction] | None = None,
     verbose: bool = False,
+    n_workers: int = 1,
 ) -> FilledRefinedResult:
     """Compute the refined Dehn-filled index I^ref_{P/Q}(η_hard, η_cusp).
 
@@ -1265,6 +1266,9 @@ def compute_filled_refined_index(
         the Weyl-manifest form.
     verbose : bool
         Print progress to stdout.
+    n_workers : int
+        Number of worker processes for parallel I^ref computation
+        (passed to ``apply_precomputed_kernel``).  Default 1 = sequential.
 
     Returns
     -------
@@ -1412,6 +1416,7 @@ def compute_filled_refined_index(
             weyl_b=weyl_b,
             qq_order=qq_order,
             verbose=verbose,
+            n_workers=n_workers,
         )
         # Apply diamond truncation: qq + |cusp_eta| ≤ qq_order
         truncated: MultiEtaSeries = {

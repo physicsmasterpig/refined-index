@@ -42,8 +42,19 @@ from typing import Sequence
 from manifold_index.core.index_3d import (
     _tet_index_series,
     enumerate_summation_terms,
+    _get_enum_state,
+    _enumerate_with_state,
 )
 from manifold_index.core.neumann_zagier import NeumannZagierData
+
+# Try to import C poly_convolve for faster polynomial multiplication
+try:
+    from manifold_index.core._c_tet_index import (       # type: ignore[import-not-found]
+        poly_convolve as _c_poly_convolve,
+    )
+    _HAS_C_POLY = True
+except ImportError:
+    _HAS_C_POLY = False
 
 # ---------------------------------------------------------------------------
 # Public type alias
@@ -142,13 +153,17 @@ def compute_refined_index(
             if not s:
                 prod = {}
                 break
-            new_prod: dict[int, int] = {}
-            for p1, c1 in prod.items():
-                for p2, c2 in s.items():
-                    pp = p1 + p2
-                    if pp <= budget:
-                        new_prod[pp] = new_prod.get(pp, 0) + c1 * c2
-            prod = {kk: vv for kk, vv in new_prod.items() if vv != 0}
+            # Use C poly_convolve when available (same as compute_index_3d_python)
+            if _HAS_C_POLY:
+                prod = _c_poly_convolve(prod, s, budget)
+            else:
+                new_prod: dict[int, int] = {}
+                for p1, c1 in prod.items():
+                    for p2, c2 in s.items():
+                        pp = p1 + p2
+                        if pp <= budget:
+                            new_prod[pp] = new_prod.get(pp, 0) + c1 * c2
+                prod = {kk: vv for kk, vv in new_prod.items() if vv != 0}
             prod_min_pow += min(s.keys())  # accumulate tet's min contribution
 
         # Apply phase factor (-q^{1/2})^{phase_exp}
@@ -161,6 +176,92 @@ def compute_refined_index(
 
     # Remove zero entries
     return {key: val for key, val in result.items() if val != 0}
+
+
+# ---------------------------------------------------------------------------
+# Batch computation — pre-compute manifold state once, reuse across entries
+# ---------------------------------------------------------------------------
+
+def compute_refined_index_batch(
+    nz_data: NeumannZagierData,
+    entries: list[tuple[Sequence[int], Sequence[int | Fraction]]],
+    q_order_half: int = 20,
+) -> list[RefinedIndexResult]:
+    """Compute I^ref for multiple (m_ext, e_ext) pairs, sharing manifold setup.
+
+    This is equivalent to calling :func:`compute_refined_index` for each
+    entry individually, but **much** faster because the manifold-dependent
+    pre-computation (g_NZ inverse, valid half-integer patterns, internal-edge
+    columns, etc.) is done once and reused for all entries.
+
+    Parameters
+    ----------
+    nz_data : NeumannZagierData
+    entries : list of (m_ext, e_ext) tuples
+    q_order_half : int
+        Cutoff order in q^{1/2}.
+
+    Returns
+    -------
+    list of RefinedIndexResult
+        One result per entry, in the same order.
+    """
+    # Pre-compute enumeration state once
+    state = _get_enum_state(nz_data)
+    k = nz_data.num_hard
+
+    results: list[RefinedIndexResult] = []
+    for m_ext, e_ext in entries:
+        # Enumerate using pre-computed state (fast path)
+        terms = _enumerate_with_state(state, m_ext, e_ext, q_order_half)
+        if not terms:
+            results.append({})
+            continue
+
+        result: RefinedIndexResult = {}
+        for term in terms:
+            phase_exp: int = term["phase_exp"]
+            tet_args: list[tuple[int, int]] = term["tet_args"]
+            e_int_strs: list[str] = term["e_int"]
+
+            eta_exps_x2 = tuple(
+                int(Fraction(e_int_strs[a]) * 2) for a in range(k)
+            )
+
+            budget = q_order_half - phase_exp
+            prod: dict[int, int] = {0: 1}
+            prod_min_pow = 0
+            for ta, tb in tet_args:
+                cutoff = budget - prod_min_pow
+                if cutoff < 0:
+                    prod = {}
+                    break
+                s = _tet_index_series(ta, tb, cutoff)
+                if not s:
+                    prod = {}
+                    break
+                if _HAS_C_POLY:
+                    prod = _c_poly_convolve(prod, s, budget)
+                else:
+                    new_prod: dict[int, int] = {}
+                    for p1, c1 in prod.items():
+                        for p2, c2 in s.items():
+                            pp = p1 + p2
+                            if pp <= budget:
+                                new_prod[pp] = new_prod.get(pp, 0) + c1 * c2
+                    prod = {kk: vv for kk, vv in new_prod.items() if vv != 0}
+                prod_min_pow += min(s.keys())
+
+            sign = 1 if phase_exp % 2 == 0 else -1
+            for pp, c in prod.items():
+                shifted = pp + phase_exp
+                if 0 <= shifted <= q_order_half:
+                    key = (shifted,) + eta_exps_x2
+                    result[key] = result.get(key, 0) + sign * c
+
+        results.append({key: val for key, val in result.items() if val != 0})
+
+    return results
 
 
 # ---------------------------------------------------------------------------
