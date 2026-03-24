@@ -124,14 +124,33 @@ MultiEtaSeries = dict[tuple[int, ...], Fraction]
 # They are cached via @functools.lru_cache on the functions themselves.
 #
 # compute_refined_index depends on a NeumannZagierData object (not directly
-# hashable), so we wrap it in a manual dict cache keyed by id(nz_data) and
-# hashable representations of the remaining args.  This gives cross-P/Q
-# memoisation: the I^ref grid scan for a second filling of the same manifold
-# reuses previously computed values.
+# hashable), so we wrap it in a manual dict cache keyed by a content-based
+# fingerprint of nz_data and hashable representations of the remaining args.
+# This gives cross-P/Q memoisation: the I^ref grid scan for a second filling
+# of the same manifold reuses previously computed values.
+#
+# NOTE: We previously used ``id(nz_data)`` as the cache key, but that is
+# unsafe because Python may reuse the same memory address for a *different*
+# NeumannZagierData object after the original is garbage-collected.
+# This caused wrong results when Dehn filling with multiple NC cycles
+# (each creates a distinct basis-changed NZ object in a loop).
 
 _CACHE_MISS = object()
 
 _iref_cache: dict[tuple, dict] = {}
+
+
+def _nz_content_key(nz_data: "NeumannZagierData") -> tuple:
+    """Return a hashable, content-based fingerprint of *nz_data*.
+
+    For typical manifolds (n ≤ 10 tetrahedra) this is a fast bytes
+    comparison (≤ 3200 bytes for the 2n × 2n matrix + two length-n vectors).
+    """
+    return (
+        nz_data.g_NZ.data.tobytes(),
+        nz_data.nu_x.data.tobytes(),
+        nz_data.nu_p.data.tobytes(),
+    )
 
 
 def _cached_compute_refined_index(
@@ -142,11 +161,11 @@ def _cached_compute_refined_index(
 ) -> "RefinedIndexResult":
     """Wrapper around ``compute_refined_index`` with memoisation.
 
-    The cache key uses ``id(nz_data)`` (valid as long as the same Python
-    object is alive) and tuple-ified charge vectors.
+    The cache key uses a content-based fingerprint of *nz_data* (matrix
+    bytes + shift bytes) so that different basis changes are never confused.
     """
     key = (
-        id(nz_data),
+        _nz_content_key(nz_data),
         tuple(m_ext),
         tuple(Fraction(e) for e in e_ext),
         q_order_half,

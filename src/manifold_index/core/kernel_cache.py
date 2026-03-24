@@ -771,38 +771,85 @@ def apply_precomputed_kernel(
             if qq_r <= qq_internal:
                 arr[qq_r] = c
 
-        # For each (η_hard, η_cusp) pair, convolve and accumulate via numpy
+        # For each (η_hard, η_cusp) pair, convolve and accumulate via numpy.
+        # Batched approach: instead of N_ec separate np.convolve calls per
+        # η_h group, stack all kern_arr into a matrix and accumulate using
+        # L_i vectorised 2-D numpy operations (one per nonzero iref position).
+        # This eliminates the Python call overhead of each np.convolve and
+        # uses cache-friendly 2-D slice additions instead.
+        #
+        # Threshold: for very small N_ec the overhead of building kern_matrix
+        # and conv_results exceeds the savings; fall back to individual calls.
+        _BATCH_THRESH = 4  # use batched path when N_ec >= this
+
         for eta_h, iref_arr in iref_by_eta.items():
             # Trim trailing zeros for smaller convolution
             nz_pos = np.flatnonzero(iref_arr)
             if len(nz_pos) == 0:
                 continue
             iref_trimmed = iref_arr[: int(nz_pos[-1]) + 1]
+            L_i = len(iref_trimmed)
 
-            for eta_c, (min_qk, kern_arr) in by_eta_k.items():
-                suffix = eta_h + (eta_c,)
+            eta_c_items = list(by_eta_k.items())  # [(eta_c, (min_qk, kern_arr)), ...]
+            N_ec = len(eta_c_items)
 
-                # 1-D convolution (C-level)
-                conv = np.convolve(iref_trimmed, kern_arr)
+            if N_ec >= _BATCH_THRESH:
+                # --- Batched path ---
+                # Stack kern arrays into one matrix (pad to common length).
+                L_k_max = max(len(v[1]) for _, v in eta_c_items)
+                L_out = L_i + L_k_max - 1
 
-                # conv[i] corresponds to qq = i + min_qk
-                # We want qq ∈ [0, qq_internal], so:
-                #   i + min_qk ≥ 0  →  i ≥ -min_qk
-                #   i + min_qk ≤ qq_internal  →  i ≤ qq_internal - min_qk
-                src_lo = max(0, -min_qk)
-                src_hi = min(len(conv), qq_internal + 1 - min_qk)
-                if src_lo >= src_hi:
-                    continue
+                kern_matrix = np.zeros((N_ec, L_k_max), dtype=np.int64)
+                for idx, (_, (_, karr)) in enumerate(eta_c_items):
+                    kern_matrix[idx, : len(karr)] = karr
 
-                dst_lo = src_lo + min_qk
-                dst_hi = src_hi + min_qk
+                # For each nonzero position j in iref_trimmed, spread
+                # iref_trimmed[j] * kern_matrix into the result slice.
+                conv_results = np.zeros((N_ec, L_out), dtype=np.int64)
+                for j in range(L_i):
+                    v = int(iref_trimmed[j])
+                    if v == 0:
+                        continue
+                    conv_results[:, j: j + L_k_max] += v * kern_matrix
 
-                # Accumulate directly into dense numpy array (no Python loop)
-                acc = accum_arrays.get(suffix)
-                if acc is None:
-                    acc = np.zeros(qq_internal + 1, dtype=np.int64)
-                    accum_arrays[suffix] = acc
-                acc[dst_lo:dst_hi] += conv[src_lo:src_hi]
+                # Write each row to its suffix accumulator.
+                for idx, (eta_c, (min_qk, _)) in enumerate(eta_c_items):
+                    suffix = eta_h + (eta_c,)
+                    conv = conv_results[idx]
+
+                    src_lo = max(0, -min_qk)
+                    src_hi = min(L_out, qq_internal + 1 - min_qk)
+                    if src_lo >= src_hi:
+                        continue
+                    dst_lo = src_lo + min_qk
+                    dst_hi = src_hi + min_qk
+
+                    acc = accum_arrays.get(suffix)
+                    if acc is None:
+                        acc = np.zeros(qq_internal + 1, dtype=np.int64)
+                        accum_arrays[suffix] = acc
+                    acc[dst_lo:dst_hi] += conv[src_lo:src_hi]
+
+            else:
+                # --- Scalar path (small N_ec) ---
+                for eta_c, (min_qk, kern_arr) in eta_c_items:
+                    suffix = eta_h + (eta_c,)
+
+                    conv = np.convolve(iref_trimmed, kern_arr)
+
+                    src_lo = max(0, -min_qk)
+                    src_hi = min(len(conv), qq_internal + 1 - min_qk)
+                    if src_lo >= src_hi:
+                        continue
+
+                    dst_lo = src_lo + min_qk
+                    dst_hi = src_hi + min_qk
+
+                    acc = accum_arrays.get(suffix)
+                    if acc is None:
+                        acc = np.zeros(qq_internal + 1, dtype=np.int64)
+                        accum_arrays[suffix] = acc
+                    acc[dst_lo:dst_hi] += conv[src_lo:src_hi]
 
     # Convert dense int64 arrays → sparse Fraction dict, drop zeros
     total_series: MultiEtaSeries = {}

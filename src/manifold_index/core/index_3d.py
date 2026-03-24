@@ -794,8 +794,12 @@ class _EnumerationState:
     cusp_e_cols_x2: np.ndarray  # (2n, r) int64 — g_inv_x2[:, n:n+r]
 
 
-# Module-level cache: one _EnumerationState per NeumannZagierData object
-_enum_state_cache: dict[int, _EnumerationState] = {}
+# Module-level cache: one _EnumerationState per NeumannZagierData content.
+# We use a content-based key (matrix bytes) rather than ``id(nz_data)``
+# because Python may reuse the same memory address for a different object
+# after the original is garbage-collected (e.g. across NC cycles in Dehn
+# filling, each of which creates a fresh basis-changed NZ object).
+_enum_state_cache: dict[tuple, _EnumerationState] = {}
 
 
 def clear_enum_state_cache() -> None:
@@ -803,9 +807,18 @@ def clear_enum_state_cache() -> None:
     _enum_state_cache.clear()
 
 
+def _nz_content_key(nz_data: NeumannZagierData) -> tuple:
+    """Return a hashable, content-based fingerprint of *nz_data*."""
+    return (
+        nz_data.g_NZ.data.tobytes(),
+        nz_data.nu_x.data.tobytes(),
+        nz_data.nu_p.data.tobytes(),
+    )
+
+
 def _get_enum_state(nz_data: NeumannZagierData) -> _EnumerationState:
     """Get or create the cached enumeration state for *nz_data*."""
-    key = id(nz_data)
+    key = _nz_content_key(nz_data)
     cached = _enum_state_cache.get(key)
     if cached is not None:
         return cached
