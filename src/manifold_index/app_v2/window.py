@@ -36,7 +36,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Refined 3D Index Calculator — v0.2.3")
+        self.setWindowTitle("Refined 3D Index Calculator — v0.2.4")
         self.setMinimumSize(1200, 700)
         self.resize(1500, 850)
 
@@ -206,7 +206,7 @@ class MainWindow(QMainWindow):
 def launch_gui() -> None:
     """Create the QApplication and show the main window."""
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("Refined 3D Index Calculator v0.2.3")
+    app.setApplicationName("Refined 3D Index Calculator v0.2.4")
     app.setOrganizationName("RefinedIndex")
     app.setStyleSheet(APP_STYLESHEET)
 

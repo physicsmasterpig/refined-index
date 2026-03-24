@@ -567,6 +567,7 @@ def format_nc_cycles(
 def format_transformed_fill_results(
     transformed_results: list,  # list[TransformedFillResult]
     nz=None,    # NeumannZagierData | None — needed for multi-cusp charge labels
+    max_q_terms: int = 4,
 ) -> str:
     """Format the unified NC cycle table + filled refined index results.
 
@@ -673,7 +674,7 @@ def format_transformed_fill_results(
                 html += '<table class="idx">\n'
 
                 for m_o, e_o, fr in fill_results:
-                    series_str = _filled_series_to_katex(fr, max_q_terms=4)
+                    series_str = _filled_series_to_katex(fr, max_q_terms=max_q_terms)
 
                     # Convert (m, e) back to (alpha, beta) notation:
                     # alpha_coeff = -e, beta_coeff = m/2
@@ -722,7 +723,7 @@ def format_transformed_fill_results(
                 # ── Single-cusp: no external charges, just show result ──
                 if fill_results:
                     _m_o, _e_o, fr = fill_results[0]
-                    series_str = _filled_series_to_katex(fr, max_q_terms=4)
+                    series_str = _filled_series_to_katex(fr, max_q_terms=max_q_terms)
                     html += '<table class="idx">\n'
                     html += (
                         f'<tr>'
@@ -907,6 +908,7 @@ def _filled_series_to_katex(
 def format_multi_cusp_fill_results(
     multi_results: list,  # list[MultiCuspFillResult]
     nz=None,              # NeumannZagierData | None
+    max_q_terms: int = 6,
 ) -> str:
     """Format multi-cusp sequential filling results.
 
@@ -983,7 +985,7 @@ def format_multi_cusp_fill_results(
 
         # ── Combined filled refined index ────────────────────
         if fill_result is not None:
-            series_str = _filled_series_to_katex(fill_result, max_q_terms=6)
+            series_str = _filled_series_to_katex(fill_result, max_q_terms=max_q_terms)
             html += '<table class="idx">\n'
             html += (
                 f'<tr>'
@@ -1003,6 +1005,7 @@ def format_panel2_html(
     transformed_results: list | None = None,
     multi_cusp_results: list | None = None,
     nz: NeumannZagierData | None = None,
+    max_q_terms: int = 4,
 ) -> str:
     """Assemble the full Panel 2 HTML body.
 
@@ -1034,12 +1037,12 @@ The pipeline will:<br>
     if multi_cusp_results is not None and len(multi_cusp_results) > 0:
         # ── Multi-cusp sequential filling ─────────────────────
         parts.append(format_multi_cusp_fill_results(
-            multi_cusp_results, nz=nz,
+            multi_cusp_results, nz=nz, max_q_terms=max_q_terms,
         ))
     elif transformed_results is not None and len(transformed_results) > 0:
         # ── Single-cusp filling ───────────────────────────────
         parts.append(format_transformed_fill_results(
-            transformed_results, nz=nz,
+            transformed_results, nz=nz, max_q_terms=max_q_terms,
         ))
     elif nc_results is not None:
         # ── Intermediate display: NC search in progress ───────

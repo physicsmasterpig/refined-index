@@ -317,11 +317,15 @@ class FillingPanel(QFrame):
             and isinstance(results[0], MultiCuspFillResult)
         )
 
+        # Nmax = q_order_half / 2 → show that many q-terms
+        nmax = self._q_order_half // 2
+
         if is_multi:
             html = format_panel2_html(
                 nc_results=self._nc_results,
                 multi_cusp_results=results,
                 nz=self._nz_data,
+                max_q_terms=nmax,
             )
             total_nc = sum(len(nc.cycles) for nc in (self._nc_results or []))
             self._progress.setValue(self._progress.maximum())
@@ -334,6 +338,7 @@ class FillingPanel(QFrame):
                 nc_results=self._nc_results,
                 transformed_results=results,
                 nz=self._nz_data,
+                max_q_terms=nmax,
             )
             total_nc = sum(len(nc.cycles) for nc in (self._nc_results or []))
             total_evals = sum(
