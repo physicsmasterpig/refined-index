@@ -282,15 +282,21 @@ def list_cached_kernels(
 # Worker function for multiprocessing  (module-level for pickle)
 # ---------------------------------------------------------------------------
 
-def _worker_compute_chunk(
-    chunk: list[tuple[int, Fraction]],
+def _compute_one_kernel_entry(
+    m0: int,
+    e0: Fraction,
     hj_ks: list[int],
     qq_internal: int,
     eta_order: int,
     m1_range: int,
     final_term_info: dict[tuple[int, Fraction], tuple[int, int, int]],
-) -> dict[tuple[int, Fraction], QEtaSeries]:
-    """Compute kernel entries for a chunk of grid points (one worker)."""
+) -> QEtaSeries | None:
+    """Compute a single kernel table entry K^ref(m0, e0).
+
+    Returns the QEtaSeries if non-zero, else None.
+    Factored out so that both serial/parallel and adaptive paths share
+    exactly the same computation.
+    """
     from manifold_index.core.refined_dehn_filling import (
         _apply_is_step,
         _apply_k1_factor_multi,
@@ -298,43 +304,71 @@ def _worker_compute_chunk(
     )
 
     ell = len(hj_ks)
-    lcd = 1 << ell  # 2^ℓ — accumulated LCD from int-mode IS + K-factor
-    unit: MultiEtaSeries = {(0, 0): 1}  # int initial state
+    lcd = 1 << ell  # 2^ℓ
+    unit: MultiEtaSeries = {(0, 0): 1}
+    state: dict[tuple[int, Fraction], MultiEtaSeries] = {(m0, e0): unit}
+
+    for step_i in range(ell - 1):
+        k_curr = hj_ks[step_i]
+        k_next = hj_ks[step_i + 1]
+        state = _apply_is_step(
+            state, k_curr, k_next,
+            qq_internal, eta_order, m1_range,
+            use_int=True,
+        )
+
+    entry: QEtaSeries = {}
+    for (m1, e1), src_series in state.items():
+        if not src_series:
+            continue
+        info = final_term_info.get((m1, e1))
+        if info is None:
+            continue
+        c_f, ph_f, mult_f = info
+        contribution = _apply_k1_factor_multi(
+            src_series, c_f, ph_f, mult_f, qq_internal,
+            truncate=False,
+            int_mode=True,
+        )
+        if contribution:
+            entry = _multi_add(entry, contribution) if entry else dict(contribution)
+
+    if entry:
+        return {k: Fraction(v, lcd) for k, v in entry.items() if v != 0}
+    return None
+
+
+def _worker_compute_row(
+    m_values: list[int],
+    e_bounds: dict[int, tuple[int, int]],
+    hj_ks: list[int],
+    qq_internal: int,
+    eta_order: int,
+    m1_range: int,
+    final_term_info: dict[tuple[int, Fraction], tuple[int, int, int]],
+) -> tuple[dict[tuple[int, Fraction], QEtaSeries], int]:
+    """Compute kernel entries for complete m-rows (one worker).
+
+    Each m-row scans e within the bounds given by *e_bounds[m]*.
+    Row-based dispatch maximises LRU-cache reuse inside each worker
+    because all entries in one row share the same m value.
+
+    Returns (partial_table, n_computed).
+    """
     result: dict[tuple[int, Fraction], QEtaSeries] = {}
-
-    for m0, e0 in chunk:
-        state: dict[tuple[int, Fraction], MultiEtaSeries] = {(m0, e0): unit}
-
-        for step_i in range(ell - 1):
-            k_curr = hj_ks[step_i]
-            k_next = hj_ks[step_i + 1]
-            state = _apply_is_step(
-                state, k_curr, k_next,
-                qq_internal, eta_order, m1_range,
-                use_int=True,
+    n_computed = 0
+    for m0 in m_values:
+        e_lo, e_hi = e_bounds.get(m0, (-100, 100))
+        for e_half in range(e_lo, e_hi + 1):
+            e0 = Fraction(e_half, 2)
+            n_computed += 1
+            entry = _compute_one_kernel_entry(
+                m0, e0, hj_ks, qq_internal, eta_order,
+                m1_range, final_term_info,
             )
-
-        entry: QEtaSeries = {}
-        for (m1, e1), src_series in state.items():
-            if not src_series:
-                continue
-            info = final_term_info.get((m1, e1))
-            if info is None:
-                continue
-            c_f, ph_f, mult_f = info
-            contribution = _apply_k1_factor_multi(
-                src_series, c_f, ph_f, mult_f, qq_internal,
-                truncate=False,
-                int_mode=True,
-            )
-            if contribution:
-                entry = _multi_add(entry, contribution) if entry else dict(contribution)
-
-        # Convert int-scaled values to Fraction for the kernel table
-        if entry:
-            result[(m0, e0)] = {k: Fraction(v, lcd) for k, v in entry.items() if v != 0}
-
-    return result
+            if entry is not None:
+                result[(m0, e0)] = entry
+    return result, n_computed
 
 
 def precompute_filling_kernel(
@@ -349,9 +383,20 @@ def precompute_filling_kernel(
     """Pre-compute the full Dehn filling kernel K^ref(P/Q; m, e; η).
 
     For each (m, e) in the relevant grid, runs the IS convolution chain
-    on a unit-delta state and applies the final K-factor.  The LRU caches
-    on ``_is_kernel`` and ``_etilde_is`` make successive grid points fast
-    once the first few have warmed the cache.
+    on a unit-delta state and applies the final K-factor.
+
+    Optimisations (v3)
+    ------------------
+    1. **Symmetry**: K^ref(m,e) = K^ref(−m,−e) always holds.  Only
+       m ≥ 0 is computed; results are mirrored.  (2× speedup.)
+    2. **Parity auto-detection**: Probes m=0..3 to determine if only
+       one m-parity produces non-zero entries.  (Up to 2× more.)
+    3. **Probe-and-scale support prediction**: Runs a cheap low-qq
+       probe to discover the non-zero support shape, then scales the
+       per-m e-bounds for the target qq.  Eliminates ~80-90% of zero
+       computations.
+    4. **Row-based parallel dispatch**: Workers process complete m-rows
+       (better LRU-cache locality than interleaved points).
 
     Parameters
     ----------
@@ -375,10 +420,7 @@ def precompute_filling_kernel(
     """
     # Lazy imports to avoid circular dependency
     from manifold_index.core.refined_dehn_filling import (
-        _apply_is_step,
-        _apply_k1_factor_multi,
         _enumerate_slope1_all,
-        _multi_add,
         hj_continued_fraction,
     )
 
@@ -397,8 +439,7 @@ def precompute_filling_kernel(
     _is_buffer = qq_order // 2 + 4
     qq_internal = qq_order + _is_buffer
 
-    # ----- Tighter bounds (empirically max|m| ≈ qq_internal, ------
-    #        max|e| ≈ 0.8*qq_internal for the non-zero region)
+    # Scan-range bounds (generous, used as absolute cap)
     m_scan = int(1.25 * qq_internal) + 2
     e_scan = int(0.90 * qq_internal) + 2
     m1_range = int(1.10 * qq_internal) + 2
@@ -418,43 +459,254 @@ def precompute_filling_kernel(
         if key not in final_term_info:
             final_term_info[key] = (c_f, ph_f, 1)
 
-    # Build grid
-    grid_points: list[tuple[int, Fraction]] = []
-    for m in range(-m_scan, m_scan + 1):
-        for e_half in range(-2 * e_scan, 2 * e_scan + 1):
-            grid_points.append((m, Fraction(e_half, 2)))
-
-    total_pts = len(grid_points)
-
     # Decide parallelism
     if n_workers is None:
         n_workers = max(1, (os.cpu_count() or 4) - 2)
-    use_parallel = n_workers >= 2 and total_pts >= 500
 
-    _status(
-        f"[kernel] Pre-computing K^ref({P}/{Q}) at qq_order={qq_order}: "
-        f"HJ-CF={hj_ks}, ℓ={ell}, grid={total_pts}, "
-        f"qq_internal={qq_internal}, eta_order={eta_order}, "
-        f"m_scan={m_scan}, e_scan={e_scan}, m1_range={m1_range}, "
-        f"workers={'parallel ×' + str(n_workers) if use_parallel else 'serial'}"
-    )
+    _status(f"[kernel] Pre-computing K^ref({P}/{Q}) at qq={qq_order}: "
+            f"HJ={hj_ks}, ℓ={ell}, qq_internal={qq_internal}")
 
-    t0 = time.perf_counter()
+    # ------------------------------------------------------------------
+    # Phase 1: Parity auto-detection
+    # ------------------------------------------------------------------
+    _status("[kernel] Phase 1: parity detection ...")
 
-    if use_parallel:
-        kernel_table = _precompute_parallel(
-            grid_points, hj_ks, qq_internal, eta_order, m1_range,
-            final_term_info, n_workers, _status,
+    has_even = False
+    has_odd = False
+    _probe_es = [Fraction(0), Fraction(1, 2), Fraction(1), Fraction(-1, 2)]
+    for m_probe in range(4):
+        if has_even and has_odd:
+            break
+        for e_probe in _probe_es:
+            entry = _compute_one_kernel_entry(
+                m_probe, e_probe, hj_ks, qq_internal, eta_order,
+                m1_range, final_term_info,
+            )
+            if entry is not None:
+                if m_probe % 2 == 0:
+                    has_even = True
+                else:
+                    has_odd = True
+                break
+
+    if has_even and has_odd:
+        m_step = 1
+        parity_desc = "both parities"
+    elif has_even:
+        m_step = 2
+        parity_desc = "even-m only"
+    elif has_odd:
+        m_step = 2
+        parity_desc = "odd-m only"
+    else:
+        m_step = 1
+        parity_desc = "no hits in probe (full scan)"
+
+    m_start = 0 if has_even else 1
+    _status(f"[kernel]   → {parity_desc}, m_step={m_step}")
+
+    # ------------------------------------------------------------------
+    # Phase 2: Low-qq probe to discover support shape
+    # ------------------------------------------------------------------
+    # Run a cheap computation at low qq to find the (m, e) support
+    # boundary.  Then scale the boundary for the target qq.
+    _PROBE_QQ = 8  # fast, usually < 1.5 s; more data points than 6
+    _WIDTH_MARGIN = 1.4  # safety factor on half-width only
+    _MARGIN_ABS = 8  # absolute margin in half-integer e-steps
+
+    do_probe = qq_order > _PROBE_QQ + 4  # only probe if target is much larger
+
+    if do_probe:
+        _status("[kernel] Phase 2: low-qq probe for support shape ...")
+        from manifold_index.core.refined_dehn_filling import clear_filling_caches
+        clear_filling_caches()
+
+        probe_is_buffer = _PROBE_QQ // 2 + 4
+        probe_qq_internal = _PROBE_QQ + probe_is_buffer
+        probe_m_scan = int(1.25 * probe_qq_internal) + 2
+        probe_e_scan = int(0.90 * probe_qq_internal) + 2
+        probe_m1_range = int(1.10 * probe_qq_internal) + 2
+
+        # Build probe final terms
+        probe_final_terms = _enumerate_slope1_all(k_final, probe_m1_range)
+        probe_fti: dict[tuple[int, Fraction], tuple[int, int, int]] = {}
+        for m1, e1, c_f, ph_f in probe_final_terms:
+            key = (m1, e1)
+            if key not in probe_fti:
+                probe_fti[key] = (c_f, ph_f, 1)
+
+        # Scan the full grid at probe qq (very fast)
+        from collections import defaultdict
+        probe_e_bounds: dict[int, tuple[float, float]] = {}  # m → (e_min, e_max)
+        probe_m_max = 0
+        for m0 in range(m_start, probe_m_scan + 1, m_step):
+            row_es: list[float] = []
+            for e_half in range(-2 * probe_e_scan, 2 * probe_e_scan + 1):
+                e0 = Fraction(e_half, 2)
+                entry = _compute_one_kernel_entry(
+                    m0, e0, hj_ks, probe_qq_internal, eta_order,
+                    probe_m1_range, probe_fti,
+                )
+                if entry is not None:
+                    row_es.append(e_half)
+            if row_es:
+                probe_e_bounds[m0] = (min(row_es), max(row_es))
+                probe_m_max = max(probe_m_max, m0)
+
+        clear_filling_caches()  # free probe caches
+
+        # Scale probe bounds to target qq
+        scale = qq_internal / probe_qq_internal if probe_qq_internal > 0 else 5.0
+        scaled_m_max = int(probe_m_max * scale * _WIDTH_MARGIN) + 2
+
+        # Build per-m e-bounds by interpolating the probe shape
+        # Uses center + half-width scaling: the center shifts linearly
+        # but the half-width gets a multiplicative safety margin.
+        e_bounds: dict[int, tuple[int, int]] = {}
+        probe_ms = sorted(probe_e_bounds.keys())
+        for m0 in range(m_start, min(m_scan, scaled_m_max) + 1, m_step):
+            # Find the nearest probe m (normalised coordinates)
+            m_norm = m0 / scale
+            # Binary search for nearest probe row
+            best_lo, best_hi = None, None
+            for pm in probe_ms:
+                if pm <= m_norm:
+                    best_lo = pm
+                if pm >= m_norm and best_hi is None:
+                    best_hi = pm
+            if best_lo is None:
+                best_lo = best_hi
+            if best_hi is None:
+                best_hi = best_lo
+            if best_lo is None:
+                # No probe data — use full range
+                e_bounds[m0] = (-2 * e_scan, 2 * e_scan)
+                continue
+
+            # Interpolate e-bounds from nearest probe rows
+            lo_emin, lo_emax = probe_e_bounds[best_lo]
+            hi_emin, hi_emax = probe_e_bounds[best_hi]
+            if best_hi != best_lo:
+                t = (m_norm - best_lo) / (best_hi - best_lo)
+            else:
+                t = 0.0
+            interp_emin = lo_emin * (1 - t) + hi_emin * t
+            interp_emax = lo_emax * (1 - t) + hi_emax * t
+
+            # Center + half-width scaling (tighter than uniform factor)
+            center = (interp_emin + interp_emax) / 2.0
+            half_w = (interp_emax - interp_emin) / 2.0
+            scaled_center = center * scale
+            scaled_hw = half_w * scale * _WIDTH_MARGIN + _MARGIN_ABS
+            e_lo = int(scaled_center - scaled_hw) - 1
+            e_hi = int(scaled_center + scaled_hw) + 1
+
+            # Clamp to absolute bounds
+            e_lo = max(e_lo, -2 * e_scan)
+            e_hi = min(e_hi, 2 * e_scan)
+            e_bounds[m0] = (e_lo, e_hi)
+
+        target_m_values = sorted(e_bounds.keys())
+        total_pts = sum(hi - lo + 1 for lo, hi in e_bounds.values())
+        full_pts = len(target_m_values) * (4 * e_scan + 1)
+        _status(
+            f"[kernel]   → probe found {len(probe_e_bounds)} non-empty rows "
+            f"(m_max={probe_m_max}), "
+            f"scale={scale:.2f}, "
+            f"target grid: {total_pts} pts "
+            f"(vs {full_pts} full = {total_pts/full_pts*100:.0f}%)"
         )
     else:
-        kernel_table = _precompute_serial(
-            grid_points, hj_ks, ell, qq_internal, eta_order, m1_range,
-            final_term_info, _status, t0,
-        )
+        # Small qq — no probe, just full scan
+        target_m_values = list(range(m_start, m_scan + 1, m_step))
+        e_bounds = {m: (-2 * e_scan, 2 * e_scan) for m in target_m_values}
+        total_pts = sum(hi - lo + 1 for lo, hi in e_bounds.values())
+
+    # ------------------------------------------------------------------
+    # Phase 3: Compute kernel entries (m ≥ 0 only, symmetry)
+    # ------------------------------------------------------------------
+    t0 = time.perf_counter()
+    kernel_table: dict[tuple[int, Fraction], QEtaSeries] = {}
+
+    use_parallel = n_workers >= 2 and total_pts >= 500
+
+    _status(f"[kernel] Phase 3: computing {total_pts} grid points (m ≥ 0), "
+            f"workers={'parallel ×' + str(n_workers) if use_parallel else 'serial'}")
+
+    if use_parallel:
+        # Row-based dispatch: assign complete m-rows to workers
+        # Round-robin by row for load balance
+        worker_rows: list[list[int]] = [[] for _ in range(n_workers)]
+        for i, m0 in enumerate(target_m_values):
+            worker_rows[i % n_workers].append(m0)
+
+        ctx = multiprocessing.get_context("fork")
+        with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as pool:
+            futures = {
+                pool.submit(
+                    _worker_compute_row,
+                    rows, e_bounds, hj_ks, qq_internal, eta_order,
+                    m1_range, final_term_info,
+                ): i
+                for i, rows in enumerate(worker_rows)
+                if rows
+            }
+            done_count = 0
+            for future in as_completed(futures):
+                worker_id = futures[future]
+                partial, n_computed = future.result()
+                kernel_table.update(partial)
+                done_count += n_computed
+                elapsed = time.perf_counter() - t0
+                pct = done_count / total_pts * 100 if total_pts else 100
+                eta_s = (elapsed / done_count * total_pts - elapsed) if done_count else 0
+                _status(
+                    f"[kernel]   Worker {worker_id} done: "
+                    f"{done_count}/{total_pts} ({pct:.0f}%), "
+                    f"{elapsed:.0f}s elapsed, ~{eta_s:.0f}s remaining, "
+                    f"{len(kernel_table)} non-zero so far"
+                )
+    else:
+        # Serial path
+        computed = 0
+        for m0 in target_m_values:
+            e_lo, e_hi = e_bounds[m0]
+            for e_half in range(e_lo, e_hi + 1):
+                e0 = Fraction(e_half, 2)
+                entry = _compute_one_kernel_entry(
+                    m0, e0, hj_ks, qq_internal, eta_order,
+                    m1_range, final_term_info,
+                )
+                if entry is not None:
+                    kernel_table[(m0, e0)] = entry
+                computed += 1
+
+            if computed % max(1, total_pts // 20) < (e_hi - e_lo + 1):
+                elapsed = time.perf_counter() - t0
+                eta_s = elapsed / computed * total_pts - elapsed if computed else 0
+                _status(
+                    f"[kernel]   {computed}/{total_pts} "
+                    f"({computed/total_pts*100:.0f}%): "
+                    f"{elapsed:.0f}s elapsed, ~{eta_s:.0f}s remaining, "
+                    f"{len(kernel_table)} non-zero"
+                )
+
+    # ------------------------------------------------------------------
+    # Phase 4: Mirror symmetry  K(m,e) → K(−m,−e)
+    # ------------------------------------------------------------------
+    mirror_entries: dict[tuple[int, Fraction], QEtaSeries] = {}
+    for (m, e), entry in kernel_table.items():
+        if m == 0 and e == 0:
+            continue
+        mirror_key = (-m, -e)
+        if mirror_key not in kernel_table:
+            mirror_entries[mirror_key] = entry
+    kernel_table.update(mirror_entries)
 
     compute_time = time.perf_counter() - t0
     _status(
         f"[kernel] Done: {len(kernel_table)} non-zero entries "
+        f"(mirrored {len(mirror_entries)}) "
         f"in {compute_time:.1f}s ({compute_time/60:.1f}min)"
     )
 
@@ -470,120 +722,6 @@ def precompute_filling_kernel(
         compute_time_s=compute_time,
     )
 
-
-def _precompute_serial(
-    grid_points, hj_ks, ell, qq_internal, eta_order, m1_range,
-    final_term_info, _status, t0,
-) -> dict[tuple[int, Fraction], QEtaSeries]:
-    """Serial (single-process) kernel pre-computation."""
-    from manifold_index.core.refined_dehn_filling import (
-        _apply_is_step,
-        _apply_k1_factor_multi,
-        _multi_add,
-    )
-
-    total_pts = len(grid_points)
-    lcd = 1 << ell  # 2^ℓ — accumulated LCD from int-mode IS + K-factor
-    unit: MultiEtaSeries = {(0, 0): 1}  # int initial state
-    kernel_table: dict[tuple[int, Fraction], QEtaSeries] = {}
-
-    for idx, (m0, e0) in enumerate(grid_points):
-        state: dict[tuple[int, Fraction], MultiEtaSeries] = {(m0, e0): unit}
-
-        for step_i in range(ell - 1):
-            k_curr = hj_ks[step_i]
-            k_next = hj_ks[step_i + 1]
-            state = _apply_is_step(
-                state, k_curr, k_next,
-                qq_internal, eta_order, m1_range,
-                use_int=True,
-            )
-
-        entry: QEtaSeries = {}
-        for (m1, e1), src_series in state.items():
-            if not src_series:
-                continue
-            info = final_term_info.get((m1, e1))
-            if info is None:
-                continue
-            c_f, ph_f, mult_f = info
-            contribution = _apply_k1_factor_multi(
-                src_series, c_f, ph_f, mult_f, qq_internal,
-                truncate=False,
-                int_mode=True,
-            )
-            if contribution:
-                entry = _multi_add(entry, contribution) if entry else dict(contribution)
-
-        # Convert int-scaled values to Fraction for the kernel table
-        if entry:
-            kernel_table[(m0, e0)] = {k: Fraction(v, lcd) for k, v in entry.items() if v != 0}
-
-        if (idx + 1) % max(1, total_pts // 20) == 0:
-            elapsed = time.perf_counter() - t0
-            eta_s = elapsed / (idx + 1) * total_pts - elapsed
-            _status(
-                f"[kernel] {idx+1}/{total_pts} "
-                f"({(idx+1)/total_pts*100:.0f}%): "
-                f"{elapsed:.0f}s elapsed, ~{eta_s:.0f}s remaining, "
-                f"{len(kernel_table)} non-zero"
-            )
-
-    return kernel_table
-
-
-def _precompute_parallel(
-    grid_points, hj_ks, qq_internal, eta_order, m1_range,
-    final_term_info, n_workers, _status,
-) -> dict[tuple[int, Fraction], QEtaSeries]:
-    """Parallel kernel pre-computation using multiprocessing."""
-    total_pts = len(grid_points)
-
-    # Split grid into chunks — one per worker, interleaved for balance.
-    # (Interleaving ensures each worker sees a mix of "easy" and "hard"
-    # grid points, avoiding load imbalance.)
-    chunks: list[list[tuple[int, Fraction]]] = [[] for _ in range(n_workers)]
-    for i, pt in enumerate(grid_points):
-        chunks[i % n_workers].append(pt)
-
-    _status(
-        f"[kernel] Dispatching {total_pts} grid points "
-        f"to {n_workers} workers "
-        f"({len(chunks[0])} pts/worker)"
-    )
-
-    kernel_table: dict[tuple[int, Fraction], QEtaSeries] = {}
-    done_count = 0
-    t0 = time.perf_counter()
-
-    # Use 'fork' context on macOS/Linux for shared-nothing but fast start
-    ctx = multiprocessing.get_context("fork")
-    with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as pool:
-        futures = {
-            pool.submit(
-                _worker_compute_chunk,
-                chunk, hj_ks, qq_internal, eta_order, m1_range,
-                final_term_info,
-            ): i
-            for i, chunk in enumerate(chunks)
-        }
-
-        for future in as_completed(futures):
-            worker_id = futures[future]
-            partial = future.result()
-            kernel_table.update(partial)
-            done_count += len(chunks[worker_id])
-            elapsed = time.perf_counter() - t0
-            pct = done_count / total_pts * 100
-            eta_s = (elapsed / done_count * total_pts - elapsed) if done_count else 0
-            _status(
-                f"[kernel] Worker {worker_id} done: "
-                f"{done_count}/{total_pts} ({pct:.0f}%), "
-                f"{elapsed:.0f}s elapsed, ~{eta_s:.0f}s remaining, "
-                f"{len(kernel_table)} non-zero so far"
-            )
-
-    return kernel_table
 
 
 # ---------------------------------------------------------------------------

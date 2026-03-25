@@ -432,7 +432,7 @@ each I^ref(m,e) by eta^{a*e_I + b*m_I} before the kernel acts on it.
 
 ---
 
-### 4.11  kernel_cache.py (877 lines)
+### 4.11  kernel_cache.py (~1000 lines)
 
 **Purpose:** Pre-compute, save, and load manifold-independent Dehn filling
 kernel tables for L >= 2 slopes.
@@ -450,11 +450,17 @@ Gzipped pickle.  Fast repr is built before saving so loads skip conversion.
 match, then falls back to the smallest stored kernel with stored_qq >= qq.
 In-memory cache avoids repeated disk I/O.
 
-**precompute_filling_kernel(P, Q, qq_order, ...):**
-- Builds the full grid [-m_scan, m_scan] x [-e_scan, e_scan] (step 1/2).
-- Runs the IS chain on each grid point (unit-delta initial state).
-- Serial or parallel (ProcessPoolExecutor with fork context).
-- Workers call _apply_is_step + _apply_k1_factor_multi per chunk.
+**precompute_filling_kernel(P, Q, qq_order, ...) — four-phase algorithm (v3):**
+1. **Parity auto-detection**: Probes m=0..3 to determine if only one
+   m-parity produces non-zero entries (m_step=1 or 2).
+2. **Probe-and-scale support prediction** (PROBE_QQ=8): Runs a cheap
+   low-qq computation to discover the non-zero support shape, then scales
+   per-m e-bounds for the target qq via center+half-width interpolation
+   (WIDTH_MARGIN=1.4, MARGIN_ABS=8).  Eliminates ~80-90% of zero grid points.
+3. **Compute entries (m >= 0 only)**: Exploits K(m,e)=K(-m,-e) symmetry.
+   Row-based parallel dispatch via ProcessPoolExecutor (fork context)
+   for maximal LRU-cache locality.
+4. **Mirror symmetry**: Copies m>=0 entries to -m,-e.
 
 **apply_precomputed_kernel(kernel, nz_data, cusp_idx, ...):**
 - Numpy-accelerated convolution: kernel arrays are dense int64, I^ref is

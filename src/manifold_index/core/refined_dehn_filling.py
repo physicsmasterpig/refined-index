@@ -88,6 +88,8 @@ from manifold_index.core.dehn_filling import (
     enumerate_kernel_terms,
     find_rs,
 )
+import numpy as np
+
 from manifold_index.core.index_3d import (
     _tet_index_series,
     compute_index_3d_python,
@@ -116,6 +118,52 @@ QEtaSeries = dict[tuple[int, int], Fraction]
 # For ℓ≥2 Dehn filling: key = (qq_power, 2*η_0, ..., 2*η_{k-1}, cusp_eta)
 #   Appends one additional IS kernel η-variable (integer exponent).
 MultiEtaSeries = dict[tuple[int, ...], Fraction]
+
+# ---------------------------------------------------------------------------
+# Dense numpy helpers for hot-path polynomial arithmetic
+# ---------------------------------------------------------------------------
+
+# _tet_arr_cache: (m, e, qq_order) → int64 numpy array of length qq_order+1
+# Dense version of _tet_index_series, cached for reuse in _etilde_is_numpy.
+_tet_arr_cache: dict[tuple[int, int, int], np.ndarray] = {}
+
+# Shared empty array (immutable sentinel) — avoids repeated allocations.
+_EMPTY_ARR: np.ndarray = np.empty(0, dtype=np.int64)
+
+
+def _tet_index_array(m: int, e: int, qq_order: int) -> np.ndarray:
+    """Dense int64 array version of ``_tet_index_series``.
+
+    Returns a numpy array *a* of length ``qq_order + 1`` where ``a[k]`` is
+    the coefficient of ``qq^k``.  Returns the shared ``_EMPTY_ARR`` sentinel
+    (length 0) when the series is identically zero within the truncation.
+
+    The result is cached in ``_tet_arr_cache``.
+    """
+    key = (m, e, qq_order)
+    cached = _tet_arr_cache.get(key)
+    if cached is not None:
+        return cached
+
+    sparse = _tet_index_series(m, e, qq_order)
+    if not sparse:
+        _tet_arr_cache[key] = _EMPTY_ARR
+        return _EMPTY_ARR
+
+    arr = np.zeros(qq_order + 1, dtype=np.int64)
+    for p, c in sparse.items():
+        if 0 <= p <= qq_order:
+            arr[p] = c
+    _tet_arr_cache[key] = arr
+    return arr
+
+
+def _clear_tet_arr_cache() -> int:
+    """Clear the dense tetrahedron-index cache.  Returns evicted count."""
+    n = len(_tet_arr_cache)
+    _tet_arr_cache.clear()
+    return n
+
 
 # ---------------------------------------------------------------------------
 # Module-level caches
@@ -200,6 +248,9 @@ def clear_filling_caches() -> dict[str, int]:
 
     stats["_iref_cache"] = len(_iref_cache)
     _iref_cache.clear()
+
+    # Dense tetrahedron-index array cache
+    stats["_tet_arr_cache"] = _clear_tet_arr_cache()
 
     # Also clear the in-memory kernel table cache
     from manifold_index.core.kernel_cache import clear_kernel_cache
@@ -432,64 +483,164 @@ def _etilde_is(
     # within [0, qq_order].  We use a generous scan and rely on early
     # termination via empty s3/s4.
     t_range = qq_order + abs(B) + 10
+
     # NOTE: _etilde_is values are always integers (verified empirically).
-    # Using int arithmetic instead of Fraction gives ~3-5× speedup on this
-    # inner loop, which is the dominant cost of the IS chain.
-    result: dict[tuple[int, int], int] = {}
+    #
+    # === NUMPY FFT-BATCHED PATH ===
+    # Three levels of vectorisation over the naïve Python dict approach:
+    #   1. Tetrahedron indices stored as dense int64 arrays (_tet_index_array)
+    #   2. s3·s4 and s1·s2 polynomial multiplies use np.convolve (C-level)
+    #   3. For each t the n_eta loop is BATCHED:
+    #      - all valid s12 arrays are stacked into a matrix
+    #      - a single FFT-based batch convolution with s34 produces all
+    #        n_eta convolution results simultaneously
+    #      This eliminates per-call Python overhead and leverages
+    #      vectorised FFT (O(n log n) per row) instead of direct
+    #      convolution (O(n²) per call).
+    n_eta_bins = 2 * eta_order + 1
+    result_2d = np.zeros((qq_order + 1, n_eta_bins), dtype=np.int64)
+
+    # FFT length for batched convolution (power-of-2 for efficiency).
+    # Maximum conv length = (qq_order+1) + (qq_order+1) - 1 = 2*qq_order+1.
+    fft_len = 1
+    while fft_len < 2 * qq_order + 1:
+        fft_len <<= 1
 
     for t in range(-t_range, t_range + 1):
         e3 = e3_base + t
         e4 = e4_base + t
 
         # tind3 and tind4 are independent of the η sum variable
-        s3 = _tet_index_series(m_a3, e3, qq_order)
-        if not s3:
+        a3 = _tet_index_array(m_a3, e3, qq_order)
+        if len(a3) == 0:
             continue
-        s4 = _tet_index_series(m_a4, e4, qq_order)
-        if not s4:
-            continue
-
-        # Convolve s3 · s4  (integer qq-series)
-        s34 = _int_qqseries_convolve(s3, s4, qq_order)
-        if not s34:
+        a4 = _tet_index_array(m_a4, e4, qq_order)
+        if len(a4) == 0:
             continue
 
-        # Sum over η exponent with correct parity
+        # Convolve s3 · s4 using numpy
+        a34_full = np.convolve(a3, a4)
+        if len(a34_full) == 0:
+            continue
+        a34 = a34_full[: qq_order + 1]
+        L34 = len(a34)
+
+        # ── Collect all valid (n_eta, s12) for this t ──
+        # s12 depends only on u = t − n_eta (through e_a1, e_a2).
+        # Cache s12 by u to avoid recomputing for different (t, n_eta)
+        # pairs that share the same u.
+        batch_n_eta: list[int] = []
+        batch_X: list[int] = []
+        batch_s12: list[np.ndarray] = []
+        s12_by_u: dict[int, np.ndarray | None] = {}
+
         for n_eta in range(-eta_order, eta_order + 1):
+            u = t - n_eta
+            # Check u-cache first
+            if u in s12_by_u:
+                a12 = s12_by_u[u]
+            else:
+                e_a1 = u + e_arg1_base
+                e_a2 = u + e_arg2_base
+                a1 = _tet_index_array(m_a1, e_a1, qq_order)
+                if len(a1) == 0:
+                    s12_by_u[u] = None
+                    continue
+                a2 = _tet_index_array(m_a2, e_a2, qq_order)
+                if len(a2) == 0:
+                    s12_by_u[u] = None
+                    continue
+                a12_full = np.convolve(a1, a2)
+                a12 = a12_full[: qq_order + 1] if len(a12_full) > 0 else None
+                s12_by_u[u] = a12
+
+            if a12 is None:
+                continue
+
             e_var = 2 * n_eta + e_var_parity
+            X = -e_var + B + 2 * t  # = 2*u - e_var_parity + B
 
-            # tind1 and tind2 second args (integer by parity choice)
-            e_a1 = t - n_eta + e_arg1_base
-            e_a2 = t - n_eta + e_arg2_base
+            batch_n_eta.append(n_eta)
+            batch_X.append(X)
+            batch_s12.append(a12)
 
-            s1 = _tet_index_series(m_a1, e_a1, qq_order)
-            if not s1:
-                continue
-            s2 = _tet_index_series(m_a2, e_a2, qq_order)
-            if not s2:
-                continue
+        if not batch_s12:
+            continue
 
-            # Phase factor: (−qq)^X  where  X = −e_var + B + 2t
-            X = -e_var + B + 2 * t
-            sign = 1 if X % 2 == 0 else -1
+        N_batch = len(batch_s12)
 
-            # Convolve s1 · s2
-            s12 = _int_qqseries_convolve(s1, s2, qq_order)
-            if not s12:
-                continue
+        # ── Batched convolution: all s12[i] ⊗ s34 in one FFT pass ──
+        # For small batches, individual np.convolve is faster than FFT overhead.
+        if N_batch <= 3 or qq_order < 32:
+            # Scalar path — direct convolution (faster for small N or small qq)
+            for i in range(N_batch):
+                conv = np.convolve(batch_s12[i], a34)
+                X = batch_X[i]
+                sign = 1 if X % 2 == 0 else -1
+                eta_idx = batch_n_eta[i] + eta_order
 
-            # Combine s12 · s34 · (−qq)^X  — pure int arithmetic
-            for p12, c12 in s12.items():
-                for p34, c34 in s34.items():
-                    total_qq = p12 + p34 + X
-                    if total_qq < 0 or total_qq > qq_order:
-                        continue
-                    key = (total_qq, e_var)
-                    new_val = result.get(key, 0) + sign * c12 * c34
-                    if new_val == 0:
-                        result.pop(key, None)
-                    else:
-                        result[key] = new_val
+                src_lo = max(0, -X)
+                src_hi = min(len(conv), qq_order + 1 - X)
+                if src_lo >= src_hi:
+                    continue
+                dst_lo = src_lo + X
+                dst_hi = src_hi + X
+
+                if sign == 1:
+                    result_2d[dst_lo:dst_hi, eta_idx] += conv[src_lo:src_hi]
+                else:
+                    result_2d[dst_lo:dst_hi, eta_idx] -= conv[src_lo:src_hi]
+        else:
+            # FFT-batched path — stack s12's into a matrix, single FFT pass
+            L_max = max(len(a) for a in batch_s12)
+            conv_len = L_max + L34 - 1
+            fft_n = 1
+            while fft_n < conv_len:
+                fft_n <<= 1
+
+            # Stack s12 arrays (zero-padded to fft_n)
+            s12_matrix = np.zeros((N_batch, fft_n), dtype=np.int64)
+            for i, a12 in enumerate(batch_s12):
+                s12_matrix[i, : len(a12)] = a12
+
+            # Pad s34 to fft_n
+            s34_padded = np.zeros(fft_n, dtype=np.int64)
+            s34_padded[: L34] = a34
+
+            # Batched FFT convolution (float64 intermediate)
+            S12_fft = np.fft.rfft(s12_matrix.astype(np.float64), n=fft_n, axis=1)
+            s34_fft = np.fft.rfft(s34_padded.astype(np.float64), n=fft_n)
+            conv_matrix_f = np.fft.irfft(S12_fft * s34_fft[None, :], n=fft_n, axis=1)
+
+            # Round to nearest integer (all true values are exact integers)
+            conv_matrix = np.rint(conv_matrix_f[:, :conv_len]).astype(np.int64)
+
+            # Scatter-add each row into result_2d
+            for i in range(N_batch):
+                X = batch_X[i]
+                sign = 1 if X % 2 == 0 else -1
+                eta_idx = batch_n_eta[i] + eta_order
+
+                src_lo = max(0, -X)
+                src_hi = min(conv_len, qq_order + 1 - X)
+                if src_lo >= src_hi:
+                    continue
+                dst_lo = src_lo + X
+                dst_hi = src_hi + X
+
+                if sign == 1:
+                    result_2d[dst_lo:dst_hi, eta_idx] += conv_matrix[i, src_lo:src_hi]
+                else:
+                    result_2d[dst_lo:dst_hi, eta_idx] -= conv_matrix[i, src_lo:src_hi]
+
+    # Convert dense 2D array → sparse dict[(qq, eta) → int]
+    result: dict[tuple[int, int], int] = {}
+    nz_qq, nz_eta = np.nonzero(result_2d)
+    for idx in range(len(nz_qq)):
+        qq_p = int(nz_qq[idx])
+        eta_idx = int(nz_eta[idx])
+        e_var = 2 * (eta_idx - eta_order) + e_var_parity
+        result[(qq_p, e_var)] = int(result_2d[qq_p, eta_idx])
 
     return result
 
@@ -530,49 +681,60 @@ def _is_kernel(
     ei_minus  = _etilde_is(m1, e1 - 1, m2, e2, qq_order, eta_order)
     ei_plus   = _etilde_is(m1, e1 + 1, m2, e2, qq_order, eta_order)
 
+    if not ei_center and not ei_minus and not ei_plus:
+        return {}
+
     sign_m1 = 1 if m1 % 2 == 0 else -1
 
-    result: dict[tuple[int, int], int] = {}
+    # === NUMPY-ACCELERATED PATH ===
+    # Build a 2D accumulator result_2d[qq, eta_idx] to replace Python dict ops.
+    # Collect all eta values across the three _etilde_is results to map them
+    # to column indices.
+    all_etas: set[int] = set()
+    for d in (ei_center, ei_minus, ei_plus):
+        for (_, eta) in d:
+            all_etas.add(eta)
+    if not all_etas:
+        return {}
+
+    eta_list = sorted(all_etas)
+    eta_to_idx = {e: i for i, e in enumerate(eta_list)}
+    n_eta = len(eta_list)
+
+    # Dense 2D accumulator: rows = qq powers [0, qq_order], cols = eta
+    result_2d = np.zeros((qq_order + 1, n_eta), dtype=np.int64)
 
     # Term A+B: (−1)^{m1}·(qq^{m1} + qq^{−m1}) · ẽI_S(e1)   [no ½ — ×2 absorbed]
     for (qq_p, eta), c in ei_center.items():
         scaled = c * sign_m1
         if scaled == 0:
             continue
-        # Term A: shift by +m1
-        new_qq_a = qq_p + m1
-        if 0 <= new_qq_a <= qq_order:
-            key = (new_qq_a, eta)
-            v = result.get(key, 0) + scaled
-            if v == 0:
-                result.pop(key, None)
-            else:
-                result[key] = v
-        # Term B: shift by −m1
-        new_qq_b = qq_p - m1
-        if 0 <= new_qq_b <= qq_order:
-            key = (new_qq_b, eta)
-            v = result.get(key, 0) + scaled
-            if v == 0:
-                result.pop(key, None)
-            else:
-                result[key] = v
+        col = eta_to_idx[eta]
+        # Shift by +m1
+        new_qq = qq_p + m1
+        if 0 <= new_qq <= qq_order:
+            result_2d[new_qq, col] += scaled
+        # Shift by −m1
+        new_qq = qq_p - m1
+        if 0 <= new_qq <= qq_order:
+            result_2d[new_qq, col] += scaled
 
     # Terms C+D: −(−1)^{m1} · ẽI_S(e1±1)   [no ½ — ×2 absorbed]
     neg_sign = -sign_m1
     for src_series in (ei_minus, ei_plus):
         for (qq_p, eta), c in src_series.items():
             scaled = c * neg_sign
-            if scaled == 0:
+            if scaled == 0 or not (0 <= qq_p <= qq_order):
                 continue
-            if not (0 <= qq_p <= qq_order):
-                continue
-            key = (qq_p, eta)
-            v = result.get(key, 0) + scaled
-            if v == 0:
-                result.pop(key, None)
-            else:
-                result[key] = v
+            result_2d[qq_p, eta_to_idx[eta]] += scaled
+
+    # Convert to sparse dict
+    result: dict[tuple[int, int], int] = {}
+    nz_r, nz_c = np.nonzero(result_2d)
+    for idx in range(len(nz_r)):
+        result[(int(nz_r[idx]), eta_list[int(nz_c[idx])])] = int(
+            result_2d[nz_r[idx], nz_c[idx]]
+        )
 
     return result
 
@@ -1060,6 +1222,22 @@ def _apply_is_step(
     # ℓ=1 path's multiplicity trick relies on.
     m1_terms = _enumerate_slope1_all(k_next, m1_range)
 
+    # ── Parity pre-filter ──
+    # The _etilde_is integrality check A requires:
+    #   (e_in + m1_target / 2) ∈ ℤ  ⟺  (2·e_in + m1_target) is even
+    # Since e_in = −e − k_current·m/2 and e = e_half/2:
+    #   2·e_in = −(e_half + k_current·m)  =:  p
+    # So the check reduces to (p + m1_target) % 2 == 0, i.e. m1_target
+    # must have the SAME parity as p.  Pre-partition m1_terms by m1 parity
+    # to halve the inner loop size.
+    m1_even: list[tuple[int, Fraction, int, int]] = []
+    m1_odd: list[tuple[int, Fraction, int, int]] = []
+    for entry in m1_terms:
+        if entry[0] % 2 == 0:
+            m1_even.append(entry)
+        else:
+            m1_odd.append(entry)
+
     _kernel_fn = _is_kernel if use_int else _is_kernel_frac
 
     for (m, e), src_series in state.items():
@@ -1069,7 +1247,14 @@ def _apply_is_step(
         # e-transform: first argument transforms as −e − k_current/2·m
         e_in = -e - Fraction(k_current * m, 2)
 
-        for m1, e1, _, _ in m1_terms:
+        # Select the parity-compatible m1 partition.
+        # p = 2·e_in = −(2e + k_current·m).  Since e is Fraction(e_half, 2):
+        # p = −(e_half + k_current·m).  We need m1 with same parity as p.
+        e_half = int(2 * e)  # e is always in (1/2)Z
+        p = -(e_half + k_current * m)
+        compatible_m1 = m1_even if (p % 2 == 0) else m1_odd
+
+        for m1, e1, _, _ in compatible_m1:
             is_val = _kernel_fn(m, e_in, m1, e1, qq_order, eta_order)
             if not is_val:
                 continue
