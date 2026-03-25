@@ -24,6 +24,7 @@ table mapping ``(m, e) → QEtaSeries``.
 from __future__ import annotations
 
 import gzip
+import hashlib
 import multiprocessing
 import os
 import pickle
@@ -43,8 +44,9 @@ import numpy as np
 QEtaSeries = dict[tuple[int, int], Fraction]
 MultiEtaSeries = dict[tuple[int, ...], Fraction]
 
-# Default cache directory (sibling to src/)
+# Default cache directories (sibling to src/)
 _DEFAULT_CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "kernel_cache"
+_DEFAULT_IREF_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "iref_cache"
 
 # Sentinel for infeasible degree bounds (any value > practical qq_limit)
 _INF_DEG = 10**9
@@ -545,6 +547,197 @@ def list_cached_kernels(
 
 
 # ---------------------------------------------------------------------------
+# I^ref disk cache — persists refined 3D indices per manifold
+# ---------------------------------------------------------------------------
+# The refined index I^ref(m, e; η) is manifold-dependent but
+# slope-independent.  When computing Dehn fillings for multiple slopes
+# of the same manifold, the I^ref grid is identical for all slopes —
+# only the kernel convolution changes.
+#
+# This disk cache stores I^ref results keyed by:
+#   (m_ext, e_ext, q_order_half)
+# grouped by a content-hash of the NeumannZagierData.  Loading the cache
+# populates the in-memory _iref_cache in refined_dehn_filling.py so that
+# subsequent calls to _cached_compute_refined_index find them instantly.
+#
+# Storage: ``data/iref_cache/<name>_<hash16>.pkl.gz``
+# ---------------------------------------------------------------------------
+
+def _nz_hash(nz_data: Any) -> str:
+    """16-char hex hash of a NeumannZagierData's content."""
+    h = hashlib.sha256()
+    h.update(nz_data.g_NZ.data.tobytes())
+    h.update(nz_data.nu_x.data.tobytes())
+    h.update(nz_data.nu_p.data.tobytes())
+    return h.hexdigest()[:16]
+
+
+def _iref_filename(manifold_name: str, nz_data: Any) -> str:
+    """Canonical filename for an I^ref cache file."""
+    h = _nz_hash(nz_data)
+    safe_name = manifold_name.replace("/", "_").replace(" ", "_")
+    return f"iref_{safe_name}_{h}.pkl.gz"
+
+
+def save_iref_cache(
+    nz_data: Any,
+    manifold_name: str = "unknown",
+    cache_dir: str | Path | None = None,
+) -> Path | None:
+    """Save I^ref entries for *nz_data* from the in-memory cache to disk.
+
+    Extracts all ``_iref_cache`` entries whose nz-content-key matches
+    *nz_data* and writes them to a gzipped pickle in *cache_dir*.
+
+    Merges with any existing file so that entries from previous sessions
+    (possibly at different qq_orders) are preserved.
+
+    Returns the path written, or ``None`` if there were no entries.
+    """
+    from manifold_index.core.refined_dehn_filling import (
+        _iref_cache,
+        _nz_content_key,
+    )
+
+    nz_key = _nz_content_key(nz_data)
+
+    # Extract entries belonging to this manifold
+    entries: dict[tuple, dict] = {}
+    for full_key, value in _iref_cache.items():
+        if full_key[0] == nz_key:
+            # Strip nz_key from the stored key → (m_ext, e_ext, qq)
+            entries[full_key[1:]] = value
+
+    if not entries:
+        return None
+
+    d = Path(cache_dir) if cache_dir else _DEFAULT_IREF_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / _iref_filename(manifold_name, nz_data)
+
+    # Merge with existing file (preserve entries at other qq_orders)
+    if path.exists():
+        try:
+            with gzip.open(path, "rb") as f:
+                old_data = pickle.load(f)
+            if isinstance(old_data, dict) and old_data.get("nz_hash") == _nz_hash(nz_data):
+                old_entries = old_data.get("entries", {})
+                old_entries.update(entries)
+                entries = old_entries
+        except Exception:
+            pass  # corrupted file — overwrite
+
+    payload = {
+        "nz_hash": _nz_hash(nz_data),
+        "manifold_name": manifold_name,
+        "n_tetrahedra": int(nz_data.n),
+        "n_cusps": int(nz_data.r),
+        "num_hard": int(nz_data.num_hard),
+        "entries": entries,
+    }
+
+    with gzip.open(path, "wb") as f:
+        pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+    return path
+
+
+def load_iref_cache(
+    nz_data: Any,
+    manifold_name: str = "unknown",
+    cache_dir: str | Path | None = None,
+    qq_filter: int | None = None,
+) -> int:
+    """Load I^ref entries from disk into the in-memory ``_iref_cache``.
+
+    Searches for a cache file matching *nz_data*'s content hash.
+    Loaded entries are inserted into the module-level ``_iref_cache``
+    in ``refined_dehn_filling.py`` so that subsequent calls to
+    ``_cached_compute_refined_index`` find them as cache hits.
+
+    Parameters
+    ----------
+    nz_data : NeumannZagierData
+    manifold_name : str
+        Used to locate the file (must match save-time name).
+    cache_dir : str or Path or None
+        Override cache directory.
+    qq_filter : int or None
+        If given, only load entries with matching ``q_order_half``.
+        This avoids filling memory with entries at other qq_orders.
+
+    Returns
+    -------
+    int
+        Number of entries loaded (0 if no file found or empty).
+    """
+    from manifold_index.core.refined_dehn_filling import (
+        _iref_cache,
+        _nz_content_key,
+    )
+
+    d = Path(cache_dir) if cache_dir else _DEFAULT_IREF_DIR
+    path = d / _iref_filename(manifold_name, nz_data)
+
+    if not path.exists():
+        return 0
+
+    try:
+        with gzip.open(path, "rb") as f:
+            payload = pickle.load(f)
+    except Exception:
+        return 0
+
+    if not isinstance(payload, dict):
+        return 0
+    if payload.get("nz_hash") != _nz_hash(nz_data):
+        return 0
+
+    entries = payload.get("entries", {})
+    nz_key = _nz_content_key(nz_data)
+
+    loaded = 0
+    for short_key, value in entries.items():
+        # short_key = (m_ext_tuple, e_ext_tuple, q_order_half)
+        if qq_filter is not None and short_key[-1] != qq_filter:
+            continue
+        full_key = (nz_key,) + short_key
+        if full_key not in _iref_cache:
+            _iref_cache[full_key] = value
+            loaded += 1
+    return loaded
+
+
+def list_iref_caches(
+    cache_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """List all I^ref cache files with their metadata.
+
+    Returns a list of dicts with keys: ``path``, ``manifold_name``,
+    ``nz_hash``, ``n_entries``, ``n_tetrahedra``, ``n_cusps``.
+    """
+    d = Path(cache_dir) if cache_dir else _DEFAULT_IREF_DIR
+    if not d.exists():
+        return []
+    result = []
+    for path in sorted(d.glob("iref_*.pkl.gz")):
+        try:
+            with gzip.open(path, "rb") as f:
+                payload = pickle.load(f)
+            if isinstance(payload, dict):
+                result.append({
+                    "path": str(path),
+                    "manifold_name": payload.get("manifold_name", "?"),
+                    "nz_hash": payload.get("nz_hash", "?"),
+                    "n_entries": len(payload.get("entries", {})),
+                    "n_tetrahedra": payload.get("n_tetrahedra", "?"),
+                    "n_cusps": payload.get("n_cusps", "?"),
+                })
+        except Exception:
+            continue
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Pre-computation
 # ---------------------------------------------------------------------------
 
@@ -939,6 +1132,8 @@ def apply_precomputed_kernel(
     qq_order: int | None = None,
     verbose: bool = False,
     n_workers: int = 1,
+    cache_iref: bool = False,
+    manifold_name: str = "unknown",
 ) -> MultiEtaSeries:
     """Apply a pre-computed kernel to a manifold — the fast path.
 
@@ -969,6 +1164,13 @@ def apply_precomputed_kernel(
         ``ProcessPoolExecutor`` to compute I^ref for each (m, e)
         point in parallel.  Beneficial for large grids / high qq;
         the process-spawning overhead may negate gains for small jobs.
+    cache_iref : bool
+        If True, load I^ref entries from disk before computing and
+        save new entries back after.  Dramatically speeds up multi-slope
+        workflows for the same manifold.
+    manifold_name : str
+        Human-readable name for the cache file (e.g. ``"m003"``).
+        Required when *cache_iref* is True.
 
     Returns
     -------
@@ -1017,6 +1219,15 @@ def apply_precomputed_kernel(
     # per-element dict ops in the inner loop.
     lcd, k_grouped = kernel.get_int_grouped()
 
+    # ----- Load I^ref disk cache if requested -----
+    n_loaded = 0
+    if cache_iref:
+        n_loaded = load_iref_cache(
+            nz_data, manifold_name=manifold_name, qq_filter=qq_internal,
+        )
+        if verbose and n_loaded:
+            print(f"[kernel] Loaded {n_loaded} I^ref entries from disk cache")
+
     # ----- Pre-compute all I^ref results (sequential or parallel) -----
     # Build the full (m_ext, e_ext) list for every kernel entry.
     all_me_pairs: list[tuple[tuple[int, int], list[int], list]] = []
@@ -1056,6 +1267,22 @@ def apply_precomputed_kernel(
         for (me_key, m_ext, e_ext) in all_me_pairs:
             iref_results[me_key] = _cached_compute_refined_index(
                 nz_data, m_ext, e_ext, q_order_half=qq_internal,
+            )
+
+    # ----- Save I^ref disk cache if requested -----
+    if cache_iref:
+        save_path = save_iref_cache(nz_data, manifold_name=manifold_name)
+        if verbose and save_path:
+            from manifold_index.core.refined_dehn_filling import (
+                _iref_cache,
+                _nz_content_key,
+            )
+            nz_key = _nz_content_key(nz_data)
+            n_total = sum(1 for k in _iref_cache if k[0] == nz_key)
+            n_new = n_total - n_loaded
+            print(
+                f"[kernel] Saved I^ref cache: {n_total} entries "
+                f"({n_new} new) → {save_path.name}"
             )
 
     # Dense accumulators: suffix → int64 array of length qq_internal+1

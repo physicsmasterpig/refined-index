@@ -1496,6 +1496,8 @@ def compute_filled_refined_index(
     verbose: bool = False,
     n_workers: int = 1,
     auto_precompute: bool = False,
+    cache_iref: bool = False,
+    manifold_name: str = "unknown",
 ) -> FilledRefinedResult:
     """Compute the refined Dehn-filled index I^ref_{P/Q}(η_hard, η_cusp).
 
@@ -1553,6 +1555,14 @@ def compute_filled_refined_index(
         ANY manifold at the same (P, Q, qq_order).  Recommended for
         interactive/batch workflows where the same NC-transformed slopes
         recur across manifolds.
+    cache_iref : bool
+        If True, persist I^ref(m,e) results to disk and reload them on
+        subsequent calls.  Since I^ref is slope-independent, this makes
+        the 2nd through Nth slope computations for the same manifold
+        dramatically faster.
+    manifold_name : str
+        Human-readable label for the I^ref cache file (e.g. ``"m003"``).
+        Only used when *cache_iref* is True.
 
     Returns
     -------
@@ -1701,6 +1711,8 @@ def compute_filled_refined_index(
             qq_order=qq_order,
             verbose=verbose,
             n_workers=n_workers,
+            cache_iref=cache_iref,
+            manifold_name=manifold_name,
         )
         # Apply diamond truncation: qq + |cusp_eta| ≤ qq_order
         truncated: MultiEtaSeries = {
@@ -1768,6 +1780,8 @@ def compute_filled_refined_index(
             qq_order=qq_order,
             verbose=verbose,
             n_workers=n_workers,
+            cache_iref=cache_iref,
+            manifold_name=manifold_name,
         )
         truncated_auto: MultiEtaSeries = {
             k: v for k, v in total_series_auto.items()
