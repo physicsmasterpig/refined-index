@@ -259,6 +259,18 @@ def clear_filling_caches() -> dict[str, int]:
     return stats
 
 
+def clear_computation_caches() -> None:
+    """Clear only the hot-path computation caches.
+
+    This flushes ``_tet_arr_cache``, ``_etilde_is``, and ``_is_kernel``
+    without touching ``_iref_cache`` or the in-memory kernel table cache.
+    Used by the parallel-decision pilot to ensure cold-cache timing.
+    """
+    _clear_tet_arr_cache()
+    _etilde_is.cache_clear()
+    _is_kernel.cache_clear()
+
+
 # ---------------------------------------------------------------------------
 # Part 1 — Hirzebruch-Jung continued fraction
 # ---------------------------------------------------------------------------

@@ -854,12 +854,14 @@ def precompute_filling_kernel(
        m ≥ 0 is computed; results are mirrored.  (2× speedup.)
     2. **Parity auto-detection**: Probes m=0..3 to determine if only
        one m-parity produces non-zero entries.  (Up to 2× more.)
-    3. **Probe-and-scale support prediction**: Runs a cheap low-qq
-       probe to discover the non-zero support shape, then scales the
-       per-m e-bounds for the target qq.  Eliminates ~80-90% of zero
-       computations.
-    4. **Row-based parallel dispatch**: Workers process complete m-rows
-       (better LRU-cache locality than interleaved points).
+    3. **Degree-bound support analysis**: Exact tetrahedron-index degree
+       formula to prune the grid to only feasible points (14-19% of full
+       grid).  Provably correct — zero false negatives.
+    4. **Pilot-gated parallelism**: Flushes computation caches, then
+       computes a small stratified sample of grid points to measure
+       *cold-cache* per-point cost.  Enables multiprocessing only when
+       estimated serial time exceeds 60 s.  Row-based dispatch with
+       greedy load-balancing across workers.
 
     Parameters
     ----------
@@ -996,17 +998,69 @@ def precompute_filling_kernel(
     t0 = time.perf_counter()
     kernel_table: dict[tuple[int, Fraction], QEtaSeries] = {}
 
-    use_parallel = n_workers >= 2 and total_pts >= 500
+    # ── Pilot timing: stratified sample to estimate per-point cost ──
+    # Always flush computation caches before the pilot so we measure
+    # *cold-cache* cost — which is what parallel workers experience.
+    # If the pilot picks serial, the serial path re-warms within the
+    # first row (~1-2 s overhead, negligible).
+    _PARALLEL_THRESHOLD_S = 60   # use parallel if est. serial time > 60s
+    _PILOT_ROWS = 20             # sample rows (spread across full grid)
+
+    if n_workers >= 2 and total_pts > _PILOT_ROWS:
+        # Flush computation caches to ensure cold-cache measurement
+        from manifold_index.core.refined_dehn_filling import (
+            clear_computation_caches,
+        )
+        clear_computation_caches()
+
+        # Stratified sample: 1 point per evenly-spaced row
+        n_sample_rows = min(_PILOT_ROWS, len(target_m_values))
+        stride = max(1, len(target_m_values) // n_sample_rows)
+        pilot_pts_list: list[tuple[int, Fraction]] = []
+        for idx in range(0, len(target_m_values), stride):
+            m0 = target_m_values[idx]
+            e_lo, e_hi = e_bounds[m0]
+            e_mid = (e_lo + e_hi) // 2
+            pilot_pts_list.append((m0, Fraction(e_mid, 2)))
+
+        t_pilot = time.perf_counter()
+        for m0_p, e0_p in pilot_pts_list:
+            entry = _compute_one_kernel_entry(
+                m0_p, e0_p, hj_ks, qq_internal, eta_order,
+                m1_range, final_term_info,
+            )
+            if entry is not None:
+                kernel_table[(m0_p, e0_p)] = entry
+        pilot_elapsed = time.perf_counter() - t_pilot
+        cost_per_pt = pilot_elapsed / len(pilot_pts_list)
+        est_serial_s = cost_per_pt * total_pts
+        use_parallel = est_serial_s > _PARALLEL_THRESHOLD_S
+
+        _status(
+            f"[kernel]   Pilot: {len(pilot_pts_list)} pts in "
+            f"{pilot_elapsed:.2f}s ({cost_per_pt*1000:.1f}ms/pt) → "
+            f"est. serial {est_serial_s:.0f}s → "
+            f"{'PARALLEL ×' + str(n_workers) if use_parallel else 'serial'}"
+        )
+    else:
+        use_parallel = False
 
     _status(f"[kernel] Phase 3: computing {total_pts} grid points (m ≥ 0), "
             f"workers={'parallel ×' + str(n_workers) if use_parallel else 'serial'}")
 
     if use_parallel:
         # Row-based dispatch: assign complete m-rows to workers
-        # Round-robin by row for load balance
+        # Greedy load balancing: sort rows by width (descending), then
+        # assign each row to the worker with the smallest current load.
+        row_sizes = [(e_bounds[m0][1] - e_bounds[m0][0] + 1, m0)
+                     for m0 in target_m_values]
+        row_sizes.sort(reverse=True)  # heaviest rows first
+        worker_loads = [0] * n_workers
         worker_rows: list[list[int]] = [[] for _ in range(n_workers)]
-        for i, m0 in enumerate(target_m_values):
-            worker_rows[i % n_workers].append(m0)
+        for size, m0 in row_sizes:
+            lightest = min(range(n_workers), key=lambda w: worker_loads[w])
+            worker_rows[lightest].append(m0)
+            worker_loads[lightest] += size
 
         ctx = multiprocessing.get_context("fork")
         with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as pool:
@@ -1035,12 +1089,15 @@ def precompute_filling_kernel(
                     f"{len(kernel_table)} non-zero so far"
                 )
     else:
-        # Serial path
-        computed = 0
+        # Serial path (skip points already computed by pilot)
+        computed = len(kernel_table)  # pilot entries count towards total
         for m0 in target_m_values:
             e_lo, e_hi = e_bounds[m0]
             for e_half in range(e_lo, e_hi + 1):
                 e0 = Fraction(e_half, 2)
+                if (m0, e0) in kernel_table:
+                    computed += 1
+                    continue
                 entry = _compute_one_kernel_entry(
                     m0, e0, hj_ks, qq_internal, eta_order,
                     m1_range, final_term_info,
