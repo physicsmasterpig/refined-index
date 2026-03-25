@@ -12,3 +12,12 @@ venv/
 .pytest_cache/
 htmlcov/
 .coverage
+*.so
+data/kernel_cache/
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.synctex.gz
+*.toc
+*.out

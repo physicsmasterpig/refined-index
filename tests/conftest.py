@@ -1,28 +1,27 @@
-"""Shared pytest configuration for the manifold-index test suite."""
+"""Shared fixtures for the manifold-index test suite."""
 
 import pytest
 
 
-def pytest_addoption(parser):
-    parser.addoption(
-        "--runslow",
-        action="store_true",
-        default=False,
-        help="run slow tests (e.g. v1683 at q_order_half=8)",
-    )
+@pytest.fixture(scope="session")
+def nz_m004():
+    """NZ data for m004 (2 tet, 1 cusp, 1 hard edge)."""
+    pytest.importorskip("snappy")
+    from manifold_index.core.manifold import load_manifold
+    from manifold_index.core.phase_space import find_easy_edges
+    from manifold_index.core.neumann_zagier import build_neumann_zagier
+    data = load_manifold("m004")
+    easy = find_easy_edges(data)
+    return build_neumann_zagier(data, easy)
 
 
-def pytest_configure(config):
-    config.addinivalue_line(
-        "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
-    )
-
-
-def pytest_collection_modifyitems(config, items):
-    if config.getoption("--runslow"):
-        # --runslow given: do not skip slow tests
-        return
-    skip_slow = pytest.mark.skip(reason="need --runslow option to run")
-    for item in items:
-        if "slow" in item.keywords:
-            item.add_marker(skip_slow)
+@pytest.fixture(scope="session")
+def nz_m003():
+    """NZ data for m003 (2 tet, 1 cusp)."""
+    pytest.importorskip("snappy")
+    from manifold_index.core.manifold import load_manifold
+    from manifold_index.core.phase_space import find_easy_edges
+    from manifold_index.core.neumann_zagier import build_neumann_zagier
+    data = load_manifold("m003")
+    easy = find_easy_edges(data)
+    return build_neumann_zagier(data, easy)

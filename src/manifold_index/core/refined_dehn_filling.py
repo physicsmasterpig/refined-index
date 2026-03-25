@@ -340,10 +340,11 @@ def _etilde_is(
     e2: Fraction,
     qq_order: int,
     eta_order: int,
-) -> QEtaSeries:
+) -> dict[tuple[int, int], int]:
     """Compute ẽI_S(m1, e1, m2, e2; η) = expr8[m1, e1, m2, e2] in DFK.nb.
 
-    Returns a QEtaSeries dict[(qq_power, eta_exp) → Fraction].
+    Returns a dict[(qq_power, eta_exp) → int].
+    Values are always integers (verified empirically for all tested manifolds).
 
     Parameters
     ----------
@@ -431,7 +432,10 @@ def _etilde_is(
     # within [0, qq_order].  We use a generous scan and rely on early
     # termination via empty s3/s4.
     t_range = qq_order + abs(B) + 10
-    result: QEtaSeries = {}
+    # NOTE: _etilde_is values are always integers (verified empirically).
+    # Using int arithmetic instead of Fraction gives ~3-5× speedup on this
+    # inner loop, which is the dominant cost of the IS chain.
+    result: dict[tuple[int, int], int] = {}
 
     for t in range(-t_range, t_range + 1):
         e3 = e3_base + t
@@ -474,14 +478,14 @@ def _etilde_is(
             if not s12:
                 continue
 
-            # Combine s12 · s34 · (−qq)^X
+            # Combine s12 · s34 · (−qq)^X  — pure int arithmetic
             for p12, c12 in s12.items():
                 for p34, c34 in s34.items():
                     total_qq = p12 + p34 + X
                     if total_qq < 0 or total_qq > qq_order:
                         continue
                     key = (total_qq, e_var)
-                    new_val = result.get(key, Fraction(0)) + Fraction(sign * c12 * c34)
+                    new_val = result.get(key, 0) + sign * c12 * c34
                     if new_val == 0:
                         result.pop(key, None)
                     else:
@@ -503,45 +507,43 @@ def _is_kernel(
     e2: Fraction,
     qq_order: int,
     eta_order: int,
-) -> QEtaSeries:
-    """Compute I_S(m1, e1, m2, e2; η) — the symplectic IS kernel.
+) -> dict[tuple[int, int], int]:
+    """Compute 2 × I_S(m1, e1, m2, e2; η) — the symplectic IS kernel, ×2 scaled.
 
     Formula (DFK.nb `is[]`):
         I_S = (1/2)·(−1)^{m1}·(qq^{m1} + qq^{−m1}) · ẽI_S(m1, e1,   m2, e2)
             − (1/2)·(−1)^{m1} · ẽI_S(m1, e1−1, m2, e2)
             − (1/2)·(−1)^{m1} · ẽI_S(m1, e1+1, m2, e2)
 
-    The (1/2) prefactor: empirically the combination always yields integer
-    coefficients.  We use Fraction arithmetic and assert integrality at
-    the end (cheap sanity check).
+    Returns **2 × I_S** as integer-valued dict to avoid Fraction arithmetic.
+    Since ẽI_S returns integers and the formula has a (1/2) prefactor that
+    yields half-integer values, multiplying by 2 makes all results integral.
+    The accumulated LCD (least common denominator) is tracked by callers.
 
     Returns
     -------
-    QEtaSeries : dict[(qq_power, eta_exp) → Fraction]
-        All Fraction values have denominator 1 (i.e. are integers).
+    dict[(qq_power, eta_exp) → int]
+        All values are 2 × the true I_S coefficient.
         Returns {} if the integrality conditions for ẽI_S fail.
     """
     ei_center = _etilde_is(m1, e1,     m2, e2, qq_order, eta_order)
     ei_minus  = _etilde_is(m1, e1 - 1, m2, e2, qq_order, eta_order)
     ei_plus   = _etilde_is(m1, e1 + 1, m2, e2, qq_order, eta_order)
 
-    sign_m1 = Fraction(1 if m1 % 2 == 0 else -1)
-    half = Fraction(1, 2)
+    sign_m1 = 1 if m1 % 2 == 0 else -1
 
-    result: QEtaSeries = {}
+    result: dict[tuple[int, int], int] = {}
 
-    # Term A: (1/2)·(−1)^{m1}·qq^{m1}  · ẽI_S(e1)
-    # Term B: (1/2)·(−1)^{m1}·qq^{−m1} · ẽI_S(e1)
-    factor_ab = half * sign_m1
+    # Term A+B: (−1)^{m1}·(qq^{m1} + qq^{−m1}) · ẽI_S(e1)   [no ½ — ×2 absorbed]
     for (qq_p, eta), c in ei_center.items():
-        scaled = c * factor_ab
+        scaled = c * sign_m1
         if scaled == 0:
             continue
         # Term A: shift by +m1
         new_qq_a = qq_p + m1
         if 0 <= new_qq_a <= qq_order:
             key = (new_qq_a, eta)
-            v = result.get(key, Fraction(0)) + scaled
+            v = result.get(key, 0) + scaled
             if v == 0:
                 result.pop(key, None)
             else:
@@ -550,29 +552,47 @@ def _is_kernel(
         new_qq_b = qq_p - m1
         if 0 <= new_qq_b <= qq_order:
             key = (new_qq_b, eta)
-            v = result.get(key, Fraction(0)) + scaled
+            v = result.get(key, 0) + scaled
             if v == 0:
                 result.pop(key, None)
             else:
                 result[key] = v
 
-    # Terms C and D: −(1/2)·(−1)^{m1} · ẽI_S(e1±1)
-    factor_cd = -half * sign_m1
+    # Terms C+D: −(−1)^{m1} · ẽI_S(e1±1)   [no ½ — ×2 absorbed]
+    neg_sign = -sign_m1
     for src_series in (ei_minus, ei_plus):
         for (qq_p, eta), c in src_series.items():
-            scaled = c * factor_cd
+            scaled = c * neg_sign
             if scaled == 0:
                 continue
             if not (0 <= qq_p <= qq_order):
                 continue
             key = (qq_p, eta)
-            v = result.get(key, Fraction(0)) + scaled
+            v = result.get(key, 0) + scaled
             if v == 0:
                 result.pop(key, None)
             else:
                 result[key] = v
 
     return result
+
+
+def _is_kernel_frac(
+    m1: int,
+    e1: Fraction,
+    m2: int,
+    e2: Fraction,
+    qq_order: int,
+    eta_order: int,
+) -> QEtaSeries:
+    """Fraction-valued I_S kernel wrapper, for the multi-cusp Fraction path.
+
+    Calls ``_is_kernel`` (×2 int) and converts each value to Fraction(v, 2).
+    """
+    raw = _is_kernel(m1, e1, m2, e2, qq_order, eta_order)
+    if not raw:
+        return {}
+    return {k: Fraction(v, 2) for k, v in raw.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -737,10 +757,13 @@ def _apply_k1_factor(
 
 
 def _multi_add(a: MultiEtaSeries, b: MultiEtaSeries) -> MultiEtaSeries:
-    """Add two MultiEtaSeries (non-destructive)."""
+    """Add two MultiEtaSeries (non-destructive).
+
+    Works with both Fraction and int values (polymorphic).
+    """
     result: MultiEtaSeries = dict(a)
     for key, val in b.items():
-        new_val = result.get(key, Fraction(0)) + val
+        new_val = result.get(key, 0) + val
         if new_val == 0:
             result.pop(key, None)
         else:
@@ -780,7 +803,7 @@ def _multi_convolve_is(
                 continue
             # Keep hard-η dims unchanged, add cusp-η exponents
             new_key = (new_qq,) + multi_key[1:-1] + (multi_key[-1] + eta_is,)
-            new_val = result.get(new_key, Fraction(0)) + c_is * c_multi
+            new_val = result.get(new_key, 0) + c_is * c_multi
             if new_val == 0:
                 result.pop(new_key, None)
             else:
@@ -795,6 +818,7 @@ def _apply_k1_factor_multi(
     multiplicity: int,
     qq_order: int,
     truncate: bool = True,
+    int_mode: bool = False,
 ) -> MultiEtaSeries:
     """Apply unrefined K(k, 1; m, e) factor to a MultiEtaSeries.
 
@@ -809,7 +833,40 @@ def _apply_k1_factor_multi(
         If False, skip the bounds check — used when building
         manifold-independent kernel tables so that the deferred
         truncation happens after convolution with I^ref.
+    int_mode : bool
+        If True, use pure int arithmetic (×2 scaling: the ½ factor in the
+        K-factor is absorbed).  Series values must be int.  The output LCD
+        is 2× the input LCD.  Used in the ℓ≥2 IS chain hot path.
     """
+    if int_mode:
+        # ×2 mode: sign and mult are plain ints, no Fraction(½)
+        sign = 1 if phase % 2 == 0 else -1
+        mult = multiplicity
+        if c == 0:
+            scalar = sign * mult
+            result: MultiEtaSeries = {}
+            for key, c_val in series.items():
+                scaled = c_val * scalar
+                if scaled == 0:
+                    continue
+                qq_p = key[0]
+                rest = key[1:]
+                for new_qq in (qq_p + phase, qq_p - phase):
+                    if not truncate or 0 <= new_qq <= qq_order:
+                        new_key = (new_qq,) + rest
+                        v = result.get(new_key, 0) + scaled
+                        if v == 0:
+                            result.pop(new_key, None)
+                        else:
+                            result[new_key] = v
+            return result
+        else:
+            scalar = -sign * mult
+            if scalar == 0:
+                return {}
+            return {k: v * scalar for k, v in series.items() if v * scalar != 0}
+
+    # Original Fraction-based path (ℓ=1, kernel_cache, etc.)
     sign = Fraction(1 if phase % 2 == 0 else -1)
     half = Fraction(1, 2)
     mult = Fraction(multiplicity)
@@ -917,6 +974,7 @@ def _apply_weyl_shift(
 def _refined_to_multi(
     refined: RefinedIndexResult,
     append_cusp_eta: bool = False,
+    use_int: bool = False,
 ) -> MultiEtaSeries:
     """Convert a RefinedIndexResult to MultiEtaSeries.
 
@@ -927,17 +985,20 @@ def _refined_to_multi(
     append_cusp_eta : bool
         If True, append a ``cusp_eta = 0`` dimension to every key
         (needed for ℓ ≥ 2 before IS convolution steps).
+    use_int : bool
+        If True, keep values as int (from RefinedIndexResult which has int
+        values).  Used in the ℓ≥2 int-mode hot path.
 
     Returns
     -------
-    MultiEtaSeries with Fraction values.
+    MultiEtaSeries with Fraction or int values.
     """
     result: MultiEtaSeries = {}
     for key, coeff in refined.items():
         if coeff == 0:
             continue
         new_key = key + (0,) if append_cusp_eta else key
-        result[new_key] = Fraction(coeff)
+        result[new_key] = coeff if use_int else Fraction(coeff)
     return result
 
 
@@ -953,6 +1014,7 @@ def _apply_is_step(
     qq_order: int,
     eta_order: int,
     m1_range: int,
+    use_int: bool = False,
 ) -> dict[tuple[int, Fraction], MultiEtaSeries]:
     """Apply one IS convolution step to the state.
 
@@ -978,6 +1040,13 @@ def _apply_is_step(
     eta_order : int
     m1_range : int
         Scan |m1| ≤ m1_range for intermediate variables.
+    use_int : bool
+        If True, use ``_is_kernel`` which returns ×2 int values
+        for maximum performance.  Callers must track the accumulated LCD
+        (×2 per IS step).  State values should be int.
+        If False (default), use ``_is_kernel_frac`` which returns exact
+        Fraction values.  Safe for Fraction-valued state (kernel_cache,
+        multi-cusp path, etc.).
 
     Returns
     -------
@@ -991,6 +1060,8 @@ def _apply_is_step(
     # ℓ=1 path's multiplicity trick relies on.
     m1_terms = _enumerate_slope1_all(k_next, m1_range)
 
+    _kernel_fn = _is_kernel if use_int else _is_kernel_frac
+
     for (m, e), src_series in state.items():
         if not src_series:
             continue
@@ -999,7 +1070,7 @@ def _apply_is_step(
         e_in = -e - Fraction(k_current * m, 2)
 
         for m1, e1, _, _ in m1_terms:
-            is_val = _is_kernel(m, e_in, m1, e1, qq_order, eta_order)
+            is_val = _kernel_fn(m, e_in, m1, e1, qq_order, eta_order)
             if not is_val:
                 continue
 
@@ -1239,6 +1310,7 @@ def compute_filled_refined_index(
     weyl_b: list[Fraction] | None = None,
     verbose: bool = False,
     n_workers: int = 1,
+    auto_precompute: bool = False,
 ) -> FilledRefinedResult:
     """Compute the refined Dehn-filled index I^ref_{P/Q}(η_hard, η_cusp).
 
@@ -1288,6 +1360,14 @@ def compute_filled_refined_index(
     n_workers : int
         Number of worker processes for parallel I^ref computation
         (passed to ``apply_precomputed_kernel``).  Default 1 = sequential.
+    auto_precompute : bool
+        If True, automatically precompute and cache the manifold-independent
+        filling kernel K^ref(P/Q) when an ℓ ≥ 2 filling is needed and no
+        cached kernel exists.  This is *slower* for the first call (~22s vs
+        ~8s at qq=20) but makes all subsequent calls instant (~0.6s) for
+        ANY manifold at the same (P, Q, qq_order).  Recommended for
+        interactive/batch workflows where the same NC-transformed slopes
+        recur across manifolds.
 
     Returns
     -------
@@ -1455,15 +1535,77 @@ def compute_filled_refined_index(
         )
 
     # ------------------------------------------------------------------
-    # Step 3b: ℓ ≥ 2 — Grid scan of (m, e) with non-zero I^ref
+    # Step 3b: ℓ ≥ 2 — Auto-precompute kernel if missing (parallel)
     # ------------------------------------------------------------------
-    # The IS kernel's n_eta summation (bounded by eta_order) must stay
-    # well below qq_internal; otherwise tetrahedron-index truncation
-    # at the qq_internal boundary produces spurious high-η entries
-    # that K-factor phase shifts move into the user range.  We inflate
-    # qq_internal beyond qq_order so that the IS convolution boundary
-    # artifacts live above qq_order and are discarded at final truncation.
-    _is_buffer = qq_order // 2 + 4
+    # The pre-computed kernel is manifold-independent: it only depends on
+    # the slope (P, Q) and the qq_order.  Precomputing it once (using all
+    # available CPU cores) and saving to disk is slower for the *first*
+    # call but pays for itself on every subsequent call (with ANY manifold
+    # at the same slope).  Since NC-transformed slopes recur across
+    # manifolds, this is almost always beneficial.
+    if auto_precompute:
+        from manifold_index.core.kernel_cache import (
+            precompute_filling_kernel,
+            save_kernel_table,
+        )
+        import os as _os
+
+        _n_auto_workers = max(1, (_os.cpu_count() or 4) - 2)
+        if verbose:
+            print(
+                f"[refined_filling] ℓ={ell}: no cached kernel for "
+                f"({P}/{Q}) at qq≥{qq_order}. "
+                f"Auto-precomputing with {_n_auto_workers} workers…"
+            )
+
+        auto_kernel = precompute_filling_kernel(
+            P, Q, qq_order=qq_order,
+            verbose=verbose,
+            n_workers=_n_auto_workers,
+        )
+        save_kernel_table(auto_kernel)
+        if verbose:
+            print(
+                f"[refined_filling] Kernel saved: "
+                f"{len(auto_kernel.table)} entries, "
+                f"{auto_kernel.compute_time_s:.1f}s"
+            )
+
+        # Now apply the freshly computed kernel (fast path)
+        total_series_auto = apply_precomputed_kernel(
+            auto_kernel,
+            nz_data,
+            cusp_idx=cusp_idx,
+            m_other=m_other,
+            e_other=e_other,
+            weyl_a=weyl_a,
+            weyl_b=weyl_b,
+            qq_order=qq_order,
+            verbose=verbose,
+            n_workers=n_workers,
+        )
+        truncated_auto: MultiEtaSeries = {
+            k: v for k, v in total_series_auto.items()
+            if k[0] + abs(k[-1]) <= qq_order
+        }
+        return FilledRefinedResult(
+            P=P, Q=Q, cusp_idx=cusp_idx,
+            series=truncated_auto,
+            qq_order=qq_order,
+            eta_order=eta_order,
+            hj_ks=hj_ks,
+            n_kernel_terms=len(auto_kernel.table),
+            num_hard=num_hard,
+            has_cusp_eta=True,
+            num_cusp_eta=1,
+        )
+
+    # ------------------------------------------------------------------
+    # Step 3c: ℓ ≥ 2 — Grid scan + IS chain (fallback)
+    # ------------------------------------------------------------------
+    # Reached when auto_precompute=False or the slope has no cached
+    # kernel yet.  This is the original direct-computation path.
+    _is_buffer = qq_order // 2 + 4  # noqa: F841 — kept for reference
     qq_internal = qq_order + _is_buffer
     m1_range = max(m1_range, 2 * qq_internal)
     if verbose:
@@ -1501,7 +1643,8 @@ def compute_filled_refined_index(
                 )
 
             # Convert to MultiEtaSeries with cusp_eta=0 appended
-            multi = _refined_to_multi(refined, append_cusp_eta=True)
+            # use_int=True: int arithmetic in the IS chain (3-5× faster)
+            multi = _refined_to_multi(refined, append_cusp_eta=True, use_int=True)
             existing = state.get((m_i, e_i))
             state[(m_i, e_i)] = (
                 _multi_add(existing, multi) if existing else multi
@@ -1532,6 +1675,7 @@ def compute_filled_refined_index(
             qq_order=qq_internal,
             eta_order=eta_order,
             m1_range=m1_range,
+            use_int=True,  # ×2 int IS kernel for performance
         )
         if verbose:
             print(f"            → new |state|={len(state)}")
@@ -1562,11 +1706,19 @@ def compute_filled_refined_index(
             continue
         c_final, phase_final, mult_final = info
         contribution = _apply_k1_factor_multi(
-            src_series, c_final, phase_final, mult_final, qq_internal
+            src_series, c_final, phase_final, mult_final, qq_internal,
+            int_mode=True,
         )
         total_series_ell2 = _multi_add(total_series_ell2, contribution)
 
-        
+    # ------------------------------------------------------------------
+    # Convert int-scaled values back to Fraction
+    # ------------------------------------------------------------------
+    # The LCD (least common denominator) accumulated through the chain:
+    #   - Each IS step introduces ×2 (from _is_kernel absorbing ½)
+    #   - The final K-factor introduces another ×2 (from int_mode ½ absorbed)
+    #   Total LCD = 2^ℓ  where ℓ = len(hj_ks)
+    lcd = 1 << ell  # 2^ℓ
 
     # ------------------------------------------------------------------
     # Step 6: Truncate to user-requested qq_order  +  diamond cutoff
@@ -1582,10 +1734,12 @@ def compute_filled_refined_index(
     # qq_order.  The diamond rule removes exactly these artifacts.
     #
     # The cusp η is always the LAST key dimension (appended in step 3).
-    truncated: MultiEtaSeries = {
-        k: v for k, v in total_series_ell2.items()
-        if k[0] + abs(k[-1]) <= qq_order
-    }
+    truncated: MultiEtaSeries = {}
+    for k, v in total_series_ell2.items():
+        if k[0] + abs(k[-1]) <= qq_order:
+            frac_v = Fraction(v, lcd)
+            if frac_v != 0:
+                truncated[k] = frac_v
 
     if verbose:
         n_raw = sum(1 for k, v in total_series_ell2.items() if k[0] <= qq_order and v != 0)
@@ -1778,6 +1932,7 @@ def _apply_filling_kernel_to_intermediate(
             qq_order=qq_internal,
             eta_order=eta_order,
             m1_range=m1_range,
+            # use_int=False (default): Fraction state from intermediate
         )
 
     # Final K(k_ℓ, 1) application

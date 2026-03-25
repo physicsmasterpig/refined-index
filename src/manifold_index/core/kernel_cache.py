@@ -298,7 +298,8 @@ def _worker_compute_chunk(
     )
 
     ell = len(hj_ks)
-    unit: MultiEtaSeries = {(0, 0): Fraction(1)}
+    lcd = 1 << ell  # 2^ℓ — accumulated LCD from int-mode IS + K-factor
+    unit: MultiEtaSeries = {(0, 0): 1}  # int initial state
     result: dict[tuple[int, Fraction], QEtaSeries] = {}
 
     for m0, e0 in chunk:
@@ -310,6 +311,7 @@ def _worker_compute_chunk(
             state = _apply_is_step(
                 state, k_curr, k_next,
                 qq_internal, eta_order, m1_range,
+                use_int=True,
             )
 
         entry: QEtaSeries = {}
@@ -323,12 +325,14 @@ def _worker_compute_chunk(
             contribution = _apply_k1_factor_multi(
                 src_series, c_f, ph_f, mult_f, qq_internal,
                 truncate=False,
+                int_mode=True,
             )
             if contribution:
                 entry = _multi_add(entry, contribution) if entry else dict(contribution)
 
+        # Convert int-scaled values to Fraction for the kernel table
         if entry:
-            result[(m0, e0)] = entry
+            result[(m0, e0)] = {k: Fraction(v, lcd) for k, v in entry.items() if v != 0}
 
     return result
 
@@ -479,7 +483,8 @@ def _precompute_serial(
     )
 
     total_pts = len(grid_points)
-    unit: MultiEtaSeries = {(0, 0): Fraction(1)}
+    lcd = 1 << ell  # 2^ℓ — accumulated LCD from int-mode IS + K-factor
+    unit: MultiEtaSeries = {(0, 0): 1}  # int initial state
     kernel_table: dict[tuple[int, Fraction], QEtaSeries] = {}
 
     for idx, (m0, e0) in enumerate(grid_points):
@@ -491,6 +496,7 @@ def _precompute_serial(
             state = _apply_is_step(
                 state, k_curr, k_next,
                 qq_internal, eta_order, m1_range,
+                use_int=True,
             )
 
         entry: QEtaSeries = {}
@@ -504,12 +510,14 @@ def _precompute_serial(
             contribution = _apply_k1_factor_multi(
                 src_series, c_f, ph_f, mult_f, qq_internal,
                 truncate=False,
+                int_mode=True,
             )
             if contribution:
                 entry = _multi_add(entry, contribution) if entry else dict(contribution)
 
+        # Convert int-scaled values to Fraction for the kernel table
         if entry:
-            kernel_table[(m0, e0)] = entry
+            kernel_table[(m0, e0)] = {k: Fraction(v, lcd) for k, v in entry.items() if v != 0}
 
         if (idx + 1) % max(1, total_pts // 20) == 0:
             elapsed = time.perf_counter() - t0
