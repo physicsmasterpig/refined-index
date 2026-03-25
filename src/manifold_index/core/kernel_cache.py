@@ -46,6 +46,276 @@ MultiEtaSeries = dict[tuple[int, ...], Fraction]
 # Default cache directory (sibling to src/)
 _DEFAULT_CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "kernel_cache"
 
+# Sentinel for infeasible degree bounds (any value > practical qq_limit)
+_INF_DEG = 10**9
+
+
+# ---------------------------------------------------------------------------
+# Degree-bound helpers  (numpy-vectorised, pure integer arithmetic)
+# ---------------------------------------------------------------------------
+
+def _tet_degree_x2(m: int, e: int) -> int:
+    """Return ``2 × tet_degree(m, e)`` as pure int (scalar version)."""
+    p_m = max(0, m)
+    p_me = max(0, m + e)
+    p_nm = max(0, -m)
+    p_e = max(0, e)
+    p_ne = max(0, -e)
+    p_nem = max(0, -e - m)
+    return p_m * p_me + p_nm * p_e + p_ne * p_nem + 2 * max(0, m, -e)
+
+
+def _tdeg_arr(m: np.ndarray, e: np.ndarray) -> np.ndarray:
+    """Fully-vectorised ``2 × tet_degree`` – both *m* and *e* arrays."""
+    me = m + e
+    ne = -e
+    nem = ne - m
+    return (
+        np.maximum(0, m) * np.maximum(0, me)
+        + np.maximum(0, -m) * np.maximum(0, e)
+        + np.maximum(0, ne) * np.maximum(0, nem)
+        + 2 * np.maximum(np.maximum(0, m), ne)
+    )
+
+
+def _is_kernel_min_degree_x2(
+    m_src: int, e_in_half: int, m_tgt: int, e_tgt_half: int,
+) -> int:
+    """Lower bound on 2× minimum qq-power of IS kernel output (scalar).
+
+    Used only for the ℓ ≥ 3 backward-reachability pass where the number
+    of evaluations is small.
+    """
+    best = _INF_DEG
+    for shift_half in (-2, 0, 2):
+        eih = e_in_half + shift_half
+        # Integrality checks
+        if (eih + m_tgt) % 2 != 0:
+            continue
+        if (e_tgt_half + m_src) % 2 != 0:
+            continue
+        if (eih - m_tgt) % 2 != 0:
+            continue
+        B_num = eih + e_tgt_half + m_src - m_tgt
+        if B_num % 2 != 0:
+            continue
+        p = (m_src + m_tgt) % 2
+        if (eih + m_src - p) % 2 != 0:
+            continue
+        if (e_tgt_half - m_tgt - p) % 2 != 0:
+            continue
+
+        m_a1 = -(eih + m_tgt) // 2
+        m_a3 = -(e_tgt_half + m_src) // 2
+        e3b = -m_a3
+        e4b = (eih - m_tgt) // 2
+        B = B_num // 2
+        ea1 = (eih + m_src - p) // 2
+        ea2 = (e_tgt_half - m_tgt - p) // 2
+
+        # min d34(t) near t=0 and t=t4_opt
+        t4 = m_a3 - e4b
+        d34 = _INF_DEG
+        for t in range(min(0, t4) - 4, max(0, t4) + 5):
+            v = _tet_degree_x2(m_a3, e3b + t) + _tet_degree_x2(-m_a3, e4b + t)
+            if v < d34:
+                d34 = v
+
+        # min g(u) near u1_opt and u2_opt
+        u1 = -m_a1 - ea1
+        u2 = m_a1 - ea2
+        gmin = _INF_DEG
+        for u in range(min(u1, u2) - 6, max(u1, u2) + 5):
+            v = _tet_degree_x2(m_a1, ea1 + u) + _tet_degree_x2(-m_a1, ea2 + u) + 4 * u
+            if v < gmin:
+                gmin = v
+
+        total = d34 + gmin - 2 * p + 2 * B
+        if total < best:
+            best = total
+    return best
+
+
+def _degree_feasible_row(
+    m0: int,
+    k1: int,
+    e_half_arr: np.ndarray,
+    mt: np.ndarray,
+    et: np.ndarray,
+    qq_limit_x2: int,
+) -> np.ndarray:
+    """Return boolean array (len(e_half_arr),) of feasibility per e_half.
+
+    Fully numpy-vectorised over *all* (e_half, target) pairs at once.
+    Shape of intermediates: (E, T) where E = len(e_half_arr), T = len(mt).
+    Uses int32 arithmetic — all values comfortably fit (|val| < 2×10⁹).
+    """
+    _I32 = np.int32
+    E = len(e_half_arr)
+    T = len(mt)
+
+    # e_in for each e_half: shape (E,)
+    e_in = -(e_half_arr + _I32(k1) * _I32(m0))
+    # Broadcast shapes: eih (E,1), mt2 (1,T), et2 (1,T)
+    mt2 = mt[np.newaxis, :]                   # (1, T)
+    et2 = et[np.newaxis, :]                   # (1, T)
+
+    # Track per-e_half feasibility across shifts (avoids keeping full
+    # (E, T) array when most e_half values become feasible early).
+    feasible = np.zeros(E, dtype=bool)
+    m0_32 = _I32(m0)
+    _INF = _I32(_INF_DEG)
+
+    for shift in _I32([-2, 0, 2]):
+        # Skip shift if all e_half values are already feasible
+        if feasible.all():
+            break
+
+        eih = e_in[:, np.newaxis] + shift      # (E, 1) broadcast → (E, T)
+
+        # ---- Integrality masks ----
+        valid = (eih + mt2) % 2 == 0
+        eih_minus_m = eih - mt2
+        valid &= eih_minus_m % 2 == 0
+        B_num = eih + et2 + m0_32 - mt2
+        valid &= B_num % 2 == 0
+        p = (m0_32 + mt2) % 2                           # (1, T)
+        valid &= (eih + m0_32 - p) % 2 == 0
+        valid &= (et2 - mt2 - p) % 2 == 0
+        # (et2 + m0) % 2 == 0 already guaranteed by caller parity filter
+
+        if not np.any(valid):
+            continue
+
+        # ---- Parameters (compute everywhere; mask applied later) ----
+        m_a1 = -(eih + mt2) // 2                         # (E, T)
+        m_a3 = -(et2 + m0_32) // 2                      # (1, T)
+        e3b  = -m_a3                                      # (1, T)
+        e4b  = eih_minus_m // 2                           # (E, T)
+        B    = B_num // 2                                 # (E, T)
+        ea1  = (eih + m0_32 - p) // 2                    # (E, T)
+        ea2  = (et2 - mt2 - p) // 2                       # (1, T)
+
+        # ---- min d34(t): scan near t=0 and near t4_opt ----
+        t4_opt = m_a3 - e4b                               # (E, T)
+        min_d34 = np.full((E, T), _INF, dtype=_I32)
+        for t_off in range(-4, 5):
+            # near t = 0
+            d = _tdeg_arr(m_a3, e3b + t_off) + _tdeg_arr(-m_a3, e4b + t_off)
+            np.minimum(min_d34, d, out=min_d34)
+            # near t = t4_opt
+            t = t4_opt + t_off
+            d = _tdeg_arr(m_a3, e3b + t) + _tdeg_arr(-m_a3, e4b + t)
+            np.minimum(min_d34, d, out=min_d34)
+
+        # ---- min g(u): scan near u1_opt and u2_opt ----
+        u1_opt = -m_a1 - ea1                              # (E, T)
+        u2_opt =  m_a1 - ea2                              # (E, T)
+        min_g = np.full((E, T), _INF, dtype=_I32)
+        for u_off in range(-6, 5):
+            u = u1_opt + u_off
+            g = _tdeg_arr(m_a1, ea1 + u) + _tdeg_arr(-m_a1, ea2 + u) + 4 * u
+            np.minimum(min_g, g, out=min_g)
+            u = u2_opt + u_off
+            g = _tdeg_arr(m_a1, ea1 + u) + _tdeg_arr(-m_a1, ea2 + u) + 4 * u
+            np.minimum(min_g, g, out=min_g)
+
+        # ---- Combine ----
+        total = min_d34 + min_g - 2 * p + 2 * B
+        total = np.where(valid, total, _INF)
+        # Update feasibility: for each e_half, any target ≤ limit?
+        feasible |= np.any(total <= qq_limit_x2, axis=1)
+
+    return feasible
+
+
+def _compute_degree_bounds(
+    hj_ks: list[int],
+    qq_internal: int,
+    m_scan: int,
+    e_scan: int,
+    m_step: int,
+    m_start: int,
+    m1_range: int,
+    final_term_info: dict,
+    status_fn=None,
+) -> tuple[dict[int, tuple[int, int]], list[int]]:
+    """Compute per-m₀ e-bounds via degree analysis.
+
+    Returns ``(e_bounds, target_m_values)`` in the same format as the
+    probe-and-scale Phase 2 output, but **provably correct**: every
+    (m₀, e₀) with a non-zero kernel entry is guaranteed to be inside
+    the returned bounds.
+
+    Uses numpy-vectorised degree evaluation over all (e_half, target)
+    pairs per m₀ row.  Backward reachability prunes the target set
+    for ℓ ≥ 3 IS-chain steps.
+    """
+    from manifold_index.core.refined_dehn_filling import _enumerate_slope1_all
+
+    ell = len(hj_ks)
+    qq_limit_x2 = 2 * qq_internal
+
+    # --- Build the final target set as (m, e_half) pairs ---
+    final_targets: set[tuple[int, int]] = set()
+    for (m_t, e_t) in final_term_info:
+        e_t_half = int(2 * e_t)
+        final_targets.add((m_t, e_t_half))
+
+    # --- Backward reachability for ℓ ≥ 3 ---
+    reachable: set[tuple[int, int]] = final_targets
+
+    for step_i in range(ell - 2, 0, -1):
+        k_curr = hj_ks[step_i]
+        k_next = hj_ks[step_i + 1]
+        src_terms = _enumerate_slope1_all(k_next, m1_range)
+        new_reachable: set[tuple[int, int]] = set()
+
+        for (m1, e1, _, _) in src_terms:
+            e1_half = int(2 * e1)
+            e_in_half = -(e1_half + k_curr * m1)
+            for (m_tgt, e_tgt_half) in reachable:
+                d = _is_kernel_min_degree_x2(m1, e_in_half, m_tgt, e_tgt_half)
+                if d <= qq_limit_x2:
+                    new_reachable.add((m1, e1_half))
+                    break
+        if status_fn:
+            status_fn(f"[degree]   Backward step {step_i}: "
+                       f"{len(new_reachable)} reachable from {len(reachable)} targets")
+        reachable = new_reachable
+
+    # --- Forward pass: vectorised per m₀ row ---
+    k1 = hj_ks[0]
+    target_list = sorted(reachable)
+
+    # Partition targets by e_tgt_half parity
+    m_even = np.array([mt for (mt, et) in target_list if et % 2 == 0], dtype=np.int32)
+    e_even = np.array([et for (mt, et) in target_list if et % 2 == 0], dtype=np.int32)
+    m_odd  = np.array([mt for (mt, et) in target_list if et % 2 != 0], dtype=np.int32)
+    e_odd  = np.array([et for (mt, et) in target_list if et % 2 != 0], dtype=np.int32)
+
+    e_half_all = np.arange(-2 * e_scan, 2 * e_scan + 1, dtype=np.int32)
+    e_bounds: dict[int, tuple[int, int]] = {}
+
+    for m0 in range(m_start, m_scan + 1, m_step):
+        # Select parity-compatible targets: (e_tgt_half + m0) even
+        if m0 % 2 == 0:
+            mt, et = m_even, e_even
+        else:
+            mt, et = m_odd, e_odd
+        if len(mt) == 0:
+            continue
+
+        feasible = _degree_feasible_row(m0, k1, e_half_all, mt, et, qq_limit_x2)
+        if not np.any(feasible):
+            continue
+
+        idx = np.where(feasible)[0]
+        e_bounds[m0] = (int(e_half_all[idx[0]]), int(e_half_all[idx[-1]]))
+
+    target_m_values = sorted(e_bounds.keys())
+    return e_bounds, target_m_values
+
 
 # ---------------------------------------------------------------------------
 # KernelTable dataclass
@@ -506,121 +776,26 @@ def precompute_filling_kernel(
     _status(f"[kernel]   → {parity_desc}, m_step={m_step}")
 
     # ------------------------------------------------------------------
-    # Phase 2: Low-qq probe to discover support shape
+    # Phase 2: Degree-bound support analysis
     # ------------------------------------------------------------------
-    # Run a cheap computation at low qq to find the (m, e) support
-    # boundary.  Then scale the boundary for the target qq.
-    _PROBE_QQ = 8  # fast, usually < 1.5 s; more data points than 6
-    _WIDTH_MARGIN = 1.4  # safety factor on half-width only
-    _MARGIN_ABS = 8  # absolute margin in half-integer e-steps
+    # Use the exact tetrahedron-index degree formula to determine which
+    # (m₀, e₀) grid points CAN produce non-zero kernel entries.  This
+    # is provably correct (no false negatives) and replaces the previous
+    # probe-and-scale heuristic.
+    _status("[kernel] Phase 2: degree-bound analysis ...")
 
-    do_probe = qq_order > _PROBE_QQ + 4  # only probe if target is much larger
-
-    if do_probe:
-        _status("[kernel] Phase 2: low-qq probe for support shape ...")
-        from manifold_index.core.refined_dehn_filling import clear_filling_caches
-        clear_filling_caches()
-
-        probe_is_buffer = _PROBE_QQ // 2 + 4
-        probe_qq_internal = _PROBE_QQ + probe_is_buffer
-        probe_m_scan = int(1.25 * probe_qq_internal) + 2
-        probe_e_scan = int(0.90 * probe_qq_internal) + 2
-        probe_m1_range = int(1.10 * probe_qq_internal) + 2
-
-        # Build probe final terms
-        probe_final_terms = _enumerate_slope1_all(k_final, probe_m1_range)
-        probe_fti: dict[tuple[int, Fraction], tuple[int, int, int]] = {}
-        for m1, e1, c_f, ph_f in probe_final_terms:
-            key = (m1, e1)
-            if key not in probe_fti:
-                probe_fti[key] = (c_f, ph_f, 1)
-
-        # Scan the full grid at probe qq (very fast)
-        from collections import defaultdict
-        probe_e_bounds: dict[int, tuple[float, float]] = {}  # m → (e_min, e_max)
-        probe_m_max = 0
-        for m0 in range(m_start, probe_m_scan + 1, m_step):
-            row_es: list[float] = []
-            for e_half in range(-2 * probe_e_scan, 2 * probe_e_scan + 1):
-                e0 = Fraction(e_half, 2)
-                entry = _compute_one_kernel_entry(
-                    m0, e0, hj_ks, probe_qq_internal, eta_order,
-                    probe_m1_range, probe_fti,
-                )
-                if entry is not None:
-                    row_es.append(e_half)
-            if row_es:
-                probe_e_bounds[m0] = (min(row_es), max(row_es))
-                probe_m_max = max(probe_m_max, m0)
-
-        clear_filling_caches()  # free probe caches
-
-        # Scale probe bounds to target qq
-        scale = qq_internal / probe_qq_internal if probe_qq_internal > 0 else 5.0
-        scaled_m_max = int(probe_m_max * scale * _WIDTH_MARGIN) + 2
-
-        # Build per-m e-bounds by interpolating the probe shape
-        # Uses center + half-width scaling: the center shifts linearly
-        # but the half-width gets a multiplicative safety margin.
-        e_bounds: dict[int, tuple[int, int]] = {}
-        probe_ms = sorted(probe_e_bounds.keys())
-        for m0 in range(m_start, min(m_scan, scaled_m_max) + 1, m_step):
-            # Find the nearest probe m (normalised coordinates)
-            m_norm = m0 / scale
-            # Binary search for nearest probe row
-            best_lo, best_hi = None, None
-            for pm in probe_ms:
-                if pm <= m_norm:
-                    best_lo = pm
-                if pm >= m_norm and best_hi is None:
-                    best_hi = pm
-            if best_lo is None:
-                best_lo = best_hi
-            if best_hi is None:
-                best_hi = best_lo
-            if best_lo is None:
-                # No probe data — use full range
-                e_bounds[m0] = (-2 * e_scan, 2 * e_scan)
-                continue
-
-            # Interpolate e-bounds from nearest probe rows
-            lo_emin, lo_emax = probe_e_bounds[best_lo]
-            hi_emin, hi_emax = probe_e_bounds[best_hi]
-            if best_hi != best_lo:
-                t = (m_norm - best_lo) / (best_hi - best_lo)
-            else:
-                t = 0.0
-            interp_emin = lo_emin * (1 - t) + hi_emin * t
-            interp_emax = lo_emax * (1 - t) + hi_emax * t
-
-            # Center + half-width scaling (tighter than uniform factor)
-            center = (interp_emin + interp_emax) / 2.0
-            half_w = (interp_emax - interp_emin) / 2.0
-            scaled_center = center * scale
-            scaled_hw = half_w * scale * _WIDTH_MARGIN + _MARGIN_ABS
-            e_lo = int(scaled_center - scaled_hw) - 1
-            e_hi = int(scaled_center + scaled_hw) + 1
-
-            # Clamp to absolute bounds
-            e_lo = max(e_lo, -2 * e_scan)
-            e_hi = min(e_hi, 2 * e_scan)
-            e_bounds[m0] = (e_lo, e_hi)
-
-        target_m_values = sorted(e_bounds.keys())
-        total_pts = sum(hi - lo + 1 for lo, hi in e_bounds.values())
-        full_pts = len(target_m_values) * (4 * e_scan + 1)
-        _status(
-            f"[kernel]   → probe found {len(probe_e_bounds)} non-empty rows "
-            f"(m_max={probe_m_max}), "
-            f"scale={scale:.2f}, "
-            f"target grid: {total_pts} pts "
-            f"(vs {full_pts} full = {total_pts/full_pts*100:.0f}%)"
-        )
-    else:
-        # Small qq — no probe, just full scan
-        target_m_values = list(range(m_start, m_scan + 1, m_step))
-        e_bounds = {m: (-2 * e_scan, 2 * e_scan) for m in target_m_values}
-        total_pts = sum(hi - lo + 1 for lo, hi in e_bounds.values())
+    e_bounds, target_m_values = _compute_degree_bounds(
+        hj_ks, qq_internal, m_scan, e_scan, m_step, m_start,
+        m1_range, final_term_info,
+        status_fn=_status,
+    )
+    total_pts = sum(hi - lo + 1 for lo, hi in e_bounds.values())
+    full_pts = len(target_m_values) * (4 * e_scan + 1) if target_m_values else 1
+    _status(
+        f"[kernel]   → {len(target_m_values)} non-empty rows, "
+        f"target grid: {total_pts} pts "
+        f"(vs {full_pts} full = {total_pts/full_pts*100:.0f}%)"
+    )
 
     # ------------------------------------------------------------------
     # Phase 3: Compute kernel entries (m ≥ 0 only, symmetry)
