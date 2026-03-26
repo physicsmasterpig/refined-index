@@ -1,5 +1,9 @@
 """
-app/window.py — Main window for the v0.3.0 three-panel GUI.
+app/window.py — Main window for the v0.3.3 tabbed GUI.
+
+Tabs:
+  1. Calculator — three-panel (Manifold | Dehn Filling | Export)
+  2. Kernel Builder — precompute filling kernels for selected slopes
 
 Run with:
     python -m manifold_index.app
@@ -16,6 +20,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QSplitter,
+    QTabWidget,
     QWidget,
     QHBoxLayout,
 )
@@ -24,6 +29,7 @@ from manifold_index.app.style import APP_STYLESHEET
 from manifold_index.app.panels.manifold_panel import ManifoldPanel
 from manifold_index.app.panels.filling_panel import FillingPanel
 from manifold_index.app.panels.export_panel import ExportPanel
+from manifold_index.app.panels.kernel_panel import KernelPanel
 from manifold_index.app.workers import (
     RefinedIndexWorker,
     DehnFillingWorker,
@@ -32,22 +38,24 @@ from manifold_index.app.workers import (
 
 
 class MainWindow(QMainWindow):
-    """Three-panel main window: Manifold | Dehn Filling | Export."""
+    """Tabbed main window: Calculator | Kernel Builder."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Refined 3D Index Calculator — v0.3.0")
+        self.setWindowTitle("Refined 3D Index Calculator — v0.3.3")
         self.setMinimumSize(1200, 700)
         self.resize(1500, 850)
 
-        # ── Central widget ────────────────────────────────────
-        central = QWidget()
-        self.setCentralWidget(central)
-        root = QHBoxLayout(central)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(0)
+        # ── Central tab widget ────────────────────────────────
+        self._tabs = QTabWidget()
+        self.setCentralWidget(self._tabs)
 
-        # ── Three-panel splitter ──────────────────────────────
+        # ── Tab 1: Calculator (three-panel splitter) ──────────
+        calc_page = QWidget()
+        calc_layout = QHBoxLayout(calc_page)
+        calc_layout.setContentsMargins(8, 8, 8, 8)
+        calc_layout.setSpacing(0)
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(6)
 
@@ -62,7 +70,15 @@ class MainWindow(QMainWindow):
         # Initial sizes: ~45% / ~35% / ~20%
         splitter.setSizes([540, 420, 240])
 
-        root.addWidget(splitter)
+        calc_layout.addWidget(splitter)
+        self._tabs.addTab(calc_page, "🧮  Calculator")
+
+        # ── Tab 2: Kernel Builder ─────────────────────────────
+        self._kernel_panel = KernelPanel()
+        self._kernel_panel.build_finished.connect(
+            lambda msg: self.statusBar().showMessage(msg)
+        )
+        self._tabs.addTab(self._kernel_panel, "🗄  Kernel Builder")
 
         # ── State ─────────────────────────────────────────────
         self._nz_data = None
@@ -208,7 +224,7 @@ class MainWindow(QMainWindow):
 def launch_gui() -> None:
     """Create the QApplication and show the main window."""
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("Refined 3D Index Calculator v0.3.0")
+    app.setApplicationName("Refined 3D Index Calculator v0.3.3")
     app.setOrganizationName("RefinedIndex")
     app.setStyleSheet(APP_STYLESHEET)
 

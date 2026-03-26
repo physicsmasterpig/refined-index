@@ -1,5 +1,5 @@
 """
-app/style.py — Qt stylesheet for the v0.3.0 GUI.
+app/style.py — Qt stylesheet for the v0.3.3 GUI.
 """
 
 APP_STYLESHEET = """
@@ -100,5 +100,55 @@ QCheckBox {
 /* Scroll area */
 QScrollArea {
     border: none;
+}
+
+/* Tab widget */
+QTabWidget::pane {
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+}
+QTabBar::tab {
+    font-size: 13px;
+    padding: 8px 20px;
+    border: 1px solid palette(mid);
+    border-bottom: none;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    margin-right: 2px;
+    background: palette(button);
+}
+QTabBar::tab:selected {
+    background: palette(base);
+    font-weight: bold;
+}
+QTabBar::tab:hover:!selected {
+    background: palette(midlight);
+}
+
+/* Table widget */
+QTableWidget {
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    font-size: 12px;
+    gridline-color: palette(midlight);
+}
+QTableWidget::item {
+    padding: 4px 8px;
+}
+QHeaderView::section {
+    font-size: 12px;
+    font-weight: bold;
+    padding: 4px 8px;
+    border: none;
+    border-bottom: 2px solid palette(mid);
+    background: palette(button);
+}
+
+/* Combo box */
+QComboBox {
+    padding: 4px 8px;
+    border: 1px solid palette(mid);
+    border-radius: 3px;
+    font-size: 12px;
 }
 """

@@ -630,3 +630,66 @@ class DehnFillingWorker(QThread):
             f"Done — {n_nc_total} NC cycle(s), {n_evals} filled index evaluation(s)."
         )
         self.finished.emit(transformed_results)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Kernel Builder Worker
+# ═══════════════════════════════════════════════════════════════════════════
+
+class KernelBuilderWorker(QThread):
+    """Background worker that pre-computes and saves a single filling kernel."""
+
+    status = Signal(str)
+    finished = Signal()
+    error = Signal(str)
+
+    def __init__(
+        self,
+        P: int,
+        Q: int,
+        qq_order: int,
+        n_workers: int | None = None,
+    ) -> None:
+        super().__init__()
+        self.P = P
+        self.Q = Q
+        self.qq_order = qq_order
+        self.n_workers = n_workers
+        self.cancel_requested = False
+
+    def run(self) -> None:
+        try:
+            from manifold_index.core.kernel_cache import (
+                precompute_filling_kernel,
+                save_kernel_table,
+            )
+
+            def _progress(msg: str) -> None:
+                if self.cancel_requested:
+                    raise InterruptedError("Cancelled")
+                self.status.emit(msg)
+
+            self.status.emit(
+                f"Computing kernel P={self.P}, Q={self.Q}, qq={self.qq_order}…"
+            )
+            kt = precompute_filling_kernel(
+                P=self.P,
+                Q=self.Q,
+                qq_order=self.qq_order,
+                verbose=False,
+                progress_callback=_progress,
+                n_workers=self.n_workers,
+            )
+
+            self.status.emit("Saving to cache…")
+            save_kernel_table(kt)
+
+            self.status.emit(
+                f"✓ Kernel P={self.P}, Q={self.Q}, qq={self.qq_order} saved."
+            )
+            self.finished.emit()
+
+        except InterruptedError:
+            self.status.emit("Cancelled.")
+        except Exception as exc:
+            self.error.emit(f"P={self.P}, Q={self.Q}: {exc}")
