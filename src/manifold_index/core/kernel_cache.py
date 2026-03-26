@@ -497,26 +497,33 @@ def load_kernel_table(
             return kt
 
     # 2. Fallback: smallest stored_qq ≥ qq_order for same (P, Q)
+    #    Parse qq from filenames first, sort by qq, then load only the
+    #    smallest valid one — avoids deserialising every candidate file
+    #    (which can be very slow for large kernels like qq=100).
     if not d.exists():
         return None
-    best: KernelTable | None = None
-    for cached_path in sorted(d.glob(f"kernel_P{P}_Q{Q}_qq*.pkl.gz")):
+
+    candidates: list[tuple[int, Path]] = []
+    for cached_path in d.glob(f"kernel_P{P}_Q{Q}_qq*.pkl.gz"):
         parts = cached_path.stem.replace(".pkl", "").split("_")
         try:
             stored_qq = int(parts[3][2:])
         except (IndexError, ValueError):
             continue
-        if stored_qq < qq_order:
-            continue
+        if stored_qq >= qq_order:
+            candidates.append((stored_qq, cached_path))
+
+    # Sort by qq ascending so we can load the smallest first
+    candidates.sort()
+
+    for _stored_qq, cached_path in candidates:
         with gzip.open(cached_path, "rb") as f:
             candidate = pickle.load(f)
-        if not isinstance(candidate, KernelTable):
-            continue
-        if best is None or candidate.qq_order < best.qq_order:
-            best = candidate
-    if best is not None:
-        _kernel_mem_cache[cache_key] = best
-    return best
+        if isinstance(candidate, KernelTable):
+            _kernel_mem_cache[cache_key] = candidate
+            return candidate
+
+    return None
 
 
 def clear_kernel_cache() -> int:
@@ -622,6 +629,9 @@ def save_iref_cache(
                 old_data = pickle.load(f)
             if isinstance(old_data, dict) and old_data.get("nz_hash") == _nz_hash(nz_data):
                 old_entries = old_data.get("entries", {})
+                # Skip write if in-memory entries are a subset of disk
+                if all(k in old_entries for k in entries):
+                    return path
                 old_entries.update(entries)
                 entries = old_entries
         except Exception:
