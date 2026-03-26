@@ -22,18 +22,21 @@ from PySide6.QtCore import QThread, Signal
 # ═══════════════════════════════════════════════════════════════════════════
 
 def build_eval_grid(r: int) -> list[tuple[list[int], list[Fraction]]]:
-    """Build the 25^r evaluation grid for refined index + Weyl extraction.
+    """Build the evaluation grid for refined index + Weyl extraction.
 
     For each cusp:
         m ∈ {-2, -1, 0, 1, 2}
-        e ∈ {-1, -1/2, 0, 1/2, 1}
+        e ∈ {-2, -3/2, -1, -1/2, 0, 1/2, 1, 3/2, 2}
 
-    Returns list of (m_ext, e_ext) tuples.
+    The extended e-range (up to ±2) is needed for the adjoint su(2)
+    projection check (eq 2.61), which requires c_{e=±1} and c_{e=±2}.
+
+    Returns list of (m_ext, e_ext) tuples.  Grid size: 45^r.
     """
     per_cusp = [
         (m, Fraction(k, 2))
         for m in (-2, -1, 0, 1, 2)
-        for k in (-2, -1, 0, 1, 2)
+        for k in (-4, -3, -2, -1, 0, 1, 2, 3, 4)
     ]
     eval_points: list[tuple[list[int], list[Fraction]]] = []
     for combo in itertools_product(*([per_cusp] * r)):

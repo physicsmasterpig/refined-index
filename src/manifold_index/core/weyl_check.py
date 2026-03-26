@@ -27,9 +27,20 @@ must hold (SPEC.md §Dehn Filling, conditions 1–3):
 
             centre_j = −(b_stored[j] * m + (a_stored[j] / 2) * e)
 
-  3. **Adjoint su(2) character** – the coefficient of q^1 (after stripping
-     the leading η-monomial) must equal  η + 1 + η^{-1}  (the adjoint
-     character of su(2)) for each hard edge.
+  3. **Adjoint su(2) character** – define 𝒥_{q¹}(η, ũ; a, b) as the q¹
+     coefficient of the generating function (2.60) at m̃ = 0.  The adjoint
+     projection (2.61) integrates out η (extract η⁰), integrates unfilled
+     cusp fugacities (extract u_i⁰), and integrates each filled cusp
+     fugacity u_{n+J} against the SU(2) Haar measure weighted by the adjoint
+     character.  The result must equal exactly −1 for each filled cusp I:
+
+         𝒥_{q¹}|_{(adj su(2)_I)} = −1,    I = 1, …, d
+
+     For a single cusp (d = 1, n = 0), this reduces to:
+
+         ½(c_{−1} + c_{+1} − c_{−2} − c_{+2}) = −1
+
+     where c_e = coeff(q¹, η⁰) of I^ref(m=0, e).
 
 This module handles conditions 2 and 3.
 
@@ -750,81 +761,176 @@ def strip_weyl_monomial(
 
 
 # ---------------------------------------------------------------------------
-# Check adjoint su(2) character at q^1
+# Check adjoint su(2) character at q^1 — eq (2.59) condition 2
 # ---------------------------------------------------------------------------
 
-def check_adjoint_character(
-    result: RefinedIndexResult,
-    leading_eta: list[Fraction],
-    num_hard: int,
-    hard_idx: int = 0,
-) -> bool:
+@dataclass
+class AdjointProjectionResult:
+    """Result of the adjoint su(2) projection check (eq 2.59–2.61).
+
+    The projection integrates out η (extract η⁰) and all cusp fugacities
+    against the SU(2) Haar measure weighted by the adjoint character.
+    The result must equal exactly −1 for each filled cusp.
+
+    Attributes
+    ----------
+    projected_value : int | None
+        The computed value of the adjoint projection.  ``None`` if the
+        required entries are missing (e.g. e = ±1, ±2 not available).
+    is_pass : bool
+        True iff ``projected_value == -1``.
+    c_e : dict[Fraction, int]
+        The intermediate c_e values: for each e, the (q¹, η⁰) coefficient
+        of I^ref(m=0, e).  Useful for diagnostics.
+    missing_e : list[Fraction]
+        List of e-values needed but not found among the entries.
     """
-    Check that the q^1 coefficient (after stripping the leading η-monomial)
-    equals the su(2) adjoint character  η^{−1} + 1 + η  for the given
-    hard edge index.
+
+    projected_value: int | None
+    is_pass: bool
+    c_e: dict[Fraction, int] = field(default_factory=dict)
+    missing_e: list[Fraction] = field(default_factory=list)
+
+
+def _extract_q1_eta0_coeff_shifted(
+    result: RefinedIndexResult,
+    num_hard: int,
+    shift_x2: list[int],
+) -> int:
+    """Extract the (q¹, all-η⁰) coefficient from a Weyl-shifted result.
+
+    After applying the Weyl shift  η^{a·e + b·m}  to the raw index, the
+    η⁰ component of the shifted series corresponds to the coefficient at
+    ``η_x2[j] == -shift_x2[j]`` in the *unshifted* result.
 
     Parameters
     ----------
     result : RefinedIndexResult
-        A single refined index evaluation (e.g. I(1, 0) or I(0, 0)).
-    leading_eta : list[Fraction]
-        The leading η-exponent vector as returned by
-        ``extract_leading_eta_exponents``.
+        Raw (unshifted) refined index.
     num_hard : int
-        Total number of hard edges.
-    hard_idx : int
-        Which hard edge to check (default 0 = first).
+        Number of hard edges.
+    shift_x2 : list[int]
+        Doubled Weyl shift: ``2 * (a[j] * e + b[j] * m)`` for each
+        hard edge j.  For m = 0 this simplifies to ``2 * a[j] * e``.
+    """
+    coeff = 0
+    for key, val in result.items():
+        if val == 0:
+            continue
+        if key[0] != 2:          # not q¹
+            continue
+        # After shifting by +shift_x2, the new η = old η + shift_x2.
+        # We want new η = 0, so need old η = -shift_x2.
+        if all(key[1 + h] == -shift_x2[h] for h in range(num_hard)):
+            coeff += val
+    return coeff
+
+
+def check_adjoint_projection(
+    entries: Sequence[tuple[list[int], list[Fraction], RefinedIndexResult]],
+    num_hard: int,
+    ab: ABVectors | None = None,
+    cusp_idx: int = 0,
+) -> AdjointProjectionResult:
+    r"""Check condition 2 of (2.59): adjoint-projected q¹ coefficient = −1.
+
+    Implements equations (2.60)–(2.61).  The notation
+    ``I^{ref}_N(v; \tilde m, \tilde e; a, b)`` in (2.60) means the
+    **Weyl-manifest** form  ``f = η^{a·e + b·m} · I(m,e)``.  So c_e is
+    the (q¹, η⁰) coefficient of the Weyl-shifted series at m = 0.
+
+    For a single cusp being filled (d = 1, n = 0):
+
+    1. Collect all entries at m_ext = 0.
+    2. For each, extract c_e := coeff(q¹, η⁰) from
+       ``η^{a·e} · I^ref(m=0, e)``  (the Weyl-manifest form at m = 0).
+    3. Apply the SU(2) Haar × adjoint projection:
+
+       .. math::
+
+           \text{proj} = \frac{1}{2}\bigl(
+               c_{-1} + c_{+1} - c_{-2} - c_{+2}
+           \bigr)
+
+    4. Check ``proj == −1``.
+
+    Parameters
+    ----------
+    entries : sequence of (m_ext, e_ext, result)
+        The full evaluation grid (all m, e points).
+    num_hard : int
+        Number of hard edges (η variables).
+    ab : ABVectors or None
+        Weyl vectors.  When provided the Weyl shift η^{a·e} is applied
+        before extracting η⁰.  When ``None`` no shift is applied (equivalent
+        to a = 0, b = 0).
+    cusp_idx : int
+        Which cusp is being checked for filling compatibility.
 
     Returns
     -------
-    bool
-        True iff the q^1 coefficient polynomial in η_{hard_idx} matches
-        ``η^{-1} + 1 + η``.
-
-    Notes
-    -----
-    The q^1 coefficient polynomial is the set of terms with
-    ``q_half_pow == 2`` (i.e., q^1) after stripping the overall
-    η^{leading} factor from every key.
+    AdjointProjectionResult
     """
-    if not result or leading_eta is None:
-        return False
-
-    leading_x2 = [int(v * 2) for v in leading_eta]
-
-    # Extract all terms at q-half-power = 2 (i.e., q^1)
-    # after stripping the leading η-shift
-    q1_terms: dict[int, int] = {}  # η_hard_idx power (doubled) → coeff sum
-    for key, coeff in result.items():
-        if coeff == 0:
+    # ---- Step 1: collect m=0 entries, extract c_e (Weyl-shifted) ----
+    c_e: dict[Fraction, int] = {}
+    for m_ext, e_ext, result in entries:
+        # All cusps must have m = 0
+        if any(m != 0 for m in m_ext):
             continue
-        if key[0] != 2:
+        # For multi-cusp: all *other* cusps must have e = 0 too
+        # (the ∮ duᵢ/(2πi uᵢ) projection extracts uᵢ⁰ for unfilled cusps)
+        skip = False
+        for i, e_val in enumerate(e_ext):
+            if i != cusp_idx and e_val != 0:
+                skip = True
+                break
+        if skip:
             continue
-        # Shifted η exponents
-        shifted_eta_j = key[1 + hard_idx] - leading_x2[hard_idx]
-        # Sum over all other η components (assumed fixed / projected)
-        q1_terms[shifted_eta_j] = q1_terms.get(shifted_eta_j, 0) + coeff
 
-    # Remove zeros
-    q1_terms = {k: v for k, v in q1_terms.items() if v != 0}
+        e_val = Fraction(e_ext[cusp_idx])
 
-    if not q1_terms:
-        return False
+        # Compute the Weyl shift at m=0: 2·(a[j]·e + b[j]·0) = 2·a[j]·e
+        if ab is not None and num_hard > 0:
+            e_sum = sum(Fraction(v) for v in e_ext)
+            shift_x2 = [int(2 * ab.a[j] * e_sum) for j in range(num_hard)]
+        else:
+            shift_x2 = [0] * num_hard
 
-    # Adjoint character: η^{-1} + η^0 + η^1
-    # In doubled notation: {-2: 1, 0: 1, 2: 1}
-    adjoint = {-2: 1, 0: 1, 2: 1}
+        coeff = _extract_q1_eta0_coeff_shifted(result, num_hard, shift_x2)
+        c_e[e_val] = c_e.get(e_val, 0) + coeff
 
-    # Normalize: divide by the overall scalar factor (in case the coefficient
-    # is a multiple of the adjoint character rather than exactly 1)
-    # First check the shape matches
-    if set(q1_terms.keys()) != set(adjoint.keys()):
-        return False
+    # ---- Step 2: check we have the needed e-values ----
+    needed = [Fraction(-2), Fraction(-1), Fraction(1), Fraction(2)]
+    missing = [e for e in needed if e not in c_e]
 
-    # Check all three coefficients are equal (proportional to adjoint)
-    vals = [q1_terms[k] for k in (-2, 0, 2)]
-    return vals[0] == vals[1] == vals[2]
+    if missing:
+        return AdjointProjectionResult(
+            projected_value=None, is_pass=False,
+            c_e=c_e, missing_e=missing,
+        )
+
+    # ---- Step 3: Haar × adjoint projection ----
+    # Kernel: (1/2)(u² + u⁻² − u⁴ − u⁻⁴)
+    # After f(u²) = Σ c_e u^{2e}, extracting [u⁰]:
+    #   (1/2)(c_{-1} + c_{+1} − c_{-2} − c_{+2})
+    numerator = c_e[Fraction(-1)] + c_e[Fraction(1)] \
+        - c_e[Fraction(-2)] - c_e[Fraction(2)]
+
+    # numerator must be even for an integer result
+    if numerator % 2 != 0:
+        return AdjointProjectionResult(
+            projected_value=None, is_pass=False,
+            c_e=c_e, missing_e=[],
+        )
+
+    projected = numerator // 2
+
+    return AdjointProjectionResult(
+        projected_value=projected,
+        is_pass=(projected == -1),
+        c_e=c_e,
+        missing_e=[],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -847,8 +953,8 @@ class WeylCheckResult:
     all_weyl_symmetric: bool
     "True iff every entry passes the Weyl-symmetry check."
 
-    adjoint_checks: dict[tuple, bool]
-    "Per-entry adjoint-character checks (only entries with nonzero q^1 terms)."
+    adjoint: AdjointProjectionResult | None
+    "Adjoint su(2) projection check result (eq 2.59–2.61)."
 
     def __str__(self) -> str:  # pragma: no cover
         lines = []
@@ -861,19 +967,25 @@ class WeylCheckResult:
             f"Weyl symmetry: {'PASS' if self.all_weyl_symmetric else 'FAIL'} "
             f"({sum(self.weyl_symmetric.values())}/{len(self.weyl_symmetric)} entries OK)"
         )
-        if self.adjoint_checks:
-            n_pass = sum(self.adjoint_checks.values())
-            lines.append(
-                f"Adjoint q^1 check: {'PASS' if n_pass == len(self.adjoint_checks) else 'FAIL'} "
-                f"({n_pass}/{len(self.adjoint_checks)} entries OK)"
-            )
+        if self.adjoint is not None:
+            if self.adjoint.missing_e:
+                lines.append(
+                    f"Adjoint q¹ projection: INCOMPLETE "
+                    f"(missing e = {self.adjoint.missing_e})"
+                )
+            elif self.adjoint.projected_value is not None:
+                status = "PASS" if self.adjoint.is_pass else "FAIL"
+                lines.append(
+                    f"Adjoint q¹ projection: {status} "
+                    f"(projected = {self.adjoint.projected_value}, expected −1)"
+                )
         return "\n".join(lines)
 
 
 def run_weyl_checks(
     entries: Sequence[tuple[list[int], list[Fraction], RefinedIndexResult]],
     num_hard: int,
-    hard_idx: int = 0,
+    cusp_idx: int = 0,
 ) -> WeylCheckResult:
     """
     Run all Weyl-symmetry prerequisite checks for Dehn filling.
@@ -882,8 +994,8 @@ def run_weyl_checks(
     ----------
     entries : sequence of (m_ext, e_ext, result)
     num_hard : int
-    hard_idx : int
-        Which hard edge to use for the adjoint-character check.
+    cusp_idx : int
+        Which cusp to check for the adjoint projection.
 
     Returns
     -------
@@ -899,18 +1011,18 @@ def run_weyl_checks(
 
     all_weyl = all(weyl_sym.values()) if weyl_sym else False
 
-    adjoint: dict[tuple, bool] = {}
-    for m_ext, e_ext, result in entries:
-        leading = extract_leading_eta_exponents(result, num_hard)
-        if leading is None:
-            continue
-        key = (tuple(m_ext), tuple(e_ext))
-        adjoint[key] = check_adjoint_character(result, leading, num_hard, hard_idx)
+    # Adjoint projection check (eq 2.59–2.61)
+    try:
+        adjoint_result = check_adjoint_projection(
+            entries, num_hard, ab=ab, cusp_idx=cusp_idx,
+        )
+    except Exception:
+        adjoint_result = None
 
     return WeylCheckResult(
         ab=ab,
         ab_valid=ab_valid,
         weyl_symmetric=weyl_sym,
         all_weyl_symmetric=all_weyl,
-        adjoint_checks=adjoint,
+        adjoint=adjoint_result,
     )

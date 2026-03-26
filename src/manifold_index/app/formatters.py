@@ -328,7 +328,7 @@ $\\nu_p = ({nu_p_parts})$</p>
 
 
 def format_weyl_check(weyl: WeylCheckResult | None, nz: NeumannZagierData) -> str:
-    """Weyl symmetry section: a, b vectors, compatibility, and adjoint character."""
+    """Weyl symmetry section: a, b vectors, compatibility, and adjoint projection."""
     if weyl is None:
         return """
 <h3>Weyl Symmetry</h3>
@@ -364,24 +364,30 @@ $f(\\eta) = f(\\eta^{-1})$</p>
         else:
             lines += f'<p class="warn">⚠ &nbsp; Weyl symmetry: {n_sym}/{n_total} sectors symmetric</p>\n'
 
-    # Adjoint character check at q^1
-    if weyl.adjoint_checks:
-        n_pass = sum(weyl.adjoint_checks.values())
-        n_total = len(weyl.adjoint_checks)
-        if n_pass == n_total:
+    # Adjoint projection check (eq 2.59–2.61)
+    adj = weyl.adjoint
+    if adj is not None:
+        if adj.missing_e:
+            missing_str = ", ".join(str(e) for e in adj.missing_e)
             lines += (
-                f'<p class="success">✓ &nbsp; Adjoint $q^1$ character: '
-                f'{n_pass}/{n_total} — '
-                f'$\\mathcal{{J}}_{{q^1}}|_{{\\mathrm{{adj}}\\,su(2)}} = '
-                f'\\eta^{{-1}} + 1 + \\eta$</p>\n'
+                f'<p class="warn">⚠ &nbsp; Adjoint $q^1$ projection: '
+                f'incomplete (missing $e = {missing_str}$ entries)</p>\n'
             )
+        elif adj.projected_value is not None:
+            if adj.is_pass:
+                lines += (
+                    '<p class="success">✓ &nbsp; Adjoint $q^1$ projection: '
+                    '$\\mathcal{J}_{q^1}|_{\\mathrm{adj}\\,su(2)} = -1$ &nbsp; ✓</p>\n'
+                )
+            else:
+                lines += (
+                    f'<p class="warn">⚠ &nbsp; Adjoint $q^1$ projection: '
+                    f'got {adj.projected_value}, expected $-1$</p>\n'
+                )
         else:
-            lines += (
-                f'<p class="warn">⚠ &nbsp; Adjoint $q^1$ character: '
-                f'{n_pass}/{n_total} sectors pass</p>\n'
-            )
+            lines += '<p class="warn">⚠ &nbsp; Adjoint $q^1$ projection: non-integer result</p>\n'
     else:
-        lines += '<p class="muted">Adjoint $q^1$ check: no sectors with nonzero $q^1$ terms</p>\n'
+        lines += '<p class="muted">Adjoint $q^1$ projection: could not compute</p>\n'
 
     return lines
 
