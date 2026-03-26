@@ -11,12 +11,11 @@ import os
 import time
 from math import gcd
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFrame,
-    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -50,7 +49,9 @@ class KernelPanel(QWidget):
         self._queue_idx = 0
         self._build_t0 = 0.0
         self._setup_ui()
-        self._refresh_table()
+        # Defer the initial table load so the widget is fully parented
+        # before we touch the QTableWidget (avoids macOS Cocoa issues).
+        QTimer.singleShot(0, self._refresh_table)
 
     # ------------------------------------------------------------------
     # UI construction

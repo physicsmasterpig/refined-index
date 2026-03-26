@@ -216,6 +216,25 @@ class MainWindow(QMainWindow):
         self._panel2.set_error(msg)
         QMessageBox.critical(self, "Dehn filling error", msg)
 
+    # ==================================================================
+    # Cleanup — prevent macOS PySide6 malloc double-free on shutdown
+    # ==================================================================
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        """Ensure background workers are stopped before Qt tears down."""
+        for w in (self._refined_worker, self._dehn_worker):
+            if w is not None and w.isRunning():
+                w.quit()
+                w.wait(2000)
+        # Stop any kernel builder running inside the kernel panel
+        if hasattr(self._kernel_panel, '_worker'):
+            kw = self._kernel_panel._worker
+            if kw is not None and kw.isRunning():
+                kw.cancel_requested = True
+                kw.quit()
+                kw.wait(2000)
+        super().closeEvent(event)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Entry point
@@ -231,7 +250,13 @@ def launch_gui() -> None:
     window = MainWindow()
     window.show()
 
-    sys.exit(app.exec())
+    # Run the event loop, then clean up *before* sys.exit so that
+    # Qt C++ destructors run while the Python objects are still alive.
+    # This prevents the macOS "pointer being freed was not allocated"
+    # crash in PySide6 ≤ 6.10.
+    ret = app.exec()
+    del window
+    sys.exit(ret)
 
 
 if __name__ == "__main__":
