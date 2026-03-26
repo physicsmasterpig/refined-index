@@ -328,7 +328,7 @@ $\\nu_p = ({nu_p_parts})$</p>
 
 
 def format_weyl_check(weyl: WeylCheckResult | None, nz: NeumannZagierData) -> str:
-    """Weyl symmetry section: a, b vectors and compatibility warnings."""
+    """Weyl symmetry section: a, b vectors, compatibility, and adjoint character."""
     if weyl is None:
         return """
 <h3>Weyl Symmetry</h3>
@@ -351,9 +351,37 @@ $f(\\eta) = f(\\eta^{-1})$</p>
         if ab.is_valid:
             lines += '<p class="success">✓ &nbsp; $a \\in \\mathbb{Z}$, $b \\in \\mathbb{Z}/2$ — Dehn filling compatible</p>\n'
         else:
-            lines += '<p class="warn">⚠ &nbsp; $a \\notin \\mathbb{Z}$ — Dehn filling <b>not</b> compatible</p>\n'
+            lines += '<p class="warn">⚠ &nbsp; $a \\notin \\mathbb{Z}$ or $2b \\notin \\mathbb{Z}$ — Dehn filling <b>not</b> compatible</p>\n'
     else:
         lines += '<p class="warn">⚠ &nbsp; Could not determine Weyl vectors (insufficient data)</p>\n'
+
+    # Weyl symmetry check
+    if weyl.weyl_symmetric:
+        n_sym = sum(weyl.weyl_symmetric.values())
+        n_total = len(weyl.weyl_symmetric)
+        if weyl.all_weyl_symmetric:
+            lines += f'<p class="success">✓ &nbsp; Weyl symmetry: {n_sym}/{n_total} sectors symmetric</p>\n'
+        else:
+            lines += f'<p class="warn">⚠ &nbsp; Weyl symmetry: {n_sym}/{n_total} sectors symmetric</p>\n'
+
+    # Adjoint character check at q^1
+    if weyl.adjoint_checks:
+        n_pass = sum(weyl.adjoint_checks.values())
+        n_total = len(weyl.adjoint_checks)
+        if n_pass == n_total:
+            lines += (
+                f'<p class="success">✓ &nbsp; Adjoint $q^1$ character: '
+                f'{n_pass}/{n_total} — '
+                f'$\\mathcal{{J}}_{{q^1}}|_{{\\mathrm{{adj}}\\,su(2)}} = '
+                f'\\eta^{{-1}} + 1 + \\eta$</p>\n'
+            )
+        else:
+            lines += (
+                f'<p class="warn">⚠ &nbsp; Adjoint $q^1$ character: '
+                f'{n_pass}/{n_total} sectors pass</p>\n'
+            )
+    else:
+        lines += '<p class="muted">Adjoint $q^1$ check: no sectors with nonzero $q^1$ terms</p>\n'
 
     return lines
 
@@ -518,6 +546,7 @@ def format_panel1_html(
     ps: EasyEdgeResult,
     nz: NeumannZagierData,
     entries: list[tuple[list[int], list, RefinedIndexResult]] | None = None,
+    weyl_result: WeylCheckResult | None = None,
     max_q_terms: int = 4,
 ) -> str:
     """Assemble the full Panel 1 HTML body from all components.
@@ -532,6 +561,9 @@ def format_panel1_html(
     ]
     if entries is not None:
         parts.append(format_refined_index_table(entries, nz, max_q_terms))
+    if entries is not None:
+        # Show Weyl check after the index table
+        parts.append(format_weyl_check(weyl_result, nz))
     return "\n".join(parts)
 
 

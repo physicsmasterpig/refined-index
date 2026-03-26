@@ -206,6 +206,7 @@ class ManifoldPanel(QFrame):
         html = format_panel1_html(
             self._md, self._ps, self._nz_data,
             entries=entries,
+            weyl_result=weyl_result,
             max_q_terms=self._nmax_spin.value(),
         )
         self._set_math_content(html)
