@@ -2294,6 +2294,9 @@ def _batched_first_filling(
     qq_order: int,
     verbose: bool = False,
     progress_callback=None,
+    auto_precompute: bool = False,
+    cache_iref: bool = False,
+    manifold_name: str = "unknown",
 ) -> tuple[dict[tuple[int, Fraction], MultiEtaSeries], int]:
     """Compute the first filling with batched spectator dimensions.
 
@@ -2399,6 +2402,9 @@ def _batched_first_filling(
                 weyl_a=weyl_a,
                 weyl_b=weyl_b,
                 verbose=False,
+                auto_precompute=auto_precompute,
+                cache_iref=cache_iref,
+                manifold_name=manifold_name,
             )
 
             if result.series:
@@ -2527,6 +2533,9 @@ def _batched_first_filling(
             weyl_a=weyl_a,
             weyl_b=weyl_b,
             verbose=False,
+            auto_precompute=auto_precompute,
+            cache_iref=cache_iref,
+            manifold_name=manifold_name,
         )
 
         if result.series:
@@ -2570,6 +2579,9 @@ def compute_multi_cusp_filled_refined_index(
     q_order_half: int = 10,
     verbose: bool = False,
     progress_callback=None,
+    auto_precompute: bool = False,
+    cache_iref: bool = False,
+    manifold_name: str = "unknown",
 ) -> FilledRefinedResult:
     """Sequentially fill multiple cusps of a manifold.
 
@@ -2637,6 +2649,9 @@ def compute_multi_cusp_filled_refined_index(
             weyl_a=spec.weyl_a,
             weyl_b=spec.weyl_b,
             verbose=verbose,
+            auto_precompute=auto_precompute,
+            cache_iref=cache_iref,
+            manifold_name=manifold_name,
         )
         if spec.incompat_edges:
             result = result.collapse_eta_edges(spec.incompat_edges)
@@ -2672,6 +2687,9 @@ def compute_multi_cusp_filled_refined_index(
         qq_order=qq_order,
         verbose=verbose,
         progress_callback=progress_callback,
+        auto_precompute=auto_precompute,
+        cache_iref=cache_iref,
+        manifold_name=manifold_name,
     )
 
     _status(

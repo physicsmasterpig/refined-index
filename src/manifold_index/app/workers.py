@@ -221,6 +221,7 @@ class DehnFillingWorker(QThread):
         q_order_half: int,
         p_range: range,
         q_range: range,
+        manifold_name: str = "unknown",
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -229,6 +230,7 @@ class DehnFillingWorker(QThread):
         self._q_order_half = q_order_half
         self._p_range = p_range
         self._q_range = q_range
+        self._manifold_name = manifold_name
 
     def run(self) -> None:
         try:
@@ -464,6 +466,9 @@ class DehnFillingWorker(QThread):
                     q_order_half=q_order_half,
                     verbose=False,
                     progress_callback=lambda msg: self.status.emit(f"  {msg}"),
+                    auto_precompute=True,
+                    cache_iref=True,
+                    manifold_name=self._manifold_name,
                 )
                 multi_results.append(MultiCuspFillResult(
                     cusp_info=cusp_info_list,
@@ -595,6 +600,9 @@ class DehnFillingWorker(QThread):
                         q_order_half=q_order_half,
                         weyl_a=weyl_a_nc,
                         weyl_b=weyl_b_nc,
+                        auto_precompute=True,
+                        cache_iref=True,
+                        manifold_name=self._manifold_name,
                     )
                     if incompat_edges:
                         fr = fr.collapse_eta_edges(incompat_edges)

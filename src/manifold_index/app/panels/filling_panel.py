@@ -176,6 +176,8 @@ class FillingPanel(QFrame):
         self._nz_data = data["nz_data"]
         self._weyl_result = data.get("weyl_result")
         self._q_order_half = data.get("q_order_half", 20)
+        md = data.get("manifold_data")
+        self._manifold_name: str = md.name if md is not None else "unknown"
         self._nc_results = None
         self._transformed_results = None
 
@@ -267,6 +269,7 @@ class FillingPanel(QFrame):
             "nz_data": self._nz_data,
             "q_order_half": self._q_order_half,
             "weyl_result": self._weyl_result,
+            "manifold_name": self._manifold_name,
         })
 
     # ------------------------------------------------------------------

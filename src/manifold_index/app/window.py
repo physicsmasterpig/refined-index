@@ -173,6 +173,7 @@ class MainWindow(QMainWindow):
         q_order_half = payload["q_order_half"]
         p_range = payload["p_range"]
         q_range = payload["q_range"]
+        manifold_name = payload.get("manifold_name", "unknown")
 
         worker = DehnFillingWorker(
             nz_data=nz,
@@ -180,6 +181,7 @@ class MainWindow(QMainWindow):
             q_order_half=q_order_half,
             p_range=p_range,
             q_range=q_range,
+            manifold_name=manifold_name,
         )
         worker.status.connect(self._panel2.update_status)
         worker.progress.connect(self._panel2.update_progress)
