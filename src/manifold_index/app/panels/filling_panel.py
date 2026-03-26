@@ -301,7 +301,9 @@ class FillingPanel(QFrame):
             nz=self._nz_data,
         )
         self._set_math_content(html)
-        # Don't re-enable button — filling still running.
+        # Reset progress to indeterminate while step 2 loads kernels
+        self._progress.setRange(0, 0)
+        self._status.setText("Computing filled index…")
 
     def filling_finished(self, results: list) -> None:
         """Called when all filling computations are complete (step 2).
@@ -331,7 +333,8 @@ class FillingPanel(QFrame):
                 max_q_terms=nmax,
             )
             total_nc = sum(len(nc.cycles) for nc in (self._nc_results or []))
-            self._progress.setValue(self._progress.maximum())
+            self._progress.setRange(0, 1)
+            self._progress.setValue(1)
             self._status.setText(
                 f"✓  {total_nc} NC cycle(s) · "
                 f"{len(results)} combination(s) filled sequentially"
@@ -347,7 +350,8 @@ class FillingPanel(QFrame):
             total_evals = sum(
                 len(tr.fill_results) for tr in results
             )
-            self._progress.setValue(self._progress.maximum())
+            self._progress.setRange(0, 1)
+            self._progress.setValue(1)
             self._status.setText(
                 f"✓  {total_nc} NC cycle(s) · "
                 f"{total_evals} filled index evaluation(s)"

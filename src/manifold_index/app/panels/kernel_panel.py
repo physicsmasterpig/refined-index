@@ -382,6 +382,8 @@ class KernelPanel(QWidget):
         self._status.setText(
             f"[{self._queue_idx + 1}/{total}]  Building kernel P={P}, Q={Q}, qq={qq}…"
         )
+        # Show marquee while a single kernel is being computed
+        self._progress.setRange(0, 0)
 
         worker = KernelBuilderWorker(P, Q, qq, n_workers or None)
         worker.status.connect(self._on_worker_status)
@@ -398,6 +400,8 @@ class KernelPanel(QWidget):
     @Slot()
     def _on_worker_finished(self) -> None:
         self._queue_idx += 1
+        # Restore determinate range for the overall queue
+        self._progress.setRange(0, len(self._queue))
         self._progress.setValue(self._queue_idx)
         self._launch_next()
 
@@ -406,6 +410,7 @@ class KernelPanel(QWidget):
         self._status.setText(f"✗ Error at queue item {self._queue_idx + 1}: {msg}")
         # Continue with next item
         self._queue_idx += 1
+        self._progress.setRange(0, len(self._queue))
         self._progress.setValue(self._queue_idx)
         self._launch_next()
 

@@ -177,8 +177,8 @@ class ManifoldPanel(QFrame):
         html = format_panel1_html(md, ps, nz)
         self._set_math_content(html)
 
-        self._progress.setRange(0, 100)
-        self._progress.setValue(0)
+        # Switch to indeterminate until the worker's first progress signal
+        self._progress.setRange(0, 0)
         self._status.setText("Computing refined index…")
 
     def update_progress(self, done: int, total: int) -> None:
@@ -210,7 +210,8 @@ class ManifoldPanel(QFrame):
         )
         self._set_math_content(html)
 
-        self._progress.setValue(self._progress.maximum())
+        self._progress.setRange(0, total)
+        self._progress.setValue(total)
         self._status.setText(f"✓  {total} sectors computed  ·  {self._md.name}")
         self._status.setStyleSheet("color: #2ea043; font-size: 11px;")
         self._compute_btn.setEnabled(True)
