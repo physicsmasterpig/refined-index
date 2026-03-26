@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "manifold-index"
-version = "0.3.2"
+version = "0.3.3"
 description = "3-Manifold index calculator: 3D index, Dehn filling, non-closable cycles, and refined index."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -53,6 +53,7 @@ manifold_index = [
     "mathematica/*.wl",
     "data/tet_index/**",
     "data/tet_index/.gitkeep",
+    "data/kernel_cache/*.pkl.gz",
 ]
 
 [tool.ruff]

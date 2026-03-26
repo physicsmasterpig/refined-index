@@ -13,12 +13,19 @@ Pre-computing the kernel for a slope and storing it on disk turns a
 
 Storage
 -------
-Tables are stored as compressed pickle files in ``data/kernel_cache/``:
+**Bundled kernels** (read-only, shipped with the package):
 
-    kernel_P{P}_Q{Q}_qq{qq_order}.pkl.gz
+    src/manifold_index/data/kernel_cache/kernel_P{P}_Q{Q}_qq{qq}.pkl.gz
 
-Each file contains a ``KernelTable`` dict with metadata and the sparse
-table mapping ``(m, e) → QEtaSeries``.
+**User cache** (writable, runtime-generated kernels & I^ref):
+
+    ~/Library/Caches/manifold-index/   (macOS)
+    ~/.cache/manifold-index/           (Linux)
+    %LOCALAPPDATA%/manifold-index/     (Windows)
+
+Lookup order: user cache → bundled.  New kernels are always saved to the
+user cache.  Each file contains a ``KernelTable`` with metadata and the
+sparse table mapping ``(m, e) → QEtaSeries``.
 """
 
 from __future__ import annotations
@@ -44,9 +51,31 @@ import numpy as np
 QEtaSeries = dict[tuple[int, int], Fraction]
 MultiEtaSeries = dict[tuple[int, ...], Fraction]
 
-# Default cache directories (sibling to src/)
-_DEFAULT_CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "kernel_cache"
-_DEFAULT_IREF_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "iref_cache"
+
+def _user_cache_dir() -> Path:
+    """Return a platform-appropriate writable cache directory.
+
+    macOS:   ~/Library/Caches/manifold-index/
+    Linux:   $XDG_CACHE_HOME/manifold-index/ (default ~/.cache/)
+    Windows: %LOCALAPPDATA%/manifold-index/
+    """
+    import sys
+
+    if sys.platform == "darwin":
+        base = Path.home() / "Library" / "Caches"
+    elif sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local")))
+    else:
+        base = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+    return base / "manifold-index"
+
+
+# Bundled (read-only) kernels shipped with the package
+_BUNDLED_KERNEL_DIR = Path(__file__).resolve().parent.parent / "data" / "kernel_cache"
+
+# User-writable cache for runtime-generated kernels and I^ref entries
+_DEFAULT_CACHE_DIR = _user_cache_dir() / "kernel_cache"
+_DEFAULT_IREF_DIR = _user_cache_dir() / "iref_cache"
 
 # Sentinel for infeasible degree bounds (any value > practical qq_limit)
 _INF_DEG = 10**9
@@ -474,18 +503,45 @@ def load_kernel_table(
     Results are cached in memory so repeated calls for the same
     (P, Q, qq_order) avoid disk I/O entirely.
 
-    First tries an exact match on *qq_order*.  If none exists, falls
-    back to the **smallest** cached kernel whose ``stored_qq ≥ qq_order``
-    for the same (P, Q).  A higher-order kernel is a mathematical
-    superset — extra terms are harmless because the caller's diamond
-    truncation discards anything above the requested qq_order.
+    Search order:
+      1. User cache directory (runtime-generated kernels)
+      2. Bundled kernels shipped with the package
+
+    Within each directory, first tries an exact match on *qq_order*.
+    If none exists, falls back to the **smallest** cached kernel whose
+    ``stored_qq ≥ qq_order`` for the same (P, Q).  A higher-order
+    kernel is a mathematical superset — extra terms are harmless because
+    the caller's diamond truncation discards anything above the
+    requested qq_order.
     """
     cache_key = (P, Q, qq_order, cache_dir)
     cached = _kernel_mem_cache.get(cache_key)
     if cached is not None:
         return cached
 
-    d = Path(cache_dir) if cache_dir else _DEFAULT_CACHE_DIR
+    # Directories to search (user cache first, then bundled)
+    dirs: list[Path] = []
+    if cache_dir is not None:
+        dirs.append(Path(cache_dir))
+    else:
+        dirs.append(_DEFAULT_CACHE_DIR)
+        dirs.append(_BUNDLED_KERNEL_DIR)
+
+    for d in dirs:
+        result = _load_kernel_from_dir(d, P, Q, qq_order)
+        if result is not None:
+            _kernel_mem_cache[cache_key] = result
+            return result
+
+    return None
+
+
+def _load_kernel_from_dir(
+    d: Path, P: int, Q: int, qq_order: int,
+) -> KernelTable | None:
+    """Search a single directory for a matching kernel file."""
+    if not d.exists():
+        return None
 
     # 1. Exact match (fast path)
     path = d / _kernel_filename(P, Q, qq_order)
@@ -493,16 +549,12 @@ def load_kernel_table(
         with gzip.open(path, "rb") as f:
             kt = pickle.load(f)
         if isinstance(kt, KernelTable):
-            _kernel_mem_cache[cache_key] = kt
             return kt
 
     # 2. Fallback: smallest stored_qq ≥ qq_order for same (P, Q)
     #    Parse qq from filenames first, sort by qq, then load only the
     #    smallest valid one — avoids deserialising every candidate file
     #    (which can be very slow for large kernels like qq=100).
-    if not d.exists():
-        return None
-
     candidates: list[tuple[int, Path]] = []
     for cached_path in d.glob(f"kernel_P{P}_Q{Q}_qq*.pkl.gz"):
         parts = cached_path.stem.replace(".pkl", "").split("_")
@@ -520,7 +572,6 @@ def load_kernel_table(
         with gzip.open(cached_path, "rb") as f:
             candidate = pickle.load(f)
         if isinstance(candidate, KernelTable):
-            _kernel_mem_cache[cache_key] = candidate
             return candidate
 
     return None
@@ -536,21 +587,35 @@ def clear_kernel_cache() -> int:
 def list_cached_kernels(
     cache_dir: str | Path | None = None,
 ) -> list[tuple[int, int, int]]:
-    """List all cached (P, Q, qq_order) tuples."""
-    d = Path(cache_dir) if cache_dir else _DEFAULT_CACHE_DIR
-    if not d.exists():
-        return []
-    result = []
-    for path in sorted(d.glob("kernel_P*_Q*_qq*.pkl.gz")):
-        parts = path.stem.replace(".pkl", "").split("_")
-        try:
-            p = int(parts[1][1:])
-            q = int(parts[2][1:])
-            qq = int(parts[3][2:])
-            result.append((p, q, qq))
-        except (IndexError, ValueError):
+    """List all cached (P, Q, qq_order) tuples.
+
+    Returns kernels from both the user cache and the bundled package data.
+    """
+    dirs: list[Path] = []
+    if cache_dir is not None:
+        dirs.append(Path(cache_dir))
+    else:
+        dirs.append(_DEFAULT_CACHE_DIR)
+        dirs.append(_BUNDLED_KERNEL_DIR)
+
+    seen: set[tuple[int, int, int]] = set()
+    result: list[tuple[int, int, int]] = []
+    for d in dirs:
+        if not d.exists():
             continue
-    return result
+        for path in sorted(d.glob("kernel_P*_Q*_qq*.pkl.gz")):
+            parts = path.stem.replace(".pkl", "").split("_")
+            try:
+                p = int(parts[1][1:])
+                q = int(parts[2][1:])
+                qq = int(parts[3][2:])
+            except (IndexError, ValueError):
+                continue
+            key = (p, q, qq)
+            if key not in seen:
+                seen.add(key)
+                result.append(key)
+    return sorted(result)
 
 
 # ---------------------------------------------------------------------------
