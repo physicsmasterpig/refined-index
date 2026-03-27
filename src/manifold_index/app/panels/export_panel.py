@@ -280,7 +280,7 @@ class ExportPanel(QFrame):
             return
 
         if exported:
-            self._status.setText(f"✓  Exported: {\', \'.join(exported)}")
+            self._status.setText(f"✓  Exported: {', '.join(exported)}")
             self._status.setStyleSheet("color: #2ea043; font-size: 11px;")
         else:
             self._status.setText("No formats selected.")
