@@ -113,10 +113,10 @@ QEtaSeries = dict[tuple[int, int], Fraction]
 
 # MultiEtaSeries: a q^{1/2}-series with multiple fugacity dimensions.
 # key = (qq_power, dim_1, dim_2, ...)  →  Fraction coefficient
-# For ℓ=1 Dehn filling: key = (qq_power, 2*η_0, ..., 2*η_{k-1})
+# For ℓ=1 Dehn filling: key = (qq_power, 2W_0, ..., 2W_{k-1})
 #   Same shape as RefinedIndexResult but with Fraction values.
-# For ℓ≥2 Dehn filling: key = (qq_power, 2*η_0, ..., 2*η_{k-1}, cusp_eta)
-#   Appends one additional IS kernel η-variable (integer exponent).
+# For ℓ≥2 Dehn filling: key = (qq_power, 2W_0, ..., 2W_{k-1}, 2V_0)
+#   Appends one additional IS kernel η-variable (cusp refinement).
 MultiEtaSeries = dict[tuple[int, ...], Fraction]
 
 # ---------------------------------------------------------------------------
@@ -959,9 +959,9 @@ def _multi_convolve_is(
     Parameters
     ----------
     is_series : QEtaSeries
-        Keys: ``(qq_power, cusp_eta_exp)``
+        Keys: ``(qq_power, 2V)``
     multi_series : MultiEtaSeries
-        Keys: ``(qq_power, 2η_0, …, 2η_{k-1}, cusp_eta_exp)``
+        Keys: ``(qq_power, 2W_0, …, 2W_{k-1}, 2V)``
     qq_order : int or None
         Truncation cutoff.
 
@@ -1155,7 +1155,7 @@ def _refined_to_multi(
     Parameters
     ----------
     refined : RefinedIndexResult
-        Keys: ``(qq_power, 2η_0, …, 2η_{k-1})``
+        Keys: ``(qq_power, 2W_0, …, 2W_{k-1})``
     append_cusp_eta : bool
         If True, append a ``cusp_eta = 0`` dimension to every key
         (needed for ℓ ≥ 2 before IS convolution steps).
@@ -1292,17 +1292,17 @@ def _apply_is_step(
 
 @dataclass
 class FilledRefinedResult:
-    """Result of refined Dehn filling I^ref_{P/Q}(η_hard, [η_cusp, …]).
+    """Result of refined Dehn filling I^ref_{P/Q}(η^{2W}, [η^{2V}, …]).
 
     The series carries:
     - For ℓ=1 (|Q|=1, no IS kernel):
-        key = (qq_power, 2*η_0_exp, …, 2*η_{k-1}_exp)
+        key = (qq_power, 2W_0, …, 2W_{k-1})
         Only hard-edge fugacities; no cusp η.
     - For ℓ≥2 (IS kernel chain):
-        key = (qq_power, 2*η_0_exp, …, 2*η_{k-1}_exp, cusp_eta_exp)
+        key = (qq_power, 2W_0, …, 2W_{k-1}, 2V_0)
         Hard-edge fugacities + one cusp η from the IS chain.
     - For multi-cusp sequential filling (two fillings with ℓ≥2):
-        key = (qq, 2*η_0, …, 2*η_{k-1}, cusp_eta_0, cusp_eta_1)
+        key = (qq, 2W_0, …, 2W_{k-1}, 2V_0, 2V_1)
         Hard-edge fugacities + one cusp η per filling step.
 
     Attributes
@@ -1348,7 +1348,7 @@ class FilledRefinedResult:
         return len(self.series) == 0
 
     def collapse_eta_edges(self, edges: list[int]) -> "FilledRefinedResult":
-        """Set η_j = 1 (v_j = 0) for the given hard-edge indices.
+        """Set η_j = 1 (W_j = 0) for the given hard-edge indices.
 
         For each edge j in *edges*, the doubled-exponent at position 1+j in
         every key is set to 0 and coefficients with identical collapsed keys
@@ -1511,23 +1511,23 @@ def compute_filled_refined_index(
     cache_iref: bool = False,
     manifold_name: str = "unknown",
 ) -> FilledRefinedResult:
-    """Compute the refined Dehn-filled index I^ref_{P/Q}(η_hard, η_cusp).
+    """Compute the refined Dehn-filled index I^ref_{P/Q}(η^{2W}, η^{2V}).
 
-    Applies the refined Dehn filling kernel K^ref(P,Q; m,e; η_cusp) to the
-    refined 3D index I^ref(m,e; η_hard) summed over contributing (m,e) pairs.
+    Applies the refined Dehn filling kernel K^ref(P,Q; m,e; η^{2V}) to the
+    refined 3D index I^ref(m,e; η^{2W}) summed over contributing (m,e) pairs.
 
     Algorithm
     ---------
     1. Compute the HJ-CF k = [k_1, …, k_ℓ] for P/Q.
     2. If ℓ = 1: K^ref = K(k_1, 1; ·) (unrefined kernel, no IS chain).
-       Sum K(k_1,1; m,e) · I^ref(m,e; η_hard) over kernel support.
-       Result has only hard-edge η's.
+       Sum K(k_1,1; m,e) · I^ref(m,e; η^{2W}) over kernel support.
+       Result has only η^{2W} (hard-edge) variables.
     3. If ℓ ≥ 2:
        a. Scan ALL (m,e) with non-zero I^ref; initialise state with
-          I^ref(m,e; η_hard) ⊗ η_cusp^0.
+          I^ref(m,e; η^{2W}) ⊗ η^{2V·0}.
        b. Apply ℓ−1 IS convolution steps (IS kernel multiplies into cusp-η).
        c. Apply the final unrefined K(k_ℓ, 1; ·) to the last state.
-       Result has hard-edge η's + cusp η.
+       Result has η^{2W} (hard-edge) + η^{2V} (cusp) variables.
     4. Return FilledRefinedResult.
 
     Parameters
@@ -2172,7 +2172,7 @@ def _apply_filling_kernel_to_intermediate(
         total_series_ell2 = _multi_add(total_series_ell2, contribution)
 
     # Diamond truncation — generalized for multiple cusp η's.
-    # Key structure: (qq, 2*η_0, …, 2*η_{H-1}, cusp_eta_0, …, cusp_eta_{C})
+    # Key structure: (qq, 2W_0, …, 2W_{H-1}, 2V_0, …, 2V_{C})
     # where C = num_cusp_eta_in (from previous fillings) + 1 (this filling).
     # Rule: qq_power + Σ|cusp_eta_i| ≤ qq_order
     num_cusp_eta_out = num_cusp_eta_in + 1
@@ -2221,7 +2221,7 @@ def _refined_to_multi_with_spectators(
     cusp-η dimension.
 
     Key structure:
-        ``(qq, 2η_0, …, 2η_{H-1}, m_tag, e_x2_tag [, cusp_eta=0])``
+        ``(qq, 2W_0, …, 2W_{H-1}, m_tag, e_x2_tag [, 2V=0])``
 
     Parameters
     ----------
@@ -2336,7 +2336,7 @@ def _batched_first_filling(
     -------
     intermediate : dict[(int, Fraction) → MultiEtaSeries]
         Keyed by ``(m_next, e_next)``.  Each value is a MultiEtaSeries
-        with keys ``(qq, 2η_0, …, 2η_{H-1} [, cusp_eta])``.
+        with keys ``(qq, 2W_0, …, 2W_{H-1} [, 2V])``.
     num_cusp_eta : int
         0 if ℓ=1 (no cusp η), 1 if ℓ≥2.
     """

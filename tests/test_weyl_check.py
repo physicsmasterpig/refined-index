@@ -3,12 +3,12 @@
 from fractions import Fraction
 from manifold_index.core.weyl_check import (
     ABVectors,
-    VScanEntry,
+    WScanEntry,
     check_adjoint_projection,
-    check_adjoint_with_v_vector,
+    check_adjoint_with_w_vector,
     compute_ab_vectors_for_cusp,
     extract_leading_eta_exponents,
-    scan_v_vectors,
+    scan_w_vectors,
 )
 
 
@@ -97,11 +97,11 @@ def test_m004_ab_vectors(nz_m004):
 
 
 # ---------------------------------------------------------------------------
-# v-vector framework tests
+# W-vector framework tests
 # ---------------------------------------------------------------------------
 
-def test_v_vector_trivial_single_edge():
-    """v=(1,) with a=0 is equivalent to the per-edge adjoint check."""
+def test_w_vector_trivial_single_edge():
+    """w=(1,) with a=0 is equivalent to the per-edge adjoint check."""
     ab = ABVectors(a=[Fraction(0)], b=[Fraction(0)], num_hard=1)
     entries = [
         ([0], [Fraction(-2)], {(2, 0): 2}),
@@ -110,13 +110,13 @@ def test_v_vector_trivial_single_edge():
         ([0], [Fraction(1)],  {(2, 0): 1}),
         ([0], [Fraction(2)],  {(2, 0): 2}),
     ]
-    result = check_adjoint_with_v_vector(entries, 1, ab, [1], cusp_idx=0)
+    result = check_adjoint_with_w_vector(entries, 1, ab, [1], cusp_idx=0)
     assert result.is_pass is True
     assert result.projected_value == -1
 
 
-def test_v_vector_with_weyl_shift():
-    """v=(1,) with a=1 shifts eta; matches the per-edge shifted check."""
+def test_w_vector_with_weyl_shift():
+    """w=(1,) with a=1 shifts eta; matches the per-edge shifted check."""
     ab = ABVectors(a=[Fraction(1)], b=[Fraction(0)], num_hard=1)
     entries = [
         ([0], [Fraction(-2)], {}),
@@ -125,12 +125,12 @@ def test_v_vector_with_weyl_shift():
         ([0], [Fraction(1)],  {(2, -2): -1}),
         ([0], [Fraction(2)],  {}),
     ]
-    result = check_adjoint_with_v_vector(entries, 1, ab, [1], cusp_idx=0)
+    result = check_adjoint_with_w_vector(entries, 1, ab, [1], cusp_idx=0)
     assert result.is_pass is True
     assert result.projected_value == -1
 
 
-def test_v_vector_two_edges_projection():
+def test_w_vector_two_edges_projection():
     """Two hard edges, v=(1,1): project onto combined variable."""
     ab = ABVectors(
         a=[Fraction(0), Fraction(0)],
@@ -144,7 +144,7 @@ def test_v_vector_two_edges_projection():
         ([0], [Fraction(1)],  {(2, -2, 2): 1, (2, 0, 0): 5}),
         ([0], [Fraction(2)],  {(2, 0, 0): 2}),
     ]
-    result = check_adjoint_with_v_vector(entries, 2, ab, [1, 1], cusp_idx=0)
+    result = check_adjoint_with_w_vector(entries, 2, ab, [1, 1], cusp_idx=0)
     # combined_x2 = key[1]+key[2].
     # e=-1: (2,2,-2)->0 match, (2,0,0)->0 match -> 1+5=6.  c_{-1}=6
     # e=+1: (2,-2,2)->0 match, (2,0,0)->0 match -> 1+5=6.  c_{+1}=6
@@ -154,8 +154,8 @@ def test_v_vector_two_edges_projection():
     assert result.projected_value == 4
 
 
-def test_v_vector_with_shift_two_edges():
-    """v=(1,0): turns off edge 1, uses edge 0 only."""
+def test_w_vector_with_shift_two_edges():
+    """w=(1,0): turns off edge 1, uses edge 0 only."""
     ab = ABVectors(
         a=[Fraction(1), Fraction(-1, 2)],
         b=[Fraction(0), Fraction(0)],
@@ -169,7 +169,7 @@ def test_v_vector_with_shift_two_edges():
         ([0], [Fraction(1)],  {(2, -2, 0): 3}),
         ([0], [Fraction(2)],  {(2, -4, 0): 10}),
     ]
-    result = check_adjoint_with_v_vector(entries, 2, ab, [1, 0], cusp_idx=0)
+    result = check_adjoint_with_w_vector(entries, 2, ab, [1, 0], cusp_idx=0)
     # c_{-2}=3+7=10, c_{-1}=-1+4=3, c_{+1}=3, c_{+2}=10
     # 1/2(3+3-10-10) = -7
     assert result.is_pass is False
@@ -186,12 +186,12 @@ def test_scan_v_vectors_single_edge():
         ([0], [Fraction(1)],  {(2, 0): 1}),
         ([0], [Fraction(2)],  {(2, 0): 2}),
     ]
-    result = scan_v_vectors(entries, 1, ab, max_coeff=3)
+    result = scan_w_vectors(entries, 1, ab, max_coeff=3)
     assert len(result.entries) == 3
-    vs = [e.v for e in result.entries]
-    assert (1,) in vs
-    assert (2,) in vs
-    assert (3,) in vs
+    ws = [e.w for e in result.entries]
+    assert (1,) in ws
+    assert (2,) in ws
+    assert (3,) in ws
     # All have a_eff=0 -> target=0. All keys have eta_x2=0, so all match
     assert len(result.passing) == 3
 
@@ -210,16 +210,16 @@ def test_scan_v_vectors_canonicalisation():
         ([0], [Fraction(1)],  {(2, 0, 0): 1}),
         ([0], [Fraction(2)],  {(2, 0, 0): 2}),
     ]
-    result = scan_v_vectors(entries, 2, ab, max_coeff=1)
-    vs = [e.v for e in result.entries]
+    result = scan_w_vectors(entries, 2, ab, max_coeff=1)
+    ws = [e.w for e in result.entries]
     # (1,-1), (1,0), (1,1), (0,1) -> 4 canonical vectors
-    assert len(vs) == 4
-    assert (1, 0) in vs
-    assert (0, 1) in vs
-    assert (1, 1) in vs
-    assert (1, -1) in vs
-    assert (-1, 0) not in vs
-    assert (0, -1) not in vs
+    assert len(ws) == 4
+    assert (1, 0) in ws
+    assert (0, 1) in ws
+    assert (1, 1) in ws
+    assert (1, -1) in ws
+    assert (-1, 0) not in ws
+    assert (0, -1) not in ws
 
 
 def test_scan_v_vectors_skip_incompatible():
@@ -232,11 +232,11 @@ def test_scan_v_vectors_skip_incompatible():
         ([0], [Fraction(1)],  {(2, 0): 1}),
         ([0], [Fraction(2)],  {(2, 0): 2}),
     ]
-    result = scan_v_vectors(
+    result = scan_w_vectors(
         entries, 1, ab, max_coeff=2, skip_incompatible=True,
     )
-    v1 = next(e for e in result.entries if e.v == (1,))
-    v2 = next(e for e in result.entries if e.v == (2,))
+    v1 = next(e for e in result.entries if e.w == (1,))
+    v2 = next(e for e in result.entries if e.w == (2,))
     assert v1.a_eff_is_integer is False
     assert v1.adjoint is None
     assert v2.a_eff_is_integer is True
@@ -246,6 +246,6 @@ def test_scan_v_vectors_skip_incompatible():
 def test_scan_zero_hard_edges():
     """With 0 hard edges, scan returns empty."""
     ab = ABVectors(a=[], b=[], num_hard=0)
-    result = scan_v_vectors([], 0, ab, max_coeff=2)
+    result = scan_w_vectors([], 0, ab, max_coeff=2)
     assert result.entries == []
     assert result.passing == []

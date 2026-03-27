@@ -1,12 +1,12 @@
 """
 core/kernel_cache.py — Pre-computed Dehn filling kernel tables.
 
-The refined Dehn filling kernel K^ref(P/Q; m, e; η_cusp) is **manifold-
+The refined Dehn filling kernel K^ref(P/Q; m, e; η^{2V}) is **manifold-
 independent**: it depends only on the slope (P, Q) and the charge
 variables (m, e).  The manifold enters only through the refined 3D index
-I^ref(m, e; η_hard), which is then convolved with the kernel:
+I^ref(m, e; η^{2W}), which is then convolved with the kernel:
 
-    Î^ref_{P/Q}(η_hard, η_cusp) = Σ_{m,e}  I^ref(m,e; η_hard) · K^ref(P/Q; m,e; η_cusp)
+    Î^ref_{P/Q}(η^{2W}, η^{2V}) = Σ_{m,e}  I^ref(m,e; η^{2W}) · K^ref(P/Q; m,e; η^{2V})
 
 Pre-computing the kernel for a slope and storing it on disk turns a
 ~10 minute IS-chain computation into a sub-second lookup + summation.
@@ -366,7 +366,7 @@ class KernelTable:
         The inflated internal qq used during pre-computation
         (``qq_order + buffer``).
     eta_order : int
-        Maximum |η_cusp| exponent retained.
+        Maximum |cusp V| exponent retained.
     hj_ks : list[int]
         Hirzebruch-Jung continued-fraction coefficients.
     table : dict[(int, Fraction), QEtaSeries]
@@ -391,7 +391,7 @@ class KernelTable:
 
     # Persistent fast representation (survives pickling)
     # lcd: least common denominator of all Fraction coefficients
-    # int_grouped: (m,e) → {η_cusp: (min_qq, np.ndarray[int64])}
+    # int_grouped: (m,e) → {V_exp: (min_qq, np.ndarray[int64])}
     #   where the array is a dense kernel vector scaled by lcd,
     #   offset so that array[i] corresponds to qq = i + min_qq.
     _fast_lcd: int = field(default=0, repr=False)
@@ -945,7 +945,7 @@ def precompute_filling_kernel(
     qq_order : int
         User-facing series truncation order.
     eta_order : int or None
-        Max |η_cusp|.  Default: ``qq_order``.
+        Max |cusp V|.  Default: ``qq_order``.
     verbose : bool
         Print progress.
     progress_callback : callable or None
@@ -1272,7 +1272,7 @@ def apply_precomputed_kernel(
     Replaces the grid-scan + IS-chain + K-factor steps of
     ``compute_filled_refined_index`` with a simple summation:
 
-        result = Σ_{m,e}  I^ref(m,e; η_hard) ⊗ K^ref[(m,e)]
+        result = Σ_{m,e}  I^ref(m,e; η^{2W}) ⊗ K^ref[(m,e)]
 
     Returns the raw MultiEtaSeries (before diamond truncation).
 
@@ -1307,7 +1307,7 @@ def apply_precomputed_kernel(
     Returns
     -------
     MultiEtaSeries
-        Keys: ``(qq, 2η_0, …, 2η_{H-1}, η_cusp)``
+        Keys: ``(qq, 2W_0, …, 2W_{H-1}, 2V)``
     """
     from manifold_index.core.refined_dehn_filling import (
         _apply_weyl_shift,
@@ -1346,7 +1346,7 @@ def apply_precomputed_kernel(
 
     # ----- Numpy-accelerated integer convolution -----
     # Kernel coefficients are pre-scaled to integers (×LCD) and stored as
-    # dense numpy arrays (one per η_cusp, keyed by offset).  The convolution
+    # dense numpy arrays (one per V_exp, keyed by offset).  The convolution
     # accumulates into dense per-suffix numpy arrays — no Python-level
     # per-element dict ops in the inner loop.
     lcd, k_grouped = kernel.get_int_grouped()
@@ -1418,7 +1418,7 @@ def apply_precomputed_kernel(
             )
 
     # Dense accumulators: suffix → int64 array of length qq_internal+1
-    # where suffix = (2η_0, …, 2η_{H-1}, η_cusp).
+    # where suffix = (2W_0, …, 2W_{H-1}, 2V).
     accum_arrays: dict[tuple[int, ...], np.ndarray] = {}
     n_hits = 0
 
@@ -1439,7 +1439,7 @@ def apply_precomputed_kernel(
             continue
         n_hits += 1
 
-        # Group I^ref by η_hard pattern → {η_hard: dense int64 array}
+        # Group I^ref by η^{2W} pattern → {η_key: dense int64 array}
         iref_by_eta: dict[tuple[int, ...], np.ndarray] = {}
         for key, c in refined.items():
             eta_h = key[1:]
@@ -1451,7 +1451,7 @@ def apply_precomputed_kernel(
             if qq_r <= qq_internal:
                 arr[qq_r] = c
 
-        # For each (η_hard, η_cusp) pair, convolve and accumulate via numpy.
+        # For each (η^{2W}, V_exp) pair, convolve and accumulate via numpy.
         # Batched approach: instead of N_ec separate np.convolve calls per
         # η_h group, stack all kern_arr into a matrix and accumulate using
         # L_i vectorised 2-D numpy operations (one per nonzero iref position).

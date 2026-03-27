@@ -308,12 +308,12 @@ def format_refined_index(
     -------
     str
         Sum of monomials, e.g.
-        ``"-q^(1/2)*η^(2·v_0)  +  3*q  +  q^(3/2)*η^(-2·v_0)"``
+        ``"-q^(1/2)*η^(2·W_0)  +  3*q  +  q^(3/2)*η^(-2·W_0)"``
 
     Notes
     -----
-    Fugacity convention:  ``η_a = η^{2v_a}``.  The stored ``exp_x2``
-    equals ``2 × true_exponent``, so the factor is ``η^(exp_x2·v_a)``.
+    Fugacity convention:  ``η_a = η^{2W_a}``.  The stored ``exp_x2``
+    equals ``2 × true_exponent``, so the factor is ``η^(exp_x2·W_a)``.
     """
     def _monomial(key: tuple[int, ...], coeff: int) -> str:
         q_pow = key[0]
@@ -332,16 +332,16 @@ def format_refined_index(
             else:
                 factors.append(f"{q_var}^({q_pow}/2)")
 
-        # η factors: η^(exp_x2·v_a)
+        # η factors: η^(exp_x2·W_a)
         for a, exp_x2 in enumerate(eta_pows_x2):
             if exp_x2 == 0:
                 continue
             if exp_x2 == 1:
-                factors.append(f"η^(v_{a})")
+                factors.append(f"η^(W_{a})")
             elif exp_x2 == -1:
-                factors.append(f"η^(-v_{a})")
+                factors.append(f"η^(-W_{a})")
             else:
-                factors.append(f"η^({exp_x2}·v_{a})")
+                factors.append(f"η^({exp_x2}·W_{a})")
 
         body = "*".join(factors) if factors else ""
         if not body:                      # constant term

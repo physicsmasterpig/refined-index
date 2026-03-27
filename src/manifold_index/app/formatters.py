@@ -81,7 +81,7 @@ def _series_to_katex(
     """Convert a RefinedIndexResult to a compact KaTeX string.
 
     Groups monomials by q-power and displays up to *max_q_terms* distinct
-    q-powers.  Uses η^{±2v_j} notation for fugacity variables.
+    q-powers.  Uses η^{±2W_j} notation for hard-edge fugacity variables.
     """
     if not result:
         return "$0$"
@@ -109,13 +109,13 @@ def _series_to_katex(
             if exp_x2 == 0:
                 continue
             if exp_x2 == 2:
-                parts.append(rf"\eta^{{2v_{a}}}")
+                parts.append(rf"\eta^{{2W_{a}}}")
             elif exp_x2 == -2:
-                parts.append(rf"\eta^{{-2v_{a}}}")
+                parts.append(rf"\eta^{{-2W_{a}}}")
             elif exp_x2 == 1:
-                parts.append(rf"\eta^{{v_{a}}}")
+                parts.append(rf"\eta^{{W_{a}}}")
             elif exp_x2 == -1:
-                parts.append(rf"\eta^{{-v_{a}}}")
+                parts.append(rf"\eta^{{-W_{a}}}")
             else:
                 parts.append(rf"\eta^{{{exp_x2}v_{a}}}")
         return "".join(parts)
@@ -780,7 +780,7 @@ def _filled_series_to_katex(
 ) -> str:
     """Convert a FilledRefinedResult's MultiEtaSeries to compact KaTeX.
 
-    Displays hard-edge η^{±2v_a} and cusp η_{c,i}^{k} in the same format
+    Displays hard-edge η^{±2W_a} and cusp η^{2V_i} in the same format
     as Panel 1's ``_series_to_katex``, extended with cusp-η dimensions.
     Supports multiple cusp η's from sequential multi-cusp filling.
     Coefficients are Fraction-valued.
@@ -817,18 +817,17 @@ def _filled_series_to_katex(
             if exp2 == 0:
                 continue
             if exp2 == 2:
-                parts.append(rf"\eta^{{2v_{a}}}")
+                parts.append(rf"\eta^{{2W_{a}}}")
             elif exp2 == -2:
-                parts.append(rf"\eta^{{-2v_{a}}}")
+                parts.append(rf"\eta^{{-2W_{a}}}")
             elif exp2 == 1:
-                parts.append(rf"\eta^{{v_{a}}}")
+                parts.append(rf"\eta^{{W_{a}}}")
             elif exp2 == -1:
-                parts.append(rf"\eta^{{-v_{a}}}")
+                parts.append(rf"\eta^{{-W_{a}}}")
             else:
-                parts.append(rf"\eta^{{{exp2}v_{a}}}")
+                parts.append(rf"\eta^{{{exp2}W_{a}}}")
         # Cusp η's (integer exponents, after hard-edge dimensions)
-        # For one cusp η: render as η_c
-        # For multiple:   render as η_{c,0}, η_{c,1}, …
+        # Rendered as η^{2V_i}, η^{-2V_i}, η^{2k·V_i}, etc.
         for ci in range(num_cusp_eta):
             pos = num_hard + ci
             if pos >= len(eta_pows):
@@ -836,16 +835,13 @@ def _filled_series_to_katex(
             ce = eta_pows[pos]
             if ce == 0:
                 continue
-            if num_cusp_eta == 1:
-                label = r"\eta_c"
+            coeff = 2 * ce
+            if coeff == 2:
+                parts.append(rf"\eta^{{2V_{ci}}}")
+            elif coeff == -2:
+                parts.append(rf"\eta^{{-2V_{ci}}}")
             else:
-                label = rf"\eta_{{c,{ci}}}"
-            if ce == 1:
-                parts.append(label)
-            elif ce == -1:
-                parts.append(label + "^{-1}")
-            else:
-                parts.append(label + f"^{{{ce}}}")
+                parts.append(rf"\eta^{{{coeff}V_{ci}}}")
         return "".join(parts)
 
     def _q_factor(q_half: int) -> str:
@@ -1104,7 +1100,7 @@ def format_dehn_compatibility(weyl: WeylCheckResult | None) -> str:
             eta_list = ", ".join(f"\\eta_{j}" for j in incomp)
             lines.append(
                 f'<p class="warn">Edge(s) {{{edge_list}}} incompatible \u2192 '
-                f'set ${eta_list} = 1$ &nbsp;($v_j = 0$) for filling.</p>'
+                f'set ${eta_list} = 1$ &nbsp;($W_j = 0$) for filling.</p>'
             )
         # Show the effective (filling-compatible) vectors
         ab_eff = ab.make_filling_compatible()
