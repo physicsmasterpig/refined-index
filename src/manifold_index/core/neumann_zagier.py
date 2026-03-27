@@ -279,16 +279,19 @@ def _build_omega_block(n: int) -> np.ndarray:
 
 def _int_right_inverse(A_int: np.ndarray) -> np.ndarray:
     """
-    Given an n × 2n integer matrix A whose Smith Normal Form has all invariant
-    factors equal to 1, return a 2n × n integer matrix Q_T such that
+    Given an n × 2n integer matrix A of full row-rank, return a 2n × n
+    rational matrix Q_T (entries are :class:`fractions.Fraction`) such that
     A @ Q_T = I_n.
+
+    When the Smith invariant factors of A are all 1 the result is integer;
+    otherwise the entries are exact rationals (e.g. 1/2).
 
     Algorithm
     ---------
     Euclidean column reduction (tracks transformation matrix V) produces
-    A @ V = [H | 0] where H is n × n lower-triangular with 1s on the diagonal.
-    The right inverse is  Q_T = V[:, :n] @ H_inv, where H_inv is the integer
-    inverse of H (also lower-triangular with 1s on the diagonal).
+    A @ V = [H | 0] where H is n × n lower-triangular with positive diagonal.
+    The right-inverse is  Q_T = V[:, :n] @ H^{-1}, computed in exact
+    Fraction arithmetic.
     """
     n, m = A_int.shape  # m = 2n
 
@@ -376,14 +379,21 @@ def _int_right_inverse(A_int: np.ndarray) -> np.ndarray:
     # H = A_arr[:, :n]  (should be lower-triangular with diag = 1)
     H = A_arr[:, :n].copy()
 
-    # Integer inverse of lower-triangular H with unit diagonal via forward substitution:
-    # If H @ X = I_n then X is also lower-triangular with unit diagonal.
-    H_inv = np.eye(n, dtype=int)
+    # Inverse of lower-triangular H via forward substitution.
+    # When some diagonal entries H[i,i] > 1 (Smith factors > 1),
+    # we must divide by H[i,i]; use Fraction to keep exact arithmetic.
+    H_inv = np.array(
+        [[Fraction(1) if i == j else Fraction(0) for j in range(n)]
+         for i in range(n)],
+        dtype=object,
+    )
     for i in range(n):
         for j in range(i):
-            H_inv[i] -= H[i, j] * H_inv[j]
+            H_inv[i] -= Fraction(int(H[i, j])) * H_inv[j]
+        H_inv[i] /= Fraction(int(H[i, i]))   # critical: divide by diagonal
 
-    Q_T = V_arr[:, :n] @ H_inv            # (2n, n)
+    V_frac = np.array(V_arr[:, :n], dtype=object)
+    Q_T = V_frac @ H_inv                  # (2n, n), dtype=object (Fraction)
     return Q_T
 
 
@@ -407,16 +417,17 @@ def _make_isotropic(
     """
     n = P.shape[0]
     # Anti-symmetric pairing matrix S[i,j] = [col_i(Q_T), col_j(Q_T)]
-    S = Q_T.T @ omega @ Q_T  # (n, n), integer, anti-symmetric
+    S = Q_T.T @ omega @ Q_T  # (n, n), anti-symmetric
 
     # C = strictly lower-triangular part of S
-    C = np.zeros((n, n), dtype=int)
+    C = np.zeros((n, n), dtype=object)
     for i in range(n):
         for j in range(i):  # j < i  →  lower triangle
             C[i, j] = S[i, j]
 
     # Adjust: Q_T' = Q_T + P^T @ C
-    Q_T_new = Q_T + P.T @ C   # (2n, n)
+    P_obj = np.array(P, dtype=object)       # ensure compatible dtype
+    Q_T_new = Q_T + P_obj.T @ C            # (2n, n)
     return Q_T_new
 
 
