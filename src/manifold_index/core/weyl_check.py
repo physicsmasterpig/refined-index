@@ -933,6 +933,229 @@ def check_adjoint_projection(
     )
 
 
+
+
+# ---------------------------------------------------------------------------
+# v-vector linear combination framework
+# ---------------------------------------------------------------------------
+
+def _extract_q1_projected_coeff(
+    result,  # RefinedIndexResult
+    num_hard: int,
+    v,       # Sequence[int]
+    target_x2: int,
+) -> int:
+    r"""Extract the q^1 coefficient at a given projected eta-exponent.
+
+    Projects the multi-eta polynomial onto a single combined variable
+    via the v-vector:
+
+        combined_x2 = sum_j v_j * key[1+j]
+
+    and returns the sum of coefficients where ``key[0] == 2`` (q^1) and
+    ``combined_x2 == target_x2``.
+    """
+    coeff = 0
+    for key, val in result.items():
+        if val == 0:
+            continue
+        if key[0] != 2:  # not q^1
+            continue
+        combined_x2 = sum(v[j] * key[1 + j] for j in range(num_hard))
+        if combined_x2 == target_x2:
+            coeff += val
+    return coeff
+
+
+@dataclass
+class VScanEntry:
+    r"""Result of the adjoint projection check for one v-vector.
+
+    Attributes
+    ----------
+    v : tuple[int, ...]
+        The v-vector: eta_j = eta^{2*v_j}.
+    a_eff : Fraction
+        Effective Weyl a-coefficient: v . a.
+    b_eff : Fraction
+        Effective Weyl b-coefficient: v . b.
+    a_eff_is_integer : bool
+        Whether a_eff is an integer (filling compatibility condition).
+    adjoint : AdjointProjectionResult | None
+        Adjoint projection result.  None if the check was skipped.
+    """
+
+    v: tuple[int, ...]
+    a_eff: Fraction
+    b_eff: Fraction
+    a_eff_is_integer: bool
+    adjoint: AdjointProjectionResult | None
+
+
+@dataclass
+class VScanResult:
+    r"""Aggregated results of scanning v-vectors.
+
+    Attributes
+    ----------
+    ab : ABVectors
+        The raw Weyl vectors used for the scan.
+    entries : list[VScanEntry]
+        All scanned v-vectors with their results.
+    passing : list[VScanEntry]
+        Subset with adjoint.is_pass == True.
+    """
+
+    ab: ABVectors
+    entries: list[VScanEntry]
+    passing: list[VScanEntry]
+
+
+def check_adjoint_with_v_vector(
+    entries,     # Sequence[tuple[list[int], list[Fraction], RefinedIndexResult]]
+    num_hard: int,
+    ab,          # ABVectors
+    v,           # Sequence[int]
+    cusp_idx: int = 0,
+) -> AdjointProjectionResult:
+    r"""Check the adjoint projection for a given v-vector.
+
+    Instead of requiring eta^0 for each hard-edge eta_j independently, this
+    projects the multi-eta polynomial onto a single combined variable via
+
+        eta_j = eta^{2*v_j}
+
+    and checks the adjoint projection condition on the combined variable.
+
+    The Weyl shift becomes  eta^{a_eff * e + b_eff * m}  where
+    a_eff = v . a  and  b_eff = v . b.
+
+    Algorithm
+    ---------
+    For each entry at m = 0:
+
+    1. Compute target_x2 = -2 * a_eff * e_sum -- the doubled combined
+       eta-exponent that maps to eta^0 after the Weyl shift.
+    2. Sum all q^1 monomials whose projected exponent
+       sum(v_j * key[1+j]) == target_x2.
+    3. Collect c_e for e in {-2, -1, +1, +2} and apply the Haar x adjoint
+       projection: 1/2(c_{-1} + c_{+1} - c_{-2} - c_{+2}) = -1.
+    """
+    a_eff = sum(Fraction(v[j]) * ab.a[j] for j in range(num_hard))
+
+    c_e: dict[Fraction, int] = {}
+    for m_ext, e_ext, result in entries:
+        if any(m != 0 for m in m_ext):
+            continue
+        skip = False
+        for i, e_val in enumerate(e_ext):
+            if i != cusp_idx and e_val != 0:
+                skip = True
+                break
+        if skip:
+            continue
+
+        e_val = Fraction(e_ext[cusp_idx])
+        e_sum = sum(Fraction(ev) for ev in e_ext)
+
+        target_raw = -2 * a_eff * e_sum
+        if target_raw.denominator != 1:
+            c_e[e_val] = c_e.get(e_val, 0)
+            continue
+        target_x2 = int(target_raw)
+
+        coeff = _extract_q1_projected_coeff(result, num_hard, v, target_x2)
+        c_e[e_val] = c_e.get(e_val, 0) + coeff
+
+    needed = [Fraction(-2), Fraction(-1), Fraction(1), Fraction(2)]
+    missing = [e for e in needed if e not in c_e]
+
+    if missing:
+        return AdjointProjectionResult(
+            projected_value=None, is_pass=False,
+            c_e=c_e, missing_e=missing,
+        )
+
+    numerator = c_e[Fraction(-1)] + c_e[Fraction(1)] \
+        - c_e[Fraction(-2)] - c_e[Fraction(2)]
+
+    if numerator % 2 != 0:
+        return AdjointProjectionResult(
+            projected_value=None, is_pass=False,
+            c_e=c_e, missing_e=[],
+        )
+
+    projected = numerator // 2
+    return AdjointProjectionResult(
+        projected_value=projected,
+        is_pass=(projected == -1),
+        c_e=c_e,
+        missing_e=[],
+    )
+
+
+def scan_v_vectors(
+    entries,     # Sequence[tuple[list[int], list[Fraction], RefinedIndexResult]]
+    num_hard: int,
+    ab,          # ABVectors
+    cusp_idx: int = 0,
+    max_coeff: int = 3,
+    *,
+    skip_incompatible: bool = False,
+) -> VScanResult:
+    r"""Scan v-vectors and check the adjoint projection for each.
+
+    Enumerates all integer v-vectors with |v_j| <= max_coeff (excluding
+    the zero vector).  Canonicalises by sign: only v-vectors whose first
+    nonzero entry is positive are tested, since v and -v give the same
+    adjoint projection (the Haar x adjoint kernel is even in eta).
+
+    For each v-vector, computes a_eff = v . a, b_eff = v . b,
+    checks whether a_eff is an integer, and (unless skip_incompatible is
+    set and a_eff is not integer) runs the adjoint projection check.
+    """
+    from itertools import product
+
+    if num_hard == 0:
+        return VScanResult(ab=ab, entries=[], passing=[])
+
+    all_entries: list[VScanEntry] = []
+    passing: list[VScanEntry] = []
+
+    rng = range(-max_coeff, max_coeff + 1)
+    for combo in product(rng, repeat=num_hard):
+        if all(c == 0 for c in combo):
+            continue
+        first_nz = next(c for c in combo if c != 0)
+        if first_nz < 0:
+            continue
+
+        v = combo
+        a_eff = sum(Fraction(v[j]) * ab.a[j] for j in range(num_hard))
+        b_eff = sum(Fraction(v[j]) * ab.b[j] for j in range(num_hard))
+        a_int = a_eff.denominator == 1
+
+        if skip_incompatible and not a_int:
+            adj = None
+        else:
+            adj = check_adjoint_with_v_vector(
+                entries, num_hard, ab, v, cusp_idx,
+            )
+
+        entry = VScanEntry(
+            v=v,
+            a_eff=a_eff,
+            b_eff=b_eff,
+            a_eff_is_integer=a_int,
+            adjoint=adj,
+        )
+        all_entries.append(entry)
+        if adj is not None and adj.is_pass:
+            passing.append(entry)
+
+    return VScanResult(ab=ab, entries=all_entries, passing=passing)
+
+
 # ---------------------------------------------------------------------------
 # Convenience: run all three checks
 # ---------------------------------------------------------------------------
