@@ -1038,11 +1038,95 @@ def format_multi_cusp_fill_results(
     return html
 
 
+def format_dehn_compatibility(weyl: WeylCheckResult | None) -> str:
+    """Format Dehn filling compatibility and refinement choice summary.
+
+    Shows per-edge compatibility of the Weyl vectors with half-integer
+    filling, and which refinement variables are turned off.
+    """
+    if weyl is None or weyl.ab is None:
+        return ""
+
+    ab = weyl.ab
+    n = ab.num_hard
+    compat = ab.edge_compatible
+
+    lines: list[str] = []
+    lines.append('<h3>Refinement &amp; Compatibility</h3>')
+
+    # ── Per-edge table ────────────────────────────────────────────────
+    lines.append('<table class="compat" style="border-collapse:collapse; '
+                 'margin:4px 0 8px 0; font-size:0.9em;">')
+    lines.append('<tr style="border-bottom:1px solid #555;">'
+                 '<th style="padding:2px 8px;">Edge</th>'
+                 '<th style="padding:2px 8px;">$a_j$</th>'
+                 '<th style="padding:2px 8px;">$b_j$</th>'
+                 '<th style="padding:2px 8px;">$a_j \\in \\mathbb{Z}$?</th>'
+                 '<th style="padding:2px 8px;">$2b_j \\in \\mathbb{Z}$?</th>'
+                 '<th style="padding:2px 8px;">Status</th></tr>')
+    for j in range(n):
+        a_ok = ab.a_is_integer[j]
+        b_ok = ab.b_is_half_integer[j]
+        ok = compat[j]
+        a_str = _frac_to_latex(ab.a[j])
+        b_str = _frac_to_latex(ab.b[j])
+        a_icon = "\u2713" if a_ok else "\u2717"
+        b_icon = "\u2713" if b_ok else "\u2717"
+        status = ('<span style="color:#2ea043;">\u2713 compatible</span>' if ok
+                  else '<span style="color:#cf222e;">\u2717 incompatible</span>')
+        lines.append(
+            f'<tr>'
+            f'<td style="padding:2px 8px; text-align:center;">{j}</td>'
+            f'<td style="padding:2px 8px; text-align:center;">$ {a_str} $</td>'
+            f'<td style="padding:2px 8px; text-align:center;">$ {b_str} $</td>'
+            f'<td style="padding:2px 8px; text-align:center;">{a_icon}</td>'
+            f'<td style="padding:2px 8px; text-align:center;">{b_icon}</td>'
+            f'<td style="padding:2px 8px;">{status}</td>'
+            f'</tr>'
+        )
+    lines.append('</table>')
+
+    # ── Refinement choice summary ─────────────────────────────────────
+    incomp = [j for j in range(n) if not compat[j]]
+    if not incomp:
+        lines.append(
+            '<p class="success">All edges compatible \u2014 '
+            'full refinement ($\\eta_j$ active for all $j$).</p>'
+        )
+    else:
+        if n == 1:
+            lines.append(
+                '<p class="warn">Edge 0 incompatible \u2014 '
+                'refinement turned off ($\\eta_0 = 1$).</p>'
+            )
+        else:
+            edge_list = ", ".join(str(j) for j in incomp)
+            eta_list = ", ".join(f"\\eta_{j}" for j in incomp)
+            lines.append(
+                f'<p class="warn">Edge(s) {{{edge_list}}} incompatible \u2192 '
+                f'set ${eta_list} = 1$ &nbsp;($v_j = 0$) for filling.</p>'
+            )
+        # Show the effective (filling-compatible) vectors
+        ab_eff = ab.make_filling_compatible()
+        eff_parts = []
+        for j in range(n):
+            a_s = _frac_to_latex(ab_eff.a[j])
+            b_s = _frac_to_latex(ab_eff.b[j])
+            eff_parts.append(f"a_{j}={a_s},\\; b_{j}={b_s}")
+        lines.append(
+            f'<p style="font-size:0.85em;">Effective vectors after zeroing: '
+            f'${"; \\quad ".join(eff_parts)}$</p>'
+        )
+
+    return "\n".join(lines)
+
+
 def format_panel2_html(
     nc_results: list | None = None,
     transformed_results: list | None = None,
     multi_cusp_results: list | None = None,
     nz: NeumannZagierData | None = None,
+    weyl: WeylCheckResult | None = None,
     max_q_terms: int = 4,
 ) -> str:
     """Assemble the full Panel 2 HTML body.
@@ -1055,6 +1139,11 @@ def format_panel2_html(
     *multi_cusp_results* instead of *transformed_results*.
     """
     parts = []
+
+    # Always show compatibility summary if Weyl data is available
+    compat_html = format_dehn_compatibility(weyl)
+    if compat_html:
+        parts.append(compat_html)
 
     if (nc_results is None and transformed_results is None
             and multi_cusp_results is None):

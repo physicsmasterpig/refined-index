@@ -240,8 +240,8 @@ class FillingPanel(QFrame):
         self._progress.hide()
         self._status.hide()
 
-        # Clear results view
-        self._set_math_content(format_panel2_html())
+        # Clear results view — show compatibility summary from Weyl check
+        self._set_math_content(format_panel2_html(weyl=self._weyl_result))
 
     # ------------------------------------------------------------------
     # Slots
@@ -299,6 +299,7 @@ class FillingPanel(QFrame):
         html = format_panel2_html(
             nc_results=nc_results,
             nz=self._nz_data,
+            weyl=self._weyl_result,
         )
         self._set_math_content(html)
         # Reset progress to indeterminate while step 2 loads kernels
@@ -330,6 +331,7 @@ class FillingPanel(QFrame):
                 nc_results=self._nc_results,
                 multi_cusp_results=results,
                 nz=self._nz_data,
+                weyl=self._weyl_result,
                 max_q_terms=nmax,
             )
             total_nc = sum(len(nc.cycles) for nc in (self._nc_results or []))
@@ -344,6 +346,7 @@ class FillingPanel(QFrame):
                 nc_results=self._nc_results,
                 transformed_results=results,
                 nz=self._nz_data,
+                weyl=self._weyl_result,
                 max_q_terms=nmax,
             )
             total_nc = sum(len(nc.cycles) for nc in (self._nc_results or []))
