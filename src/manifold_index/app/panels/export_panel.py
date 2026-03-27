@@ -2,15 +2,16 @@
 app/panels/export_panel.py — Panel 3: Export.
 
 Save results in various formats: LaTeX, Mathematica, plain text, JSON.
+Receives data from Panel 1 (refined index) and Panel 2 (Dehn filling).
 """
 
 from __future__ import annotations
 
-import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Signal, Slot
+from PySide6.QtCore import Slot
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QFileDialog,
     QFrame,
@@ -37,6 +38,7 @@ class ExportPanel(QFrame):
         super().__init__(parent)
         self.setObjectName("panel")
         self._data: dict | None = None
+        self._dehn_results: list | None = None
         self._setup_ui()
 
     # ------------------------------------------------------------------
@@ -62,7 +64,7 @@ class ExportPanel(QFrame):
         sep.setFrameShadow(QFrame.Shadow.Sunken)
         outer.addWidget(sep)
 
-        # ── Format section ────────────────────────────────────
+        # ── Format section ──
         outer.addWidget(_section_label("Formats"))
 
         self._chk_tex = QCheckBox("LaTeX  (.tex)")
@@ -70,10 +72,10 @@ class ExportPanel(QFrame):
         outer.addWidget(self._chk_tex)
 
         self._chk_report = QCheckBox("Full Report  (.tex)")
-        self._chk_report.setChecked(True)
+        self._chk_report.setChecked(False)
         outer.addWidget(self._chk_report)
 
-        self._chk_nb = QCheckBox("Mathematica  (.nb)")
+        self._chk_nb = QCheckBox("Mathematica  (.m)")
         self._chk_nb.setChecked(True)
         outer.addWidget(self._chk_nb)
 
@@ -87,12 +89,8 @@ class ExportPanel(QFrame):
 
         outer.addSpacing(8)
 
-        # ── Options ───────────────────────────────────────────
+        # ── Options ──
         outer.addWidget(_section_label("Options"))
-
-        self._chk_weyl = QCheckBox("Weyl-manifest form")
-        self._chk_weyl.setChecked(True)
-        outer.addWidget(self._chk_weyl)
 
         self._chk_dehn = QCheckBox("Include Dehn filling results")
         self._chk_dehn.setChecked(True)
@@ -100,7 +98,7 @@ class ExportPanel(QFrame):
 
         outer.addSpacing(8)
 
-        # ── Output path ───────────────────────────────────────
+        # ── Output path ──
         outer.addWidget(_section_label("Output"))
 
         dir_row = QWidget()
@@ -132,7 +130,7 @@ class ExportPanel(QFrame):
 
         outer.addSpacing(12)
 
-        # ── Export buttons ────────────────────────────────────
+        # ── Export buttons ──
         self._export_btn = QPushButton("Export All  ▶")
         self._export_btn.setObjectName("primary")
         self._export_btn.setFixedHeight(36)
@@ -170,18 +168,43 @@ class ExportPanel(QFrame):
     # ------------------------------------------------------------------
 
     def set_data(self, data: dict) -> None:
-        """Store computation results for export.
+        """Store computation results from Panel 1 for export.
 
         *data* should contain:
             manifold_data, easy_result, nz_data, entries, weyl_result, q_order_half
         """
         self._data = data
+        self._dehn_results = None  # reset when new manifold loaded
         name = data.get("manifold_data")
         if name:
             self._prefix_edit.setText(f"{name.name}_index")
         self._export_btn.setEnabled(True)
         self._copy_tex_btn.setEnabled(True)
         self._copy_txt_btn.setEnabled(True)
+
+    def set_dehn_data(self, results: list) -> None:
+        """Store Dehn filling results from Panel 2 for export.
+
+        *results* is a list of ``TransformedFillResult`` or
+        ``MultiCuspFillResult`` objects.
+        """
+        self._dehn_results = results
+        self._status.setText("✓  Dehn filling data received for export")
+        self._status.setStyleSheet("color: #539bf5; font-size: 11px;")
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _manifold_name(self) -> str:
+        md = self._data.get("manifold_data") if self._data else None
+        return md.name if md else "unknown"
+
+    def _include_dehn(self) -> bool:
+        return self._chk_dehn.isChecked() and self._dehn_results is not None
+
+    def _dehn_data(self) -> list | None:
+        return self._dehn_results if self._include_dehn() else None
 
     # ------------------------------------------------------------------
     # Slots
@@ -198,6 +221,14 @@ class ExportPanel(QFrame):
         if not self._data:
             return
 
+        from manifold_index.utils.exporters import (
+            write_json,
+            write_latex,
+            write_mathematica,
+            write_plain_text,
+            write_report,
+        )
+
         out_dir = Path(self._dir_edit.text()).expanduser()
         prefix = self._prefix_edit.text().strip() or "index"
 
@@ -207,25 +238,49 @@ class ExportPanel(QFrame):
             QMessageBox.critical(self, "Export error", f"Cannot create directory:\n{exc}")
             return
 
-        exported = []
+        name = self._manifold_name()
         nz = self._data["nz_data"]
         entries = self._data.get("entries", [])
         weyl = self._data.get("weyl_result")
+        easy = self._data.get("easy_result")
+        q_order_half = self._data.get("q_order_half")
+        dehn = self._dehn_data()
+        inc_dehn = self._include_dehn()
 
-        # Plain text export
-        if self._chk_txt.isChecked():
-            txt_path = out_dir / f"{prefix}.txt"
-            self._write_plain_text(txt_path, nz, entries, weyl)
-            exported.append(txt_path.name)
+        exported: list[str] = []
 
-        # JSON export
-        if self._chk_json.isChecked():
-            json_path = out_dir / f"{prefix}.json"
-            self._write_json(json_path, nz, entries)
-            exported.append(json_path.name)
+        try:
+            if self._chk_tex.isChecked():
+                p = out_dir / f"{prefix}.tex"
+                write_latex(p, name, nz, entries, weyl, dehn, inc_dehn)
+                exported.append(p.name)
+
+            if self._chk_report.isChecked():
+                p = out_dir / f"{prefix}_report.tex"
+                write_report(p, name, nz, easy, entries, weyl, dehn, inc_dehn, q_order_half)
+                exported.append(p.name)
+
+            if self._chk_nb.isChecked():
+                p = out_dir / f"{prefix}.m"
+                write_mathematica(p, name, nz, entries, weyl, dehn, inc_dehn)
+                exported.append(p.name)
+
+            if self._chk_txt.isChecked():
+                p = out_dir / f"{prefix}.txt"
+                write_plain_text(p, name, nz, entries, weyl, dehn, inc_dehn)
+                exported.append(p.name)
+
+            if self._chk_json.isChecked():
+                p = out_dir / f"{prefix}.json"
+                write_json(p, name, nz, entries, weyl, dehn, inc_dehn)
+                exported.append(p.name)
+
+        except Exception as exc:
+            QMessageBox.critical(self, "Export error", f"Failed:\n{exc}")
+            return
 
         if exported:
-            self._status.setText(f"✓  Exported: {', '.join(exported)}")
+            self._status.setText(f"✓  Exported: {\', \'.join(exported)}")
             self._status.setStyleSheet("color: #2ea043; font-size: 11px;")
         else:
             self._status.setText("No formats selected.")
@@ -235,25 +290,15 @@ class ExportPanel(QFrame):
     def _copy_latex(self) -> None:
         if not self._data:
             return
-        from manifold_index.core.refined_index import format_refined_index
+        from manifold_index.utils.exporters import clipboard_latex
 
         nz = self._data["nz_data"]
         entries = self._data.get("entries", [])
+        name = self._manifold_name()
+        dehn = self._dehn_data()
 
-        lines = [f"% Refined index for {self._data['manifold_data'].name}"]
-        lines.append(f"% Computed {datetime.datetime.now().isoformat()}")
-        lines.append("")
-
-        for m_ext, e_ext, result in entries:
-            if not result:
-                continue
-            fmt = format_refined_index(result, nz.num_hard)
-            lines.append(f"% I({m_ext}, {e_ext})")
-            lines.append(f"  {fmt}")
-            lines.append("")
-
-        from PySide6.QtWidgets import QApplication
-        QApplication.clipboard().setText("\n".join(lines))
+        text = clipboard_latex(name, entries, nz.num_hard, dehn, self._include_dehn())
+        QApplication.clipboard().setText(text)
         self._status.setText("✓  LaTeX copied to clipboard")
         self._status.setStyleSheet("color: #2ea043; font-size: 11px;")
 
@@ -261,63 +306,14 @@ class ExportPanel(QFrame):
     def _copy_text(self) -> None:
         if not self._data:
             return
-        from manifold_index.core.refined_index import format_refined_index
+        from manifold_index.utils.exporters import clipboard_plain_text
 
         nz = self._data["nz_data"]
         entries = self._data.get("entries", [])
+        name = self._manifold_name()
+        dehn = self._dehn_data()
 
-        lines = [f"Refined index for {self._data['manifold_data'].name}"]
-        for m_ext, e_ext, result in entries:
-            if not result:
-                continue
-            fmt = format_refined_index(result, nz.num_hard)
-            lines.append(f"I({m_ext}, {e_ext}) = {fmt}")
-
-        from PySide6.QtWidgets import QApplication
-        QApplication.clipboard().setText("\n".join(lines))
+        text = clipboard_plain_text(name, entries, nz.num_hard, dehn, self._include_dehn())
+        QApplication.clipboard().setText(text)
         self._status.setText("✓  Plain text copied to clipboard")
         self._status.setStyleSheet("color: #2ea043; font-size: 11px;")
-
-    # ------------------------------------------------------------------
-    # File writers
-    # ------------------------------------------------------------------
-
-    def _write_plain_text(self, path: Path, nz, entries, weyl) -> None:
-        from manifold_index.core.refined_index import format_refined_index
-
-        with open(path, "w") as f:
-            f.write(f"Refined 3D Index — {self._data['manifold_data'].name}\n")
-            f.write(f"Computed: {datetime.datetime.now().isoformat()}\n")
-            f.write(f"Tetrahedra: {nz.n}  Cusps: {nz.r}\n")
-            f.write(f"Hard edges: {nz.num_hard}  Easy edges: {nz.num_easy}\n\n")
-
-            for m_ext, e_ext, result in entries:
-                if not result:
-                    continue
-                fmt = format_refined_index(result, nz.num_hard)
-                f.write(f"I({m_ext}, {e_ext}) = {fmt}\n")
-
-    def _write_json(self, path: Path, nz, entries) -> None:
-        import json
-
-        data = {
-            "manifold": self._data["manifold_data"].name,
-            "n_tet": nz.n,
-            "n_cusps": nz.r,
-            "num_hard": nz.num_hard,
-            "sectors": [],
-        }
-        for m_ext, e_ext, result in entries:
-            if not result:
-                continue
-            sector = {
-                "m_ext": [int(m) for m in m_ext],
-                "e_ext": [str(e) for e in e_ext],
-                "coefficients": {
-                    str(k): int(v) for k, v in result.items() if v != 0
-                },
-            }
-            data["sectors"].append(sector)
-
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2)

@@ -203,6 +203,7 @@ class MainWindow(QMainWindow):
         worker.progress.connect(self._panel2.update_progress)
         worker.nc_found.connect(self._panel2.nc_search_done)
         worker.finished.connect(self._panel2.filling_finished)
+        worker.finished.connect(self._panel3.set_dehn_data)
         worker.error.connect(self._on_dehn_error)
         worker.finished.connect(
             lambda _: self.statusBar().showMessage("✓  Dehn filling complete.")
