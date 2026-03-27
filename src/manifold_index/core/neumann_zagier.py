@@ -137,7 +137,7 @@ class NeumannZagierData:
 
     # Internal caches (not part of the public API)
     _g_inv_cache: np.ndarray | None = field(default=None, repr=False, compare=False)
-    _g_inv_x2_cache: np.ndarray | None = field(default=None, repr=False, compare=False)
+    _g_inv_scaled_cache: tuple[int, np.ndarray] | None = field(default=None, repr=False, compare=False)
 
     # ------------------------------------------------------------------
     # Derived properties
@@ -194,37 +194,38 @@ class NeumannZagierData:
         self._g_inv_cache = result
         return result
 
-    def g_NZ_inv_x2(self) -> np.ndarray:
-        """Return ``2 * g_NZ^{-1}`` as an exact ``int64`` matrix.
+    def g_NZ_inv_scaled(self) -> tuple[int, np.ndarray]:
+        """Return ``(S, S * g_NZ^{-1})`` where S is the LCD of all entries.
 
-        Because every entry of g_NZ^{-1} has denominator dividing 2
-        (the symplectic inverse only transposes and negates blocks of g_NZ,
-        whose entries are integers or half-integers from the longitude/2
-        rows), multiplying by 2 always yields integers.
-
-        This avoids all :class:`~fractions.Fraction` construction and
-        enables pure ``int64`` matrix arithmetic in the hot path.
+        S is the smallest positive integer such that ``S * g_NZ^{-1}``
+        has all-integer entries.  For most manifolds S = 2 (from the
+        longitude/2 rows); for manifolds whose gluing matrix has Smith
+        invariant factors > 1 it can be larger (e.g. 4).
 
         The result is cached on first call.
         """
-        if self._g_inv_x2_cache is not None:
-            return self._g_inv_x2_cache
-        n = self.n
-        A = self.g_NZ[:n, :n]
-        B = self.g_NZ[:n, n:]
-        C = self.g_NZ[n:, :n]
-        D = self.g_NZ[n:, n:]
-        inv_float = np.vstack([
-            np.hstack([D.T, -B.T]),
-            np.hstack([-C.T, A.T]),
-        ])
-        x2 = inv_float * 2.0
-        result = np.round(x2).astype(np.int64)
-        # Validate: all entries must be exact integers after ×2.
-        assert np.allclose(x2, result, atol=1e-9), \
-            "g_NZ_inv has entries with denominator > 2; x2 trick not applicable"
-        self._g_inv_x2_cache = result
-        return result
+        if self._g_inv_scaled_cache is not None:
+            return self._g_inv_scaled_cache
+        from math import gcd, lcm
+        inv_frac = self.g_NZ_inv()          # (2n, 2n) Fraction array
+        # Compute LCD of all entries
+        S = 1
+        for row in inv_frac:
+            for v in row:
+                S = lcm(S, v.denominator)
+        # Build integer matrix
+        result = np.array(
+            [[int(v * S) for v in row] for row in inv_frac],
+            dtype=np.int64,
+        )
+        self._g_inv_scaled_cache = (S, result)
+        return (S, result)
+
+    @property
+    def inv_denom(self) -> int:
+        """LCD of all entries in g_NZ^{-1} — the scale factor S."""
+        S, _ = self.g_NZ_inv_scaled()
+        return S
 
 
 # ---------------------------------------------------------------------------

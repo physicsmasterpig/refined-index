@@ -770,8 +770,9 @@ class _EnumerationState:
     n: int
     r: int
     n_int: int  # = n - r
-    # g_NZ_inv ×2 as int64 — avoids ALL Fraction arithmetic
-    g_inv_x2: np.ndarray        # (2n, 2n) int64
+    S: int                      # LCD of g_NZ_inv entries (inv_denom)
+    # g_NZ_inv × S as int64 — avoids ALL Fraction arithmetic
+    g_inv_xS: np.ndarray        # (2n, 2n) int64
     # Internal-edge columns of g_inv (integer-valued, exact)
     int_cols_int: np.ndarray    # (2n, n_int) int64
     # Affine shifts
@@ -781,17 +782,14 @@ class _EnumerationState:
     # Valid half-integer patterns
     patterns: list[np.ndarray]  # each shape (n_int,) int
     # Per-pattern pre-computed data:
-    #   delta_contrib_x4[i] = g_inv_x2 @ kappa_delta_x2  (where kappa_delta
-    #     has delta in positions n+r..2n-1, zeros elsewhere)
-    delta_contrib_x4: list[np.ndarray]  # each (2n,) int64
-    #   delta_phase_x2[i] = -(delta @ nu_x[r:n]) * 2
-    #     (but nu_x is integer, so -2 * delta @ nu_x_int[r:n])
-    #     Actually: 2 * phase_delta where phase_delta = 0 · nu_p - (0..., delta/2) · nu_x
-    #            = -delta @ nu_x[r:n]  (since delta/2 is in e_full, and nu_x multiplies e_full)
+    #   delta_contrib_x2S[i] = g_inv_xS @ kappa_delta_x2
+    #     Scale: 2S × (g_inv @ kappa_delta)
+    delta_contrib_x2S: list[np.ndarray]  # each (2n,) int64
+    #   delta_phase_x2[i] = -delta @ nu_x[r:n]   (2 × phase_delta)
     delta_phase_x2: list[int]
-    # Cusp columns of g_inv_x2 for quick (m,e)-dependent matmul
-    cusp_m_cols_x2: np.ndarray  # (2n, r) int64 — g_inv_x2[:, :r]
-    cusp_e_cols_x2: np.ndarray  # (2n, r) int64 — g_inv_x2[:, n:n+r]
+    # Cusp columns of g_inv_xS for quick (m,e)-dependent matmul
+    cusp_m_cols_xS: np.ndarray  # (2n, r) int64 — g_inv_xS[:, :r]
+    cusp_e_cols_xS: np.ndarray  # (2n, r) int64 — g_inv_xS[:, n:n+r]
 
 
 # Module-level cache: one _EnumerationState per NeumannZagierData content.
@@ -826,18 +824,14 @@ def _get_enum_state(nz_data: NeumannZagierData) -> _EnumerationState:
     n, r = nz_data.n, nz_data.r
     n_int = n - r
 
-    g_inv_x2 = nz_data.g_NZ_inv_x2()  # (2n, 2n) int64, cached on nz_data
+    S, g_inv_xS = nz_data.g_NZ_inv_scaled()  # (int, (2n,2n) int64)
 
     # Internal-edge columns of g_inv — these are ALWAYS integer-valued.
-    # (If g_inv[:, n+r+j] had a half-integer entry, then incrementing
-    #  e0[j] by 1 would make tet_args non-integer for ALL delta patterns,
-    #  contradicting the existence of valid summation terms with e0[j] ≠ 0.)
-    # Use g_inv_x2 / 2 (exact for integer-valued columns).
-    int_cols_x2 = g_inv_x2[:, n + r: 2 * n]  # (2n, n_int) int64
-    # Verify all entries are even (i.e. the original was integer)
-    assert np.all(int_cols_x2 % 2 == 0), \
-        "Internal-edge columns of g_inv are not integer; x2/2 would be lossy"
-    int_cols_int = int_cols_x2 // 2  # (2n, n_int) int64, exact
+    int_cols_xS = g_inv_xS[:, n + r: 2 * n]  # (2n, n_int) int64
+    # Verify all entries are divisible by S (i.e. the original was integer)
+    assert np.all(int_cols_xS % S == 0), \
+        f"Internal-edge columns of g_inv are not integer; xS/S lossy (S={S})"
+    int_cols_int = int_cols_xS // S  # (2n, n_int) int64, exact
 
     # Affine shifts
     nu_x_int = nz_data.nu_x[r: n].astype(np.int64)  # easy-edge part
@@ -849,30 +843,31 @@ def _get_enum_state(nz_data: NeumannZagierData) -> _EnumerationState:
     patterns = valid_half_integer_patterns(g_inv_frac, n, r)
 
     # Per-pattern pre-computation
-    delta_contrib_x4_list: list[np.ndarray] = []
+    delta_contrib_x2S_list: list[np.ndarray] = []
     delta_phase_x2_list: list[int] = []
     for delta in patterns:
         # kappa_delta_x2: only positions n+r..2n-1 have delta values, rest 0
         kappa_delta_x2 = np.zeros(2 * n, dtype=np.int64)
         kappa_delta_x2[n + r: 2 * n] = delta
-        contrib_x4 = g_inv_x2 @ kappa_delta_x2  # (2n,) int64
-        delta_contrib_x4_list.append(contrib_x4)
+        contrib_x2S = g_inv_xS @ kappa_delta_x2  # (2n,) int64, scale = 2S
+        delta_contrib_x2S_list.append(contrib_x2S)
         # Phase from delta:  phase_delta = -(delta/2) · nu_x[r:n]
         # 2 * phase_delta = -delta · nu_x[r:n]
         delta_phase_x2_list.append(-int(delta @ nu_x_int))
 
     state = _EnumerationState(
         n=n, r=r, n_int=n_int,
-        g_inv_x2=g_inv_x2,
+        S=S,
+        g_inv_xS=g_inv_xS,
         int_cols_int=int_cols_int,
         nu_x_int=nu_x_int,
         nu_x_full=nu_x_full,
         nu_p_x2=nu_p_x2,
         patterns=patterns,
-        delta_contrib_x4=delta_contrib_x4_list,
+        delta_contrib_x2S=delta_contrib_x2S_list,
         delta_phase_x2=delta_phase_x2_list,
-        cusp_m_cols_x2=g_inv_x2[:, :r].copy(),
-        cusp_e_cols_x2=g_inv_x2[:, n: n + r].copy(),
+        cusp_m_cols_xS=g_inv_xS[:, :r].copy(),
+        cusp_e_cols_xS=g_inv_xS[:, n: n + r].copy(),
     )
     _enum_state_cache[key] = state
     return state
@@ -890,15 +885,16 @@ def _enumerate_with_state(
     assert len(m_ext) == r, f"m_ext length {len(m_ext)} ≠ r={r}"
     assert len(e_ext) == r, f"e_ext length {len(e_ext)} ≠ r={r}"
 
-    # Build the (m,e)-dependent contribution to base_args (×4 representation).
+    # Build the (m,e)-dependent contribution to base_args (×2S representation).
     # kappa_me_x2 has: positions 0..r-1 = 2*m_ext, n..n+r-1 = 2*e_ext, rest 0
     m_arr = np.array(m_ext, dtype=np.int64)
     e_arr = np.array([int(Fraction(v) * 2) for v in e_ext], dtype=np.int64)  # 2*e_ext
-    # me_contrib_x4 = g_inv_x2 @ kappa_me_x2
-    #               = sum_k cusp_m_cols_x2[:, k] * (2*m_ext[k])
-    #               + sum_k cusp_e_cols_x2[:, k] * (2*e_ext[k])
-    me_contrib_x4 = (state.cusp_m_cols_x2 @ (2 * m_arr)
-                     + state.cusp_e_cols_x2 @ e_arr)
+    S2 = 2 * state.S  # combined scale factor
+    # me_contrib_x2S = g_inv_xS @ kappa_me_x2
+    #                = sum_k cusp_m_cols_xS[:, k] * (2*m_ext[k])
+    #                + sum_k cusp_e_cols_xS[:, k] * (2*e_ext[k])
+    me_contrib_x2S = (state.cusp_m_cols_xS @ (2 * m_arr)
+                      + state.cusp_e_cols_xS @ e_arr)
 
     # Phase from (m,e): phase_me = m_ext · nu_p[:r] - e_ext · nu_x[:r]
     # 2 * phase_me = m_ext · nu_p_x2[:r] - (2*e_ext) · nu_x[:r]
@@ -907,13 +903,13 @@ def _enumerate_with_state(
     terms: list[dict] = []
 
     for pat_idx, delta in enumerate(state.patterns):
-        # base_args_x4 = me_contrib_x4 + delta_contrib_x4
-        base_args_x4 = me_contrib_x4 + state.delta_contrib_x4[pat_idx]
+        # base_args_x2S = me_contrib_x2S + delta_contrib_x2S
+        base_args_x2S = me_contrib_x2S + state.delta_contrib_x2S[pat_idx]
 
-        # Integrality check: base_args = base_args_x4 / 4 must be integer
-        if np.any(base_args_x4 % 4 != 0):
+        # Integrality check: base_args = base_args_x2S / (2S) must be integer
+        if np.any(base_args_x2S % S2 != 0):
             continue
-        base_args = base_args_x4 // 4  # (2n,) int64
+        base_args = base_args_x2S // S2  # (2n,) int64
 
         # Phase base (×2): phase_base_x2 = phase_me_x2 + delta_phase_x2
         phase_base_x2 = phase_me_x2 + state.delta_phase_x2[pat_idx]

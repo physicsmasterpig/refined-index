@@ -95,7 +95,7 @@ The paper and the code use different letters.  This table is definitive.
 |:-----------|:-----------------|
 | `q_order_half` / `qq_order` = power of q^{1/2} | Every function that takes a truncation order |
 | `RefinedIndexResult` key = `(qq_pow, 2*eta_0, 2*eta_1, ...)` | All eta exponents stored doubled as int |
-| `g_NZ_inv_x2()` returns 2 * g_NZ^{-1} as int64 | Avoids all Fraction arithmetic in hot paths |
+| `g_NZ_inv_scaled()` returns (S, S * g_NZ^{-1}) as int64 | Avoids all Fraction arithmetic in hot paths |
 | `_is_kernel()` returns 2 * I_S as int | Same reason; LCD tracked via 2^L accumulator |
 | `e_ext` values can be half-integer (Fraction) | Cusp longitudes/2; internal edges may also be half-int |
 | Content-based NZ fingerprint = `(g_NZ.tobytes(), nu_x.tobytes(), nu_p.tobytes())` | Cache keys; NEVER use id(nz_data) |
@@ -202,7 +202,7 @@ and affine shift vectors (nu_x, nu_p).
 **Cached methods on NeumannZagierData:**
 - `g_NZ_inv()` -> Fraction array (exact via symplectic identity
   g^{-1} = [[D^T, -B^T], [-C^T, A^T]]).
-- `g_NZ_inv_x2()` -> int64 array = 2 * g_NZ^{-1} (all entries guaranteed
+- `g_NZ_inv_scaled()` -> (S, int64 array) = S * g_NZ^{-1} (all entries guaranteed
   to have denominator dividing 2).
 
 **Gamma construction:** Integer right-inverse via Euclidean column reduction,
@@ -516,7 +516,7 @@ formatters.py -- HTML + KaTeX strings for display:
 | _etilde_is.cache | LRU (unbounded) | (m1,e1,m2,e2,qq,eta) | clear_filling_caches() |
 | _is_kernel.cache | LRU (unbounded) | same | clear_filling_caches() |
 | _kernel_mem_cache | Module-level | (P,Q,qq,dir) | clear_kernel_cache() |
-| g_NZ_inv(), g_NZ_inv_x2() | Instance | -- | Not evictable |
+| g_NZ_inv(), g_NZ_inv_scaled() | Instance | -- | Not evictable |
 | KernelTable._fast_grouped | Instance | -- | GC |
 
 > WARNING: Never use id(nz_data) as a cache key.  Python reuses memory
