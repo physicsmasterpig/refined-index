@@ -157,7 +157,7 @@
 
     <!-- ── Download ────────────────────────────────── -->
     <div class="download-card">
-      <div class="version">v0.3.0</div>
+      <div class="version">v0.3.5</div>
       <div class="platform">macOS&ensp;·&ensp;Apple&nbsp;Silicon (arm64)&ensp;·&ensp;macOS 11+</div>
       <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/latest/download/ManifoldIndex.zip">
         ⬇ Download .app
@@ -243,6 +243,19 @@
     <!-- ── Changelog ─────────────────────────────── -->
     <section>
       <h2>Changelog</h2>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.3.5</h3>
+      <ul>
+        <li>Fix <code>g_NZ</code> for manifolds with non-unit Smith factors (e.g. v0901)</li>
+        <li>Rational Γ rows via Fraction arithmetic in <code>_int_right_inverse</code></li>
+        <li>Generalize inverse scaling from ×2 to LCD — <code>g_NZ_inv_scaled()</code></li>
+        <li>Full export infrastructure: LaTeX, Mathematica, plain text, JSON, report</li>
+        <li>Weyl + adjoint character checks displayed in Panel 1</li>
+        <li>W-vector (η) / V-vector (cusp) notation rename across codebase</li>
+        <li>Dehn compatibility &amp; refinement choice shown in Panel 2</li>
+        <li>Kernel Builder GUI tab</li>
+        <li>62 tests pass (21 manifolds validated symplectic)</li>
+      </ul>
 
       <h3 style="font-size:0.95rem; margin-top:1rem;">v0.3.0</h3>
       <ul>
