@@ -54,6 +54,7 @@ manifold_index = [
     "data/tet_index/**",
     "data/tet_index/.gitkeep",
     "data/kernel_cache/*.pkl.gz",
+    "data/data_packs.json",
 ]
 
 [tool.ruff]

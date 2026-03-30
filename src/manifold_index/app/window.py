@@ -1,9 +1,10 @@
 """
-app/window.py — Main window for the v0.3.3 tabbed GUI.
+app/window.py — Main window for the v0.3.6 tabbed GUI.
 
 Tabs:
   1. Calculator — three-panel (Manifold | Dehn Filling | Export)
   2. Kernel Builder — precompute filling kernels for selected slopes
+  3. Data Packs — browse and download pre-computed data packs
 
 Run with:
     python -m manifold_index.app
@@ -30,6 +31,7 @@ from manifold_index.app.panels.manifold_panel import ManifoldPanel
 from manifold_index.app.panels.filling_panel import FillingPanel
 from manifold_index.app.panels.export_panel import ExportPanel
 from manifold_index.app.panels.kernel_panel import KernelPanel
+from manifold_index.app.panels.data_panel import DataPanel
 from manifold_index.app.workers import (
     RefinedIndexWorker,
     DehnFillingWorker,
@@ -42,7 +44,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Refined 3D Index Calculator — v0.3.3")
+        self.setWindowTitle("Refined 3D Index Calculator — v0.3.6")
         self.setMinimumSize(1200, 700)
         self.resize(1500, 850)
 
@@ -79,6 +81,10 @@ class MainWindow(QMainWindow):
             lambda msg: self.statusBar().showMessage(msg)
         )
         self._tabs.addTab(self._kernel_panel, "🗄  Kernel Builder")
+
+        # ── Tab 3: Data Packs ─────────────────────────────────
+        self._data_panel = DataPanel()
+        self._tabs.addTab(self._data_panel, "📦  Data Packs")
 
         # ── State ─────────────────────────────────────────────
         self._nz_data = None
@@ -234,6 +240,12 @@ class MainWindow(QMainWindow):
                 kw.cancel_requested = True
                 kw.quit()
                 kw.wait(2000)
+        # Stop any data pack download in progress
+        if hasattr(self._data_panel, '_worker'):
+            dw = self._data_panel._worker
+            if dw is not None and dw.isRunning():
+                dw.quit()
+                dw.wait(2000)
         super().closeEvent(event)
 
 
@@ -244,7 +256,7 @@ class MainWindow(QMainWindow):
 def launch_gui() -> None:
     """Create the QApplication and show the main window."""
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("Refined 3D Index Calculator v0.3.3")
+    app.setApplicationName("Refined 3D Index Calculator v0.3.6")
     app.setOrganizationName("RefinedIndex")
     app.setStyleSheet(APP_STYLESHEET)
 

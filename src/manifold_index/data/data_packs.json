@@ -1,0 +1,50 @@
+{
+  "registry_version": 1,
+  "base_url": "https://github.com/physicsmasterpig/refined-index/releases/download",
+  "packs": [
+    {
+      "id": "kernels-qq50",
+      "name": "Filling Kernels (q^25)",
+      "description": "Dehn filling kernels for ~100 coprime slopes with |P|,|Q| \u2264 10, at q-order 50.",
+      "filename": "kernels-qq50.tar.gz",
+      "release_tag": "data-v1",
+      "size_bytes": 130828121,
+      "sha256": "bc5bca3c6208706362cab1eefaf52a882a7165024912aa389edb38fb68e195a6",
+      "target_subdir": "kernel_cache",
+      "category": "kernels"
+    },
+    {
+      "id": "kernels-qq100",
+      "name": "Filling Kernels (q^50)",
+      "description": "High-order filling kernels for ~100 coprime slopes with |P|,|Q| \u2264 10, at q-order 100.",
+      "filename": "kernels-qq100.tar.gz",
+      "release_tag": "data-v1",
+      "size_bytes": 0,
+      "sha256": "",
+      "target_subdir": "kernel_cache",
+      "category": "kernels"
+    },
+    {
+      "id": "iref-census-qq20",
+      "name": "Census I^ref (q^10)",
+      "description": "Pre-computed refined index for SnapPy orientable cusped census manifolds at q-order 20.",
+      "filename": "iref-census-qq20.tar.gz",
+      "release_tag": "data-v1",
+      "size_bytes": 0,
+      "sha256": "",
+      "target_subdir": "iref_cache",
+      "category": "iref"
+    },
+    {
+      "id": "iref-census-qq50",
+      "name": "Census I^ref (q^25)",
+      "description": "Pre-computed refined index for SnapPy orientable cusped census manifolds at q-order 50.",
+      "filename": "iref-census-qq50.tar.gz",
+      "release_tag": "data-v1",
+      "size_bytes": 0,
+      "sha256": "",
+      "target_subdir": "iref_cache",
+      "category": "iref"
+    }
+  ]
+}
