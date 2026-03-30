@@ -5,7 +5,7 @@
     {
       "id": "kernels-qq50",
       "name": "Filling Kernels (q^25)",
-      "description": "Dehn filling kernels for ~100 coprime slopes with |P|,|Q| \u2264 10, at q-order 50.",
+      "description": "Dehn filling kernels for 54 coprime slopes with |P| \u2264 10, Q \u2264 5, at q-order 50.",
       "filename": "kernels-qq50.tar.gz",
       "release_tag": "data-v1",
       "size_bytes": 130828121,
