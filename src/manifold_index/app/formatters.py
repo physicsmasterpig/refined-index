@@ -397,21 +397,21 @@ $f(\\eta) = f(\\eta^{-1})$</p>
 # ─────────────────────────────────────────────────────────────────────────
 
 # Display charges per cusp: (alpha_coeff, beta_coeff) pairs
-# Mapping: alpha_coeff = -e, beta_coeff = m/2
+# Convention: e·α − (m/2)·β  →  alpha_coeff = e, beta_coeff = −m/2
 DISPLAY_CHARGES = [
     (0, 0),                        # m=0, e=0
-    (0, Fraction(1, 2)),           # m=1, e=0
-    (Fraction(-1, 2), 0),          # m=0, e=1/2
-    (0, 1),                        # m=2, e=0
-    (-1, 0),                       # m=0, e=1
+    (0, Fraction(-1, 2)),          # m=1, e=0
+    (Fraction(1, 2), 0),           # m=0, e=1/2
+    (0, -1),                       # m=2, e=0
+    (1, 0),                        # m=0, e=1
 ]
 
 
 def _charge_to_me(alpha: Fraction, beta: Fraction) -> tuple[int, Fraction]:
     """Convert (alpha_coeff, beta_coeff) → (m, e) for compute_refined_index."""
-    # alpha = -e, beta = m/2
-    e = Fraction(-alpha)
-    m = int(beta * 2)
+    # Convention: e·α − (m/2)·β  →  alpha = e, beta = −m/2
+    e = Fraction(alpha)
+    m = int(-beta * 2)
     return m, e
 
 
@@ -476,7 +476,7 @@ def format_refined_index_table(
 <h3>Refined Index</h3>
 <p class="muted">Charges per cusp: $0,\\, \\pm\\tfrac{{1}}{{2}},\\, \\pm 1$
 &nbsp;→&nbsp; $5^{r} = {n_display}$ sectors ({n_nonzero} non-zero).
-Label: $I(m_i, e_i) \\to I(-e_i\\,\\alpha_i + \\tfrac{{m_i}}{{2}}\\,\\beta_i)$.</p>
+Label: $I(m_i, e_i) \\to I(e_i\\,\\alpha_i - \\tfrac{{m_i}}{{2}}\\,\\beta_i)$.</p>
 
 <table class="idx">
 """
@@ -715,14 +715,14 @@ def format_transformed_fill_results(
                     series_str = _filled_series_to_katex(fr, max_q_terms=max_q_terms)
 
                     # Convert (m, e) back to (alpha, beta) notation:
-                    # alpha_coeff = -e, beta_coeff = m/2
+                    # Convention: e·α − (m/2)·β  →  alpha = e, beta = −m/2
                     alphas: list[Fraction] = []
                     betas: list[Fraction] = []
                     for idx, k in enumerate(unfilled_cusps):
                         m_val = m_o[idx] if idx < len(m_o) else 0
                         e_val = e_o[idx] if idx < len(e_o) else 0
-                        alphas.append(Fraction(-e_val))
-                        betas.append(Fraction(m_val, 2))
+                        alphas.append(Fraction(e_val))
+                        betas.append(Fraction(-m_val, 2))
 
                     # Build alpha column (like Panel 1)
                     alpha_col = _alpha_latex(alphas[0], unfilled_cusps[0])

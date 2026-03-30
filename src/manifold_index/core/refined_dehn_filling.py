@@ -902,7 +902,7 @@ def _apply_k1_factor(
                 continue
             # qq^{+phase} shift
             new_qq_a = qq_p + phase
-            if 0 <= new_qq_a <= qq_order:
+            if new_qq_a <= qq_order:
                 key = (new_qq_a, eta)
                 v = result.get(key, Fraction(0)) + scaled
                 if v == 0:
@@ -911,7 +911,7 @@ def _apply_k1_factor(
                     result[key] = v
             # qq^{−phase} shift
             new_qq_b = qq_p - phase
-            if 0 <= new_qq_b <= qq_order:
+            if new_qq_b <= qq_order:
                 key = (new_qq_b, eta)
                 v = result.get(key, Fraction(0)) + scaled
                 if v == 0:
@@ -1003,7 +1003,7 @@ def _apply_k1_factor_multi(
     Parameters
     ----------
     truncate : bool
-        If True (default), keep only terms with ``0 ≤ new_qq ≤ qq_order``.
+        If True (default), keep only terms with ``new_qq ≤ qq_order``.
         If False, skip the bounds check — used when building
         manifold-independent kernel tables so that the deferred
         truncation happens after convolution with I^ref.
@@ -1026,7 +1026,7 @@ def _apply_k1_factor_multi(
                 qq_p = key[0]
                 rest = key[1:]
                 for new_qq in (qq_p + phase, qq_p - phase):
-                    if not truncate or 0 <= new_qq <= qq_order:
+                    if not truncate or new_qq <= qq_order:
                         new_key = (new_qq,) + rest
                         v = result.get(new_key, 0) + scaled
                         if v == 0:
@@ -1056,7 +1056,7 @@ def _apply_k1_factor_multi(
             rest = key[1:]
             # +phase shift
             new_qq_a = qq_p + phase
-            if not truncate or 0 <= new_qq_a <= qq_order:
+            if not truncate or new_qq_a <= qq_order:
                 new_key = (new_qq_a,) + rest
                 v = result.get(new_key, Fraction(0)) + scaled
                 if v == 0:
@@ -1065,7 +1065,7 @@ def _apply_k1_factor_multi(
                     result[new_key] = v
             # -phase shift
             new_qq_b = qq_p - phase
-            if not truncate or 0 <= new_qq_b <= qq_order:
+            if not truncate or new_qq_b <= qq_order:
                 new_key = (new_qq_b,) + rest
                 v = result.get(new_key, Fraction(0)) + scaled
                 if v == 0:

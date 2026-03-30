@@ -645,20 +645,25 @@ def check_weyl_symmetry(
     ab: ABVectors,
 ) -> dict[tuple, bool]:
     """
-    For each entry verify  f(m, e) = η^{a·e + b·m} · I(m, e)  is Weyl-symmetric.
+    Check Weyl symmetry  f(m, e) = f(−m, −e)  across sector pairs.
 
-    Computes the shifted series  f = η^{shift} · I  (where shift = a·e + b·m)
-    and checks that  f(η) = f(η^{−1}).
+    For each sector (m, e), define the Weyl-shifted series
 
-    A series ``f(η)`` is Weyl-symmetric (under the diagonal η_j → η_j^{−1})
-    iff for every key ``(q_pow, 2*η_0, …)`` with nonzero coefficient, the
-    reflected key ``(q_pow, −2*η_0, …)`` has the *same* coefficient.
+        f(m, e) = η^{a·e + b·m} · I(m, e)
+
+    Weyl symmetry demands  f(m, e) = f(−m, −e)  as formal power series.
+    This is verified by computing the shifted series for every available
+    sector and comparing the (m, e) series against its partner (−m, −e).
+
+    If the partner sector is not present in *entries* the check is marked
+    as failed (the pair cannot be verified).
 
     Returns
     -------
     dict mapping  (tuple(m_ext), tuple(e_ext))  →  bool (True = symmetric).
     """
-    results: dict[tuple, bool] = {}
+    # --- First pass: compute all shifted series --------------------------
+    shifted_lookup: dict[tuple, RefinedIndexResult] = {}
 
     for m_ext, e_ext, result in entries:
         m_sum = sum(m_ext)
@@ -669,7 +674,6 @@ def check_weyl_symmetry(
             for j in range(num_hard)
         ]
 
-        # Multiply each key by +shift (add shift to η exponents)
         shifted: RefinedIndexResult = {}
         for key, coeff in result.items():
             if coeff == 0:
@@ -679,17 +683,25 @@ def check_weyl_symmetry(
             )
             shifted[new_key] = shifted.get(new_key, 0) + coeff
 
-        # Check Weyl symmetry of the shifted series
-        ok = True
-        for key, coeff in shifted.items():
-            if coeff == 0:
-                continue
-            reflect = (key[0],) + tuple(-key[1 + j] for j in range(num_hard))
-            if shifted.get(reflect, 0) != coeff:
-                ok = False
-                break
+        # Drop any residual zeros
+        shifted = {k: v for k, v in shifted.items() if v != 0}
+        shifted_lookup[(tuple(m_ext), tuple(e_ext))] = shifted
 
-        results[(tuple(m_ext), tuple(e_ext))] = ok
+    # --- Second pass: compare f(m, e) vs f(−m, −e) ----------------------
+    results: dict[tuple, bool] = {}
+
+    for (m_key, e_key), f_me in shifted_lookup.items():
+        neg_m = tuple(-x for x in m_key)
+        neg_e = tuple(-x for x in e_key)
+        partner_key = (neg_m, neg_e)
+
+        if partner_key not in shifted_lookup:
+            # Partner sector missing — cannot verify
+            results[(m_key, e_key)] = False
+            continue
+
+        f_neg = shifted_lookup[partner_key]
+        results[(m_key, e_key)] = (f_me == f_neg)
 
     return results
 

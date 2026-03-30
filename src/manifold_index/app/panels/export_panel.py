@@ -222,11 +222,11 @@ class ExportPanel(QFrame):
             return
 
         from manifold_index.utils.exporters import (
+            write_full_report,
             write_json,
             write_latex,
             write_mathematica,
             write_plain_text,
-            write_report,
         )
 
         out_dir = Path(self._dir_edit.text()).expanduser()
@@ -239,6 +239,7 @@ class ExportPanel(QFrame):
             return
 
         name = self._manifold_name()
+        md = self._data.get("manifold_data")
         nz = self._data["nz_data"]
         entries = self._data.get("entries", [])
         weyl = self._data.get("weyl_result")
@@ -257,12 +258,13 @@ class ExportPanel(QFrame):
 
             if self._chk_report.isChecked():
                 p = out_dir / f"{prefix}_report.tex"
-                write_report(p, name, nz, easy, entries, weyl, dehn, inc_dehn, q_order_half)
+                write_full_report(p, md, easy, nz, entries, weyl,
+                                  dehn if inc_dehn else None, q_order_half)
                 exported.append(p.name)
 
             if self._chk_nb.isChecked():
                 p = out_dir / f"{prefix}.m"
-                write_mathematica(p, name, nz, entries, weyl, dehn, inc_dehn)
+                write_mathematica(p, md, nz, entries, weyl, dehn if inc_dehn else None, q_order_half)
                 exported.append(p.name)
 
             if self._chk_txt.isChecked():
@@ -272,7 +274,7 @@ class ExportPanel(QFrame):
 
             if self._chk_json.isChecked():
                 p = out_dir / f"{prefix}.json"
-                write_json(p, name, nz, entries, weyl, dehn, inc_dehn)
+                write_json(p, md, easy, nz, entries, weyl, dehn if inc_dehn else None, q_order_half)
                 exported.append(p.name)
 
         except Exception as exc:
@@ -295,6 +297,7 @@ class ExportPanel(QFrame):
         nz = self._data["nz_data"]
         entries = self._data.get("entries", [])
         name = self._manifold_name()
+        md = self._data.get("manifold_data")
         dehn = self._dehn_data()
 
         text = clipboard_latex(name, entries, nz.num_hard, dehn, self._include_dehn())
@@ -311,6 +314,7 @@ class ExportPanel(QFrame):
         nz = self._data["nz_data"]
         entries = self._data.get("entries", [])
         name = self._manifold_name()
+        md = self._data.get("manifold_data")
         dehn = self._dehn_data()
 
         text = clipboard_plain_text(name, entries, nz.num_hard, dehn, self._include_dehn())

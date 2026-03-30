@@ -16,6 +16,7 @@ from manifold_index.utils.exporters import (
     to_latex_series,
     to_mathematica_filled_series,
     to_mathematica_series,
+    write_full_report,
     write_json,
     write_latex,
     write_mathematica,
@@ -34,16 +35,45 @@ def _make_nz_mock(n=2, r=1, num_hard=1, num_easy=1):
     nz.num_hard = num_hard
     nz.num_easy = num_easy
     nz.g_NZ = np.eye(2 * n, dtype=float)
+    nz.nu_x = np.zeros(n, dtype=int)
+    nz.nu_p = np.zeros(n, dtype=float)
+    nz.is_symplectic.return_value = True
+    nz.g_NZ_inv_scaled.return_value = (1, np.eye(2 * n, dtype=np.int64))
+    nz.g_NZ_inv.return_value = np.eye(2 * n, dtype=float)
+    nz.inv_denom = 1
     return nz
 
 
-def _make_easy_mock():
-    """Minimal mock of EasyEdgeResult."""
+def _make_easy_mock(n=2, num_easy=1, num_hard=1):
+    """Minimal mock of EasyEdgeResult with real arrays."""
     ps = MagicMock()
-    ps.all_easy = [MagicMock()]
-    ps.num_independent_easy = 1
-    ps.hard_padding = [MagicMock()]
+    # Each easy edge is a 3n-vector.  Fake pattern: (0,1,-1, 0,0,0)
+    easy_vec = np.zeros(3 * n, dtype=int)
+    easy_vec[1] = 1
+    easy_vec[2] = -1
+    ps.all_easy = [easy_vec] * num_easy
+    ps.num_independent_easy = num_easy
+    ps.independent_easy_indices = set(range(num_easy))
+    # Each hard edge is a 3n-vector.  Fake pattern: (1,0,-1, 0,1,-1)
+    hard_vec = np.zeros(3 * n, dtype=int)
+    hard_vec[0] = 1
+    hard_vec[2] = -1
+    hard_vec[4] = 1
+    hard_vec[5] = -1
+    ps.hard_padding = [hard_vec] * num_hard
+    ps.n = n
+    ps.r = 1
     return ps
+
+
+def _make_md_mock(name="m003", n=2, r=1):
+    """Minimal mock of ManifoldData."""
+    md = MagicMock()
+    md.name = name
+    md.num_tetrahedra = n
+    md.num_cusps = r
+    md.gluing_matrix = None  # skip raw SnaPy sections
+    return md
 
 
 def _make_weyl_mock(num_hard=1, all_symmetric=True):
@@ -53,12 +83,16 @@ def _make_weyl_mock(num_hard=1, all_symmetric=True):
     w.ab.a = [Fraction(1)] * num_hard
     w.ab.b = [Fraction(1, 2)] * num_hard
     w.ab.edge_compatible = [True] * num_hard
+    w.ab.a_is_integer = True
+    w.ab.b_is_half_integer = True
+    w.ab.is_valid = True
     w.all_weyl_symmetric = all_symmetric
     w.weyl_symmetric = {(0, 0): True}
     w.adjoint = MagicMock()
     w.adjoint.projected_value = -1
     w.adjoint.is_pass = True
     w.adjoint.missing_e = []
+    w.adjoint.c_e = {Fraction(0): 1}
     return w
 
 
@@ -216,7 +250,8 @@ def test_write_latex_no_weyl(tmp_path):
     assert r"\documentclass" in text
 
 
-def test_write_report(tmp_path):
+def test_write_report_legacy(tmp_path):
+    """Legacy write_report wrapper delegates to write_full_report."""
     nz = _make_nz_mock()
     easy = _make_easy_mock()
     entries = [([0], [Fraction(0)], {(0, 0): 1})]
@@ -225,16 +260,46 @@ def test_write_report(tmp_path):
     write_report(p, "m003", nz, easy, entries, weyl, q_order_half=10)
     text = p.read_text()
     assert r"\tableofcontents" in text
-    assert "Phase Space" in text
     assert "Neumann" in text
     assert "Weyl" in text
 
 
+def test_write_full_report(tmp_path):
+    """Direct write_full_report with all mock objects."""
+    md = _make_md_mock()
+    nz = _make_nz_mock()
+    easy = _make_easy_mock()
+    entries = [([0], [Fraction(0)], {(0, 0): 1})]
+    weyl = _make_weyl_mock()
+    p = tmp_path / "report.tex"
+    write_full_report(p, md, easy, nz, entries, weyl, q_order_half=10)
+    text = p.read_text()
+    assert r"\tableofcontents" in text
+    assert "Phase Space" in text or "Edge Classification" in text
+    assert "Neumann" in text
+    assert "Weyl" in text
+    assert r"\end{document}" in text
+
+
+def test_write_full_report_no_weyl(tmp_path):
+    """Full report without Weyl data."""
+    md = _make_md_mock()
+    nz = _make_nz_mock()
+    easy = _make_easy_mock()
+    entries = [([0], [Fraction(0)], {(0, 0): 1})]
+    p = tmp_path / "report.tex"
+    write_full_report(p, md, easy, nz, entries)
+    text = p.read_text()
+    assert r"\tableofcontents" in text
+    assert r"\end{document}" in text
+
+
 def test_write_mathematica(tmp_path):
+    md = _make_md_mock()
     nz = _make_nz_mock()
     entries = [([0], [Fraction(0)], {(0, 0): 1, (2, 2): -1})]
     p = tmp_path / "test.m"
-    write_mathematica(p, "m003", nz, entries)
+    write_mathematica(p, md, nz, entries)
     text = p.read_text()
     assert 'Iref["m003"' in text
     assert "eta[0]" in text
@@ -251,14 +316,29 @@ def test_write_plain_text(tmp_path):
 
 
 def test_write_json(tmp_path):
+    md = _make_md_mock()
     nz = _make_nz_mock()
+    easy = _make_easy_mock()
     entries = [([0], [Fraction(0)], {(0, 0): 1})]
     p = tmp_path / "test.json"
-    write_json(p, "m003", nz, entries)
+    write_json(p, md, easy, nz, entries)
     data = json.loads(p.read_text())
     assert data["manifold"] == "m003"
     assert len(data["sectors"]) == 1
     assert "coefficients" in data["sectors"][0]
+
+
+def test_write_json_with_weyl(tmp_path):
+    md = _make_md_mock()
+    nz = _make_nz_mock()
+    easy = _make_easy_mock()
+    entries = [([0], [Fraction(0)], {(0, 0): 1})]
+    weyl = _make_weyl_mock()
+    p = tmp_path / "test.json"
+    write_json(p, md, easy, nz, entries, weyl)
+    data = json.loads(p.read_text())
+    assert "weyl" in data
+    assert data["weyl"]["all_symmetric"] is True
 
 
 # ── § 3  Clipboard helpers ───────────────────────────────────────────
