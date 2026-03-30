@@ -21,7 +21,16 @@ from manifold_index.core.kernel_cache import _user_cache_dir
 
 
 # ── Registry location ────────────────────────────────────────────────
-_BUNDLED_REGISTRY = Path(__file__).resolve().parent.parent / "data" / "data_packs.json"
+def _bundled_registry_path() -> Path:
+    """Locate data_packs.json in both dev and frozen (PyInstaller) environments."""
+    import sys
+    if getattr(sys, "frozen", False):
+        # PyInstaller bundle: data is under _MEIPASS/manifold_index/data/
+        base = Path(sys._MEIPASS) / "manifold_index" / "data"
+    else:
+        base = Path(__file__).resolve().parent.parent / "data"
+    return base / "data_packs.json"
+
 _REMOTE_REGISTRY = (
     "https://raw.githubusercontent.com/physicsmasterpig/refined-index/"
     "master/src/manifold_index/data/data_packs.json"
@@ -121,7 +130,7 @@ def load_registry(use_remote: bool = False) -> PackRegistry:
         except Exception:
             pass  # fall through to bundled
 
-    with open(_BUNDLED_REGISTRY, "r") as f:
+    with open(_bundled_registry_path(), "r") as f:
         data = json.load(f)
     return _parse_registry(data)
 

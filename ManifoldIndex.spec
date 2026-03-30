@@ -89,6 +89,9 @@ datas += _snappy_datas + _sm_datas + _sph_datas + _pl_datas
 datas += _cy_datas + _fx_datas + _kfh_datas + _li_datas
 datas += collect_data_files("scipy")
 
+# Our package data (data_packs.json, kernel caches, etc.)
+datas += collect_data_files("manifold_index", subdir="data")
+
 # ── Binaries ───────────────────────────────────────────────────────
 binaries = []
 
