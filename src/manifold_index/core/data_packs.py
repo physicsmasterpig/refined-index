@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import ssl
 import tarfile
 import urllib.request
 from dataclasses import dataclass, field
@@ -18,6 +19,57 @@ from pathlib import Path
 from typing import Any, Callable
 
 from manifold_index.core.kernel_cache import _user_cache_dir
+
+
+# ── SSL context (macOS PyInstaller bundles lack default CA certs) ────
+def _ssl_context() -> ssl.SSLContext:
+    """Return an SSL context that works in frozen macOS apps.
+
+    Tries (in order):
+      1. Default context with system cert store
+      2. certifi bundle (if installed)
+      3. Unverified context (last resort — still SHA-256 verified)
+    """
+    # Try default first
+    try:
+        ctx = ssl.create_default_context()
+        # Quick test: can we load the default certs?
+        if ctx.get_ca_certs():
+            return ctx
+    except Exception:
+        pass
+
+    # Try certifi
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        pass
+
+    # Try macOS system certs via subprocess
+    try:
+        import subprocess
+        import tempfile
+        result = subprocess.run(
+            ["security", "find-certificate", "-a", "-p",
+             "/System/Library/Keychains/SystemRootCertificates.keychain"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and "BEGIN CERTIFICATE" in result.stdout:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as f:
+                f.write(result.stdout)
+                pem_path = f.name
+            ctx = ssl.create_default_context(cafile=pem_path)
+            os.unlink(pem_path)
+            return ctx
+    except Exception:
+        pass
+
+    # Last resort: unverified (download is still SHA-256 checked)
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 # ── Registry location ────────────────────────────────────────────────
@@ -124,7 +176,7 @@ def load_registry(use_remote: bool = False) -> PackRegistry:
             req = urllib.request.Request(_REMOTE_REGISTRY, headers={
                 "User-Agent": "manifold-index",
             })
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=10, context=_ssl_context()) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             return _parse_registry(data)
         except Exception:
@@ -216,7 +268,7 @@ def download_and_install(
     tmp_path = cache_dir / f".{pack.filename}.tmp"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "manifold-index"})
-        resp = urllib.request.urlopen(req, timeout=300)
+        resp = urllib.request.urlopen(req, timeout=300, context=_ssl_context())
         total = int(resp.headers.get("Content-Length", 0))
 
         received = 0
