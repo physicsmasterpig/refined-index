@@ -8,8 +8,8 @@
       "description": "Dehn filling kernels for 54 coprime slopes with |P| \u2264 10, Q \u2264 5, at q-order 50.",
       "filename": "kernels-qq50.tar.gz",
       "release_tag": "data-v1",
-      "size_bytes": 130828121,
-      "sha256": "bc5bca3c6208706362cab1eefaf52a882a7165024912aa389edb38fb68e195a6",
+      "size_bytes": 319127468,
+      "sha256": "30d6b6e91b544f1265e8efc7805fd9c8d0f7b0e5db66c65056a8a4a1ee58d004",
       "target_subdir": "kernel_cache",
       "category": "kernels"
     },

@@ -412,7 +412,7 @@ def format_multi_point_index(
         Multi-line string with one ``I(…) = …`` line per evaluation point.
     """
     if eta_vars is None:
-        eta_vars = [f"η^(2·v_{a})" for a in range(num_hard)]
+        eta_vars = [f"η^(2·W_{a})" for a in range(num_hard)]
 
     lines: list[str] = []
     for m_ext, e_ext, result in entries:

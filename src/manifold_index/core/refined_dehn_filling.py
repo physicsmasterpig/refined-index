@@ -829,6 +829,44 @@ def _enumerate_slope1_terms(
     return terms
 
 
+def _enumerate_slope1_all_halfshift(
+    k: int,
+    t_range: int,
+) -> list[tuple[int, Fraction, int, int]]:
+    """Enumerate half-integer-shifted (m, e) pairs for IS chain intermediates.
+
+    When k is even, :func:`_enumerate_slope1_all` produces only integer-e
+    targets.  But the ẽI_S integrality condition B (``−e_target − m_src/2 ∈ ℤ``)
+    requires half-integer e_target when the source m is odd.
+
+    This function produces the same m values as ``_enumerate_slope1_all(k, t_range)``
+    but with all e values shifted by +1/2.  The c and phase fields are set to
+    dummy values (0, 0) since they are not used by the IS convolution step.
+
+    These targets are only needed for intermediate IS chain steps (not the
+    final K-factor application), and only when the state contains entries
+    with odd m.
+    """
+    terms: list[tuple[int, Fraction, int, int]] = []
+    seen: set[tuple[int, Fraction]] = set()
+
+    for c in (0, 2, -2):
+        m_c, e_c = _particular_solution(k, 1, c)
+        e_c_shifted = e_c + Fraction(1, 2)
+
+        for t in range(-t_range, t_range + 1):
+            m_t = m_c + t
+            e_t = e_c_shifted - Fraction(k * t, 2)
+
+            key = (m_t, e_t)
+            if key not in seen:
+                seen.add(key)
+                # c and phase are dummies — not used by _apply_is_step's inner loop
+                terms.append((m_t, e_t, 0, 0))
+
+    return terms
+
+
 def _enumerate_slope1_all(
     k: int,
     t_range: int,

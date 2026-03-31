@@ -117,7 +117,7 @@ def _series_to_katex(
             elif exp_x2 == -1:
                 parts.append(rf"\eta^{{-W_{a}}}")
             else:
-                parts.append(rf"\eta^{{{exp_x2}v_{a}}}")
+                parts.append(rf"\eta^{{{exp_x2}W_{a}}}")
         return "".join(parts)
 
     def _q_factor(q_half: int) -> str:

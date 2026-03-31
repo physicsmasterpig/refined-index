@@ -892,6 +892,10 @@ def _worker_compute_row(
     because all entries in one row share the same m value.
 
     Returns (partial_table, n_computed).
+
+    .. deprecated:: 0.3.7
+        Superseded by :func:`_worker_compute_chunk` for better load
+        balancing.  Kept for backward compatibility.
     """
     result: dict[tuple[int, Fraction], QEtaSeries] = {}
     n_computed = 0
@@ -906,6 +910,39 @@ def _worker_compute_row(
             )
             if entry is not None:
                 result[(m0, e0)] = entry
+    return result, n_computed
+
+
+def _worker_compute_chunk(
+    points: list[tuple[int, int]],
+    hj_ks: list[int],
+    qq_internal: int,
+    eta_order: int,
+    m1_range: int,
+    final_term_info: dict[tuple[int, Fraction], tuple[int, int, int]],
+) -> tuple[dict[tuple[int, Fraction], QEtaSeries], int]:
+    """Compute kernel entries for a small chunk of (m, e_half) points.
+
+    Chunks are cut from contiguous row segments so that neighbouring
+    points share the same *m* value, preserving LRU-cache locality.
+
+    The caller submits many small chunks to a :class:`ProcessPoolExecutor`;
+    as each chunk completes the freed worker picks up the next pending
+    chunk, achieving natural **work-stealing** load balancing.
+
+    Returns (partial_table, n_computed).
+    """
+    result: dict[tuple[int, Fraction], QEtaSeries] = {}
+    n_computed = 0
+    for m0, e_half in points:
+        e0 = Fraction(e_half, 2)
+        n_computed += 1
+        entry = _compute_one_kernel_entry(
+            m0, e0, hj_ks, qq_internal, eta_order,
+            m1_range, final_term_info,
+        )
+        if entry is not None:
+            result[(m0, e0)] = entry
     return result, n_computed
 
 
@@ -1124,45 +1161,63 @@ def precompute_filling_kernel(
             f"workers={'parallel ×' + str(n_workers) if use_parallel else 'serial'}")
 
     if use_parallel:
-        # Row-based dispatch: assign complete m-rows to workers
-        # Greedy load balancing: sort rows by width (descending), then
-        # assign each row to the worker with the smallest current load.
-        row_sizes = [(e_bounds[m0][1] - e_bounds[m0][0] + 1, m0)
-                     for m0 in target_m_values]
-        row_sizes.sort(reverse=True)  # heaviest rows first
-        worker_loads = [0] * n_workers
-        worker_rows: list[list[int]] = [[] for _ in range(n_workers)]
-        for size, m0 in row_sizes:
-            lightest = min(range(n_workers), key=lambda w: worker_loads[w])
-            worker_rows[lightest].append(m0)
-            worker_loads[lightest] += size
+        # Chunk-based work queue: split the grid into small chunks of
+        # ~_CHUNK_SIZE points and submit them all to the executor.
+        # Workers pull the next chunk as soon as they finish the current
+        # one, achieving natural work-stealing load balancing.
+        #
+        # Chunks are cut from contiguous row segments so that points in
+        # one chunk share the same m value, preserving LRU-cache reuse.
+        _CHUNK_SIZE = 50
+
+        chunks: list[list[tuple[int, int]]] = []
+        current_chunk: list[tuple[int, int]] = []
+        for m0 in target_m_values:
+            e_lo, e_hi = e_bounds[m0]
+            for e_half in range(e_lo, e_hi + 1):
+                if (m0, Fraction(e_half, 2)) in kernel_table:
+                    continue  # already computed by pilot
+                current_chunk.append((m0, e_half))
+                if len(current_chunk) >= _CHUNK_SIZE:
+                    chunks.append(current_chunk)
+                    current_chunk = []
+        if current_chunk:
+            chunks.append(current_chunk)
+
+        remaining_pts = sum(len(c) for c in chunks)
+        _status(
+            f"[kernel]   Chunk dispatch: {len(chunks)} chunks "
+            f"(~{_CHUNK_SIZE} pts each), {remaining_pts} pts to compute"
+        )
 
         ctx = multiprocessing.get_context("fork")
         with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as pool:
             futures = {
                 pool.submit(
-                    _worker_compute_row,
-                    rows, e_bounds, hj_ks, qq_internal, eta_order,
+                    _worker_compute_chunk,
+                    chunk, hj_ks, qq_internal, eta_order,
                     m1_range, final_term_info,
                 ): i
-                for i, rows in enumerate(worker_rows)
-                if rows
+                for i, chunk in enumerate(chunks)
             }
-            done_count = 0
+            done_count = len(kernel_table)  # pilot entries
+            chunks_done = 0
+            log_interval = max(1, len(chunks) // 20)  # ~5% increments
             for future in as_completed(futures):
-                worker_id = futures[future]
                 partial, n_computed = future.result()
                 kernel_table.update(partial)
                 done_count += n_computed
-                elapsed = time.perf_counter() - t0
-                pct = done_count / total_pts * 100 if total_pts else 100
-                eta_s = (elapsed / done_count * total_pts - elapsed) if done_count else 0
-                _status(
-                    f"[kernel]   Worker {worker_id} done: "
-                    f"{done_count}/{total_pts} ({pct:.0f}%), "
-                    f"{elapsed:.0f}s elapsed, ~{eta_s:.0f}s remaining, "
-                    f"{len(kernel_table)} non-zero so far"
-                )
+                chunks_done += 1
+                if chunks_done % log_interval == 0 or chunks_done == len(chunks):
+                    elapsed = time.perf_counter() - t0
+                    pct = done_count / total_pts * 100 if total_pts else 100
+                    eta_s = (elapsed / done_count * total_pts - elapsed) if done_count else 0
+                    _status(
+                        f"[kernel]   {chunks_done}/{len(chunks)} chunks, "
+                        f"{done_count}/{total_pts} pts ({pct:.0f}%), "
+                        f"{elapsed:.0f}s elapsed, ~{eta_s:.0f}s remaining, "
+                        f"{len(kernel_table)} non-zero so far"
+                    )
     else:
         # Serial path (skip points already computed by pilot)
         computed = len(kernel_table)  # pilot entries count towards total
