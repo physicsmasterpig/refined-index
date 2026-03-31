@@ -867,6 +867,31 @@ def _enumerate_slope1_all_halfshift(
     return terms
 
 
+def _enumerate_is_full(
+    m1_range: int,
+    e1_range: int,
+) -> list[tuple[int, Fraction, int, int]]:
+    """Enumerate the full (½)ℤ² lattice for intermediate IS-chain steps.
+
+    Unlike :func:`_enumerate_slope1_all`, this does NOT restrict to the
+    K(k, 1) support (c ∈ {0, ±2}).  It returns every (m₁, e₁) with
+    |m₁| ≤ *m1_range* and |e₁| ≤ *e1_range*, where e₁ ∈ (½)ℤ.
+
+    This is required for intermediate IS steps (all steps except the last
+    before the final K-factor), because the IS kernel maps sources to
+    targets on a lattice determined by the integrality conditions—not
+    by the K-support of the next HJ entry.
+
+    The c and phase slots (3rd and 4th elements) are set to 0 since
+    they are unused by :func:`_apply_is_step`.
+    """
+    terms: list[tuple[int, Fraction, int, int]] = []
+    for m1 in range(-m1_range, m1_range + 1):
+        for f1 in range(-2 * e1_range, 2 * e1_range + 1):
+            terms.append((m1, Fraction(f1, 2), 0, 0))
+    return terms
+
+
 def _enumerate_slope1_all(
     k: int,
     t_range: int,
@@ -1227,6 +1252,7 @@ def _apply_is_step(
     eta_order: int,
     m1_range: int,
     use_int: bool = False,
+    is_last_step: bool = True,
 ) -> dict[tuple[int, Fraction], MultiEtaSeries]:
     """Apply one IS convolution step to the state.
 
@@ -1247,7 +1273,8 @@ def _apply_is_step(
         k_i from the HJ-CF (used to compute the e-transform −e − k_i/2·m).
     k_next : int
         k_{i+1} (the NEXT continued-fraction entry, i.e. the slope of the
-        next kernel step); used to enumerate which (m1, e1) are relevant.
+        next kernel step); used to enumerate which (m1, e1) are relevant
+        when *is_last_step* is True.
     qq_order : int
     eta_order : int
     m1_range : int
@@ -1259,6 +1286,14 @@ def _apply_is_step(
         If False (default), use ``_is_kernel_frac`` which returns exact
         Fraction values.  Safe for Fraction-valued state (kernel_cache,
         multi-cusp path, etc.).
+    is_last_step : bool
+        If True (default), enumerate targets from the K(k_next, 1) support.
+        This is correct for the last IS step before the final K-factor,
+        because only those targets yield non-zero K-factor contributions.
+        If False, enumerate the full (½)ℤ² lattice.  This is required for
+        intermediate IS steps (ℓ ≥ 3 chains, all steps except the last),
+        because the IS kernel maps to targets whose e₁ can be half-integer
+        when the source m is odd—outside the K(k, 1) support for even k.
 
     Returns
     -------
@@ -1266,11 +1301,17 @@ def _apply_is_step(
     """
     new_state: dict[tuple[int, Fraction], MultiEtaSeries] = {}
 
-    # Enumerate ALL candidate (m1, e1) pairs from the K(k_next, 1) support,
-    # including both ±t for c=0 and c=−2.  The full enumeration is required
-    # because the IS kernel breaks the (m,e)→(−m,−e) symmetry that the
-    # ℓ=1 path's multiplicity trick relies on.
-    m1_terms = _enumerate_slope1_all(k_next, m1_range)
+    # Target enumeration depends on whether this is the last IS step.
+    if is_last_step:
+        # Last IS step: restrict to K(k_next, 1) support, since only
+        # these targets yield a non-zero final K-factor.
+        m1_terms = _enumerate_slope1_all(k_next, m1_range)
+    else:
+        # Intermediate IS step: enumerate the full (½)ℤ² lattice.
+        # The e₁ range is bounded by the qq truncation order plus a
+        # margin for the source m range.
+        e1_range = qq_order + m1_range // 2
+        m1_terms = _enumerate_is_full(m1_range, e1_range)
 
     # ── Parity pre-filter ──
     # The _etilde_is integrality check A requires:
@@ -1278,15 +1319,45 @@ def _apply_is_step(
     # Since e_in = −e − k_current·m/2 and e = e_half/2:
     #   2·e_in = −(e_half + k_current·m)  =:  p
     # So the check reduces to (p + m1_target) % 2 == 0, i.e. m1_target
-    # must have the SAME parity as p.  Pre-partition m1_terms by m1 parity
-    # to halve the inner loop size.
-    m1_even: list[tuple[int, Fraction, int, int]] = []
-    m1_odd: list[tuple[int, Fraction, int, int]] = []
-    for entry in m1_terms:
-        if entry[0] % 2 == 0:
-            m1_even.append(entry)
-        else:
-            m1_odd.append(entry)
+    # must have the SAME parity as p.
+    #
+    # For intermediate IS steps (full lattice), we additionally exploit
+    # integrality check B: −e1 − m/2 ∈ ℤ  ⟹
+    #   source m even  → e1 must be integer
+    #   source m odd   → e1 must be half-integer
+    # This gives 4-way partitioning: (m1_parity) × (e1_integrality).
+    #
+    # For the last IS step (K-support), e1 integrality is already
+    # implicit in the K(k, 1) enumeration for even k.
+    if not is_last_step:
+        # 4-way partition: (m1_even/odd) × (e1_int/half)
+        m1_even_eint: list[tuple[int, Fraction, int, int]] = []
+        m1_even_ehalf: list[tuple[int, Fraction, int, int]] = []
+        m1_odd_eint: list[tuple[int, Fraction, int, int]] = []
+        m1_odd_ehalf: list[tuple[int, Fraction, int, int]] = []
+        for entry in m1_terms:
+            m1_val, e1_val = entry[0], entry[1]
+            is_m1_even = (m1_val % 2 == 0)
+            is_e1_int = (e1_val.denominator == 1)
+            if is_m1_even:
+                if is_e1_int:
+                    m1_even_eint.append(entry)
+                else:
+                    m1_even_ehalf.append(entry)
+            else:
+                if is_e1_int:
+                    m1_odd_eint.append(entry)
+                else:
+                    m1_odd_ehalf.append(entry)
+    else:
+        # 2-way partition by m1 parity only (K-support already constrains e1)
+        m1_even: list[tuple[int, Fraction, int, int]] = []
+        m1_odd: list[tuple[int, Fraction, int, int]] = []
+        for entry in m1_terms:
+            if entry[0] % 2 == 0:
+                m1_even.append(entry)
+            else:
+                m1_odd.append(entry)
 
     _kernel_fn = _is_kernel if use_int else _is_kernel_frac
 
@@ -1302,7 +1373,16 @@ def _apply_is_step(
         # p = −(e_half + k_current·m).  We need m1 with same parity as p.
         e_half = int(2 * e)  # e is always in (1/2)Z
         p = -(e_half + k_current * m)
-        compatible_m1 = m1_even if (p % 2 == 0) else m1_odd
+
+        if not is_last_step:
+            # 4-way: select (m1_parity) × (e1_integrality) partition
+            m_is_even = (m % 2 == 0)
+            if p % 2 == 0:
+                compatible_m1 = m1_even_eint if m_is_even else m1_even_ehalf
+            else:
+                compatible_m1 = m1_odd_eint if m_is_even else m1_odd_ehalf
+        else:
+            compatible_m1 = m1_even if (p % 2 == 0) else m1_odd
 
         for m1, e1, _, _ in compatible_m1:
             is_val = _kernel_fn(m, e_in, m1, e1, qq_order, eta_order)
@@ -1925,6 +2005,7 @@ def compute_filled_refined_index(
             eta_order=eta_order,
             m1_range=m1_range,
             use_int=True,  # ×2 int IS kernel for performance
+            is_last_step=(step_i == ell - 2),
         )
         if verbose:
             print(f"            → new |state|={len(state)}")
@@ -2182,6 +2263,7 @@ def _apply_filling_kernel_to_intermediate(
             eta_order=eta_order,
             m1_range=m1_range,
             # use_int=False (default): Fraction state from intermediate
+            is_last_step=(step_i == ell - 2),
         )
 
     # Final K(k_ℓ, 1) application

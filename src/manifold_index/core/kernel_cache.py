@@ -282,7 +282,10 @@ def _compute_degree_bounds(
     pairs per m₀ row.  Backward reachability prunes the target set
     for ℓ ≥ 3 IS-chain steps.
     """
-    from manifold_index.core.refined_dehn_filling import _enumerate_slope1_all
+    from manifold_index.core.refined_dehn_filling import (
+        _enumerate_is_full,
+        _enumerate_slope1_all,
+    )
 
     ell = len(hj_ks)
     qq_limit_x2 = 2 * qq_internal
@@ -299,7 +302,16 @@ def _compute_degree_bounds(
     for step_i in range(ell - 2, 0, -1):
         k_curr = hj_ks[step_i]
         k_next = hj_ks[step_i + 1]
-        src_terms = _enumerate_slope1_all(k_next, m1_range)
+        # For the last IS step (step_i == ℓ-2) the output feeds into
+        # the final K-factor, so candidates are on K(k_ℓ, 1) support.
+        # For intermediate steps, the IS kernel can map to the full
+        # (½)ℤ² lattice — NOT restricted to any K-support.
+        is_last = (step_i == ell - 2)
+        if is_last:
+            src_terms = _enumerate_slope1_all(k_next, m1_range)
+        else:
+            e1_range = qq_internal + m1_range // 2
+            src_terms = _enumerate_is_full(m1_range, e1_range)
         new_reachable: set[tuple[int, int]] = set()
 
         for (m1, e1, _, _) in src_terms:
@@ -853,6 +865,7 @@ def _compute_one_kernel_entry(
             state, k_curr, k_next,
             qq_internal, eta_order, m1_range,
             use_int=True,
+            is_last_step=(step_i == ell - 2),
         )
 
     entry: QEtaSeries = {}
