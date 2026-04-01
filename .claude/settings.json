@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/pmp/Documents/Research/ultimate log --oneline -20)",
+      "Bash(git -C /Users/pmp/Documents/Research/ultimate status)",
+      "Bash(wc -l /Users/pmp/Documents/Research/ultimate/tests/*.py)",
+      "Bash(grep -c \"def test_\" tests/*.py)",
+      "Bash(sort -t: -k2 -rn)",
+      "Bash(git -C /Users/pmp/Documents/Research/ultimate diff src/manifold_index/core/refined_dehn_filling.py)",
+      "Bash(wc -l /Users/pmp/Documents/Research/ultimate/src/manifold_index/utils/*.py)",
+      "Bash(ls /Users/pmp/Documents/Research/ultimate/*.py /Users/pmp/Documents/Research/ultimate/*.md /Users/pmp/Documents/Research/ultimate/*.sh /Users/pmp/Documents/Research/ultimate/*.spec)"
+    ]
+  }
+}
