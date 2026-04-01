@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "manifold-index"
+version = "0.4.0"
+description = "3-Manifold index calculator: 3D index, Dehn filling, non-closable cycles, and refined index."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-2.0-or-later" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: C",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "snappy",
+    "numpy",
+    "scipy",
+]
+
+[project.optional-dependencies]
+gui = [
+    "PySide6",
+]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-timeout",
+    "ruff",
+    "mypy",
+]
+
+[project.scripts]
+manifold-index = "manifold_index.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+manifold_index = [
+    "mathematica/*.wl",
+    "data/tet_index/**",
+    "data/tet_index/.gitkeep",
+    "data/kernel_cache/*.pkl.gz",
+    "data/data_packs.json",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+strict = false
+ignore_missing_imports = true
