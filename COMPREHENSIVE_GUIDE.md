@@ -1,6 +1,6 @@
 # Manifold Index: Comprehensive Technical Guide
 
-**Version:** 0.3.5
+**Version:** 0.3.9
 **Project:** `manifold-index` — 3D index, refined index, Dehn filling, and non-closable cycles for hyperbolic 3-manifolds
 
 ---
