@@ -75,6 +75,12 @@ numerically safe.
 
 ### Stage 1: Pattern-first enumeration
 
+> **Short-circuit:** Before starting this stage, check whether Stage 0 already
+> yielded enough independent easy edges.  If `easy_rank = svd_rank(Stage0_edges)`
+> already equals `n - r` (the target), skip Stage 1 entirely — 4^n iterations are
+> not needed.  This is common for small well-triangulated manifolds (e.g. m003).
+> Only proceed to Stage 1 when Stage 0 did NOT find a complete independent set.
+
 For each pattern ∈ {_Z, _ZP, _ZPP, _OFF}^n (total 4^n patterns):
 
 **Step 1a: Build constraint matrix** `_build_constraint_matrix(pattern, edge_rows, n)`
@@ -142,6 +148,15 @@ Exact Fraction-based RREF solver for small integer systems.
 MAX_COEFF = 3
 ```
 
+> **Warning:** If a manifold's easy-edge solution requires coefficients with
+> |a_j| > 3, `_solve_integer_system` will return `[]` and Stage 1 will find
+> no easy edges from that pattern.  In practice all known SnaPy census manifolds
+> have coefficients ≤ 3, but if you encounter a manifold where `num_hard` is
+> unexpectedly large (all n-r edges end up in `hard_padding`), increase
+> `MAX_COEFF` and re-run as a diagnostic step.  Emit a `warnings.warn` if
+> Stage 1 finds zero solutions for any pattern where the system is consistent
+> but the coefficient bounds clamp the answer.
+
 **Algorithm:**
 1. Build augmented matrix `[M | rhs]` over Fraction (round floats to int first)
 2. **RREF** with partial pivoting over Q:
@@ -184,8 +199,10 @@ assert len(result.basis_edges) == 1  # n-r = 1
 data = load_manifold("m003")
 result = find_easy_edges(data)
 assert len(result.basis_edges) == 1
-# m003 has all easy edges, so hard_padding should be empty
-assert len(result.hard_padding) == 0
+# m003's single internal edge is [2,0,1,2,0,1] — two nonzero entries per tet,
+# so it is NOT easy.  It lands in hard_padding.
+assert len(result.hard_padding) == 1
+assert len(result.all_easy) == 0
 ```
 
 ### _is_easy unit tests

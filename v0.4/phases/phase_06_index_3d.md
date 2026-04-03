@@ -56,7 +56,7 @@ first, delegates to C extension if available, else Python fallback.
 
 Provide `clear_tet_cache()`.
 
-### C Extension (optional, Phase 13)
+### C Extension (optional, Phase 12)
 
 When `_c_tet_index_series` is importable, use it. Also `_c_poly_convolve`
 for polynomial multiplication. Fallback to pure Python is always available.
@@ -186,10 +186,16 @@ Assert `int_cols_xS % S == 0` at construction time.
 ## Part G: `enumerate_summation_terms(nz_data, m_ext, e_ext, q_order_half)`
 
 Main enumeration. Returns `list[dict]` where each dict has:
-- `"e_int"`: list[str] — e_int as "p/q" strings
+- `"e_int"`: list[Fraction] — internal edge charges (half-integers)
 - `"phase_exp"`: int — exponent of (-q^{1/2})
 - `"tet_args"`: list[(int,int)] — (m_a, e_a) per tet
-- `"min_degree"`: float — sum of tet_degree values
+- `"min_degree"`: Fraction — exact sum of tet_degree values
+
+> **Types matter here.**  `e_int` was previously list[str] ("p/q" strings) —
+> avoid that; it requires parsing on every consumer access and bloats the
+> per-term dict.  `min_degree` was previously `float` — avoid that too; boundary
+> comparisons like `min_degree <= q_bound` can misfire at exact half-integer
+> boundaries due to float rounding.  Both should be stored as `Fraction`.
 
 **Algorithm** (using _EnumerationState):
 
@@ -207,6 +213,13 @@ For each δ pattern:
 
 Computes I(m_ext, e_ext) as a q^{1/2}-series.
 
+> **Naming note:** Despite the `_python` suffix, this function internally
+> calls `_tet_index_series` which dispatches to the C extension when
+> `_USE_C=True`.  The suffix means "pure-Python orchestration loop" (as
+> opposed to a future fully vectorised implementation), not "no C at all".
+> Tests that require the pure-Python reference must call
+> `_tet_index_series_python` directly.
+
 **Algorithm**:
 1. Get terms from `enumerate_summation_terms` (or use _precomputed_terms)
 2. For each term:
@@ -214,11 +227,18 @@ Computes I(m_ext, e_ext) as a q^{1/2}-series.
    b. Multiply tet index series `∏_a I_Δ(m_a, e_a)` as polynomial dicts:
       ```
       prod = {0: 1}
+      prod_min_pow = 0          # tracks minimum power in prod so far
       for (m_a, e_a) in tet_args:
+          # cutoff: how many terms we need from this tet given the power
+          # already accumulated and the remaining budget after the phase shift.
+          cutoff = budget - prod_min_pow
           s = _tet_index_series(m_a, e_a, cutoff)
           prod = convolve(prod, s, budget)
+          prod_min_pow += min(s.keys()) if s else 0
       ```
-      Track `prod_min_pow` for tighter cutoffs.
+      `budget = q_order_half - phase_exp` (note: if `phase_exp < 0`, budget
+      exceeds `q_order_half` — this is correct, since the downward shift will
+      bring the series back within range after step c).
    c. Apply phase: shift by `phase_exp`, multiply by `(-1)^{phase_exp}`
    d. Accumulate into total dict
 3. Return `Index3DResult`

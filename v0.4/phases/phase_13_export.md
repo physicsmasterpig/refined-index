@@ -180,7 +180,34 @@ Structure:
 }
 ```
 
-Uses `json.dumps(data, indent=2, default=str)`.
+Uses a custom JSON encoder — do **not** use `default=str`, which silently
+converts `Fraction(1, 2)` to the string `"1/2"` and breaks machine-readability.
+Instead, register a custom encoder:
+
+```python
+class _FractionEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Fraction):
+            return {"__fraction__": True, "n": obj.numerator, "d": obj.denominator}
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+json.dumps(data, indent=2, cls=_FractionEncoder)
+```
+
+Consumers can reconstruct Fractions via:
+```python
+def _fraction_hook(d):
+    if d.get("__fraction__"):
+        return Fraction(d["n"], d["d"])
+    return d
+json.loads(text, object_hook=_fraction_hook)
+```
 
 ---
 

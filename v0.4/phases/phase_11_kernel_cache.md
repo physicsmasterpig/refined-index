@@ -73,6 +73,15 @@ class KernelTable:
 - Dense arrays scaled by LCD, offset by min_qq
 - Built lazily on first call, persisted via `ensure_fast_repr()`
 
+> **Lazy loading note:** `get_int_grouped()` materialises **all** (m,e) entries
+> as dense int64 arrays in one shot.  For large kernels (e.g. P=1, Q=7+) this
+> can require hundreds of MB.  If `apply_precomputed_kernel` only needs a subset
+> of entries (e.g. after degree-bound pruning), prefer to iterate `kernel.table`
+> directly for that subset and convert on-demand, rather than calling
+> `get_int_grouped()` upfront.  The fast path in `apply_precomputed_kernel` should
+> call `get_int_grouped()` only when the caller has already confirmed the kernel
+> is small enough (use `len(kernel.table)` as a proxy).
+
 ### 2.2 Degree-Bound Helpers
 
 Pure-function degree analysis to prune the (m,e) grid:

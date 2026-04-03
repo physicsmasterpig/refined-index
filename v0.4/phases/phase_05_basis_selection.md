@@ -113,10 +113,21 @@ def default_longitude_choice(cusp_idx: int) -> CycleChoice:
 
 For each cusp k with slope (P_k, Q_k):
 - If P_k is **odd**: call `apply_cusp_basis_change(nz_data, k, P_k, Q_k)`
-- If P_k is **even** (including P=0 for longitude): skip — caller must use
-  original `(m=P, e=Q/2)` evaluation directly.
+- If P_k is **even** (including P=0 for longitude): skip this cusp — do NOT
+  call `apply_cusp_basis_change`.
 
-Returns possibly-modified copy of nz_data.
+Returns a `NeumannZagierData` where only odd-P cusps have had their basis
+changed.  Even-P cusps retain the original meridian/longitude basis in the
+returned object.
+
+> **What "skip" means for even-P cusps:** The caller evaluates the refined
+> index at `(m_ext[k] = P_k, e_ext[k] = Q_k/2)` using the **unchanged**
+> basis for that cusp.  There is no cusp basis transformation applied — the
+> original (M, L/2) rows of g_NZ for that cusp are left intact.
+> Example: longitude choice P=0, Q=1 → skip basis change, evaluate at m=0, e=1/2.
+
+Apply the changes sequentially: `nz = nz_data` then for each odd-P cusp
+`nz = apply_cusp_basis_change(nz, k, P_k, Q_k)`.  Return the final `nz`.
 
 ---
 

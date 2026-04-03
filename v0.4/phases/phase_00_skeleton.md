@@ -9,7 +9,7 @@ After this phase, `pip install -e ".[dev]"` and `import manifold_index` work.
 ### `pyproject.toml`
 ```toml
 [build-system]
-requires = ["setuptools>=68", "setuptools-scm"]
+requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -33,6 +33,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 manifold_index = [
+    "mathematica/*.wl",
     "data/kernel_cache/*.pkl.gz",
     "data/data_packs.json",
 ]

@@ -10,22 +10,22 @@ Each is self-contained: to implement phase N, an LLM needs only
 
 | Phase | Description | Spec | Code | Files |
 |:------|:-----------|:-----|:-----|:------|
-| 0 | Project Skeleton | ✅ | ⬜ | pyproject.toml, __init__.py files |
-| 1 | Manifold Loading | ✅ | ⬜ | core/manifold.py |
-| 2 | Gluing Equation Reduction | ✅ | ⬜ | core/gluing_equations.py |
-| 3 | Phase Space Basis | ✅ | ⬜ | core/phase_space.py |
-| 4 | Neumann-Zagier Matrix | ✅ | ⬜ | core/neumann_zagier.py |
-| 5 | Basis Selection | ✅ | ⬜ | core/basis_selection.py |
-| 6 | 3D Index | ✅ | ⬜ | core/index_3d.py |
-| 7 | Refined Index | ✅ | ⬜ | core/refined_index.py |
-| 8 | Weyl Checks | ✅ | ⬜ | core/weyl_check.py |
-| 9 | Dehn Filling | ✅ | ⬜ | core/dehn_filling.py |
-| 10 | Refined Dehn Filling | ✅ | ⬜ | core/refined_dehn_filling.py |
-| 11 | Kernel Cache | ✅ | ⬜ | core/kernel_cache.py |
-| 12 | C Extension | ✅ | ⬜ | core/_c_kernel/tet_index.c |
-| 13 | Export Infrastructure | ✅ | ⬜ | utils/exporters.py |
-| 14 | GUI | ✅ | ⬜ | app/ directory |
-| 15 | Build & Packaging | ✅ | ⬜ | build scripts |
+| 0 | Project Skeleton | ✅ | ✅ | pyproject.toml, __init__.py files |
+| 1 | Manifold Loading | ✅ | ✅ | core/manifold.py |
+| 2 | Gluing Equation Reduction | ✅ | ✅ | core/gluing_equations.py |
+| 3 | Phase Space Basis | ✅ | ✅ | core/phase_space.py |
+| 4 | Neumann-Zagier Matrix | ✅ | ✅ | core/neumann_zagier.py |
+| 5 | Basis Selection | ✅ | ✅ | core/basis_selection.py |
+| 6 | 3D Index | ✅ | ✅ | core/index_3d.py |
+| 7 | Refined Index | ✅ | ✅ | core/refined_index.py |
+| 8 | Weyl Checks | ✅ | ✅ | core/weyl_check.py |
+| 9 | Dehn Filling | ✅ | ✅ | core/dehn_filling.py |
+| 10 | Refined Dehn Filling | ✅ | ✅ | core/refined_dehn_filling.py |
+| 11 | Kernel Cache | ✅ | ✅ | core/kernel_cache.py |
+| 12 | C Extension | ✅ | ✅ | core/_c_kernel/tet_index.c |
+| 13 | Export Infrastructure | ✅ | ✅ | utils/exporters.py |
+| 14 | GUI | ✅ | ✅ | app/ directory |
+| 15 | Build & Packaging | ✅ | ✅ | pyproject.toml, setup.py |
 
 ## Legend
 - ⬜ Not started
@@ -42,11 +42,11 @@ must pass before proceeding.  Dependencies:
 0 (skeleton)
 ├─ 1 (manifold)
 │  ├─ 2 (gluing)
-│  │  ├─ 3 (phase space) ──┐
-│  │  └─ 5 (basis sel.)    │
-│  └───────────────────────┤
+│  │  └─ 3 (phase space)
+│  └───────────────────────┐
 │                          ▼
-│                    4 (NZ matrix)
+│                    4 (NZ matrix)   ← depends on 1, 2, 3
+│                    ├─ 5 (basis sel.)
 │                    ├─ 6 (3D index)
 │                    │  └─ 7 (refined index)
 │                    │     ├─ 8 (Weyl check)

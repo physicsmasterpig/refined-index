@@ -51,8 +51,23 @@ class KernelTerm:
     e: Fraction
     c: int              # ∈ {−2, 0, 2}: value of P·m + 2Q·e
     phase: int          # R·m + 2S·e
-    multiplicity: int = 1  # 2 for c=0 with |t|>0 or c=2 (antipodal symmetry)
+    multiplicity: int = 1  # see below
 ```
+
+**Multiplicity rules and why they are correct:**
+
+The enumeration only generates c ∈ {0, 2} (never c = −2). Antipodal symmetry
+K(P,Q; −m,−e) = K(P,Q; m,e) means every (m,e) ≠ (0,0) pair has a distinct
+mirror (−m,−e) that contributes the same index value. We absorb the mirror into
+a multiplicity factor rather than enumerate both:
+
+- `c = 0, t = 0`: unique fixed point (m,e) = (m_c, e_c) with no mirror → multiplicity = 1
+- `c = 0, |t| > 0`: (m_t, e_t) and (−m_t, −e_t) are distinct and both contribute → multiplicity = 2
+- `c = 2`: K(c=2) = −½·(−1)^phase = K(c=−2), so the c=−2 family contributes
+  identically to the c=+2 family term-by-term. By only enumerating c=2 and setting
+  multiplicity=2, we capture both families without iterating c=−2.
+
+**Do NOT add a separate c = −2 loop** — that would double-count all c = 2/−2 terms.
 
 Kernel factor per term type:
 - `c=0`: `½·(−1)^phase · (q^{phase/2} + q^{−phase/2})`
@@ -119,9 +134,32 @@ class FilledIndexResult:
 (default: min(max(5, q//2), q−1)) — boundary artifacts from truncated
 upward shifts.
 
+### Module-level summation cache
+
+```python
+# Module-level cache: keyed by (nz_content_key, q_order_half)
+# Populated by enumerate_summation_terms; reused across ALL slope calls
+# for the same manifold.  Clear with clear_summation_cache() when switching
+# manifolds.
+_summation_term_cache: dict[tuple, list[dict]] = {}
+
+def clear_summation_cache() -> int:
+    """Clear module-level summation term cache. Returns number of entries removed."""
+    n = len(_summation_term_cache)
+    _summation_term_cache.clear()
+    return n
+```
+
+> **Why module-level (not per-call)?**  `find_non_closable_cycles` tests 20–50
+> slopes for the same manifold.  Each slope calls `enumerate_kernel_terms` which
+> calls `enumerate_summation_terms` with the same nz_data and q_order_half.
+> With a per-call cache (`_summation_cache={}`), every slope recomputes the full
+> summation from scratch — 20–50× redundant work.  Moving the cache to module
+> level and keying by NZ content gives a ~20× speedup for cycle searches.
+
 ### `compute_filled_index(nz_data, cusp_idx, P, Q, m_other, e_other, q_order_half, verbose)`
 
-1. **Step A**: `enumerate_kernel_terms(…, _summation_cache={})`
+1. **Step A**: `enumerate_kernel_terms(…, _summation_cache=_summation_term_cache)`
 2. **Step B**: For each kernel term:
    - `compute_index_3d_python(…, _precomputed_terms=cache)` → index_series
    - `_apply_kernel(term, index_series)` → contribution

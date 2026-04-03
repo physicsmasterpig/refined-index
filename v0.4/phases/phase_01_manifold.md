@@ -94,13 +94,10 @@ def cusp_equations(self, k):
 
 - SnaPy's `gluing_equations()` (no argument) returns rect format by
   default.  Do NOT pass `"rect"` — just call `M.gluing_equations()`.
-  The returned `SimpleMatrix` has shape `(n+2r, 3n)`.  (In some SnaPy
-  versions, passing `"rect"` returns `3n+1` columns with a constant
-  column — we don't want that.  The no-argument call returns exactly 3n.)
-  
-  **UPDATE:** Actually, in the current v0.3 code, `M.gluing_equations()`
-  without arguments is used.  The shape is `(n+2r, 3n)`.  Verify this
-  at runtime with the assert.
+  The returned `SimpleMatrix` has shape `(n+2r, 3n)`.  Passing `"rect"`
+  in some SnaPy versions returns `3n+1` columns (with a constant column
+  appended) — we don't want that.  The no-argument call is always `3n` columns.
+  Verify at runtime with the assert on step 8.
 
 - The `raw` field stores the SnaPy `Manifold` object.  Use `repr=False`
   in the field definition to keep `repr()` clean.

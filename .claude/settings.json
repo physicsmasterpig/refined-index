@@ -8,7 +8,28 @@
       "Bash(sort -t: -k2 -rn)",
       "Bash(git -C /Users/pmp/Documents/Research/ultimate diff src/manifold_index/core/refined_dehn_filling.py)",
       "Bash(wc -l /Users/pmp/Documents/Research/ultimate/src/manifold_index/utils/*.py)",
-      "Bash(ls /Users/pmp/Documents/Research/ultimate/*.py /Users/pmp/Documents/Research/ultimate/*.md /Users/pmp/Documents/Research/ultimate/*.sh /Users/pmp/Documents/Research/ultimate/*.spec)"
+      "Bash(ls /Users/pmp/Documents/Research/ultimate/*.py /Users/pmp/Documents/Research/ultimate/*.md /Users/pmp/Documents/Research/ultimate/*.sh /Users/pmp/Documents/Research/ultimate/*.spec)",
+      "Bash(pip install:*)",
+      "Bash(python -c \"import manifold_index; print\\(manifold_index.__version__\\)\")",
+      "Bash(pytest --co -q)",
+      "Bash(python -m pytest tests/test_manifold.py -q)",
+      "Bash(python -m pytest tests/test_gluing_equations.py -q)",
+      "Bash(python -m pytest tests/test_phase_space.py -q)",
+      "Bash(python -c ':*)",
+      "Bash(python -m pytest tests/test_phase_space.py -v)",
+      "Bash(python -m pytest tests/test_neumann_zagier.py -v)",
+      "Bash(python -m pytest tests/test_basis_selection.py -q)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('src/manifold_index/core/index_3d.py'\\).read\\(\\)\\); print\\('index_3d.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('tests/test_index_3d.py'\\).read\\(\\)\\); print\\('test_index_3d.py: OK'\\)\")",
+      "Bash(python -m pytest tests/test_index_3d.py -v)",
+      "Bash(ls src/manifold_index/core/*.py)",
+      "Bash(ls tests/test_*.py)",
+      "Bash(python -m pytest tests/test_refined_index.py -q)",
+      "Bash(python -c \"from manifold_index.core.refined_dehn_filling import hj_continued_fraction; print\\(hj_continued_fraction\\(1,3\\)\\)\")",
+      "Bash(python -c \"from manifold_index.core._c_kernel._c_tet_index import tet_index_series; print\\('C ext OK'\\)\")",
+      "Bash(python -m pytest tests/test_c_extension.py -v)",
+      "Read(//Users/pmp/.claude/projects/-Users-pmp-Documents-Research-ultimate/2fe112ef-6204-4721-9341-7d0a049c2b8c/subagents/**)",
+      "Bash(python -m pytest tests/test_weyl_check.py tests/test_dehn_filling.py tests/test_kernel_cache.py -v)"
     ]
   }
 }

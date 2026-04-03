@@ -51,13 +51,14 @@ When `num_hard = 0`, keys are `(q_half_power,)` — the ordinary 3D index.
 
 Identical to `compute_index_3d_python` except:
 1. Extract first `k = num_hard` entries of `e_int` as fugacity exponents
-2. `eta_exps_x2 = tuple(int(Fraction(e_int_strs[a]) * 2) for a in range(k))`
+2. `eta_exps_x2 = tuple(int(term["e_int"][a] * 2) for a in range(k))`
+   (`e_int` entries are `Fraction` objects — see Phase 6 Part G; no string parsing needed)
 3. Key becomes `(shifted_qq_power,) + eta_exps_x2`
 
 Algorithm:
 - Call `enumerate_summation_terms(nz_data, m_ext, e_ext, q_order_half)`
 - For each term:
-  - Extract `eta_exps_x2` from first k entries of `e_int` strings
+  - Extract `eta_exps_x2` from first k entries of `e_int` (list[Fraction])
   - Multiply tet index series ∏ I_Δ(m_a, e_a) as polynomial dicts
   - Apply phase factor `(-1)^{phase_exp} · qq^{phase_exp}`
   - Accumulate into `result[(shifted,) + eta_exps_x2]`

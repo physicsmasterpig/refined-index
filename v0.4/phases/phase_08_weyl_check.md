@@ -163,13 +163,14 @@ Convenience: calls `compute_ab_vectors`, `check_weyl_symmetry`,
 from fractions import Fraction
 import pytest
 from manifold_index.core.weyl_check import (
-    ABVectors, extract_leading_eta_exponents, check_adjoint_projection,
+    ABVectors, _eta_center_at_leading_q, check_adjoint_projection,
     check_adjoint_with_w_vector, scan_w_vectors,
 )
 
 
-def test_extract_leading():
-    assert extract_leading_eta_exponents({(4, 2): 3}, 1) == [Fraction(1)]
+def test_eta_center_at_leading_q():
+    # key (4, 2) → qq=4, η_0 doubled-exp=2 → true exp=1; coeff=3; centre=1
+    assert _eta_center_at_leading_q({(4, 2): 3}, 1) == [Fraction(1)]
 
 
 def test_adjoint_projection_pass():

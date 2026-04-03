@@ -45,7 +45,7 @@ Returns `2 × tet_degree(m, e)` as plain integer.
 
 ```c
 int half_sum = pos_m * pos_me + pos_nm * pos_e + pos_ne * pos_nem;
-int mx = max(0, m, -e);
+int mx = max(0, max(m, -e));   /* C max() is 2-arg; chain calls for 3-way */
 return half_sum + 2 * mx;
 ```
 

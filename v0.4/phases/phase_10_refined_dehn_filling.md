@@ -28,10 +28,28 @@ Special cases:
 - Q = 0, P = ±1 → [0, 0]  (longitude/meridian)
 - |Q| = 1       → [P/Q]   (length 1, unrefined kernel suffices)
 
+> **Q=0 degenerate case (implementation note):** Although `hj_continued_fraction`
+> returns `[0,0]` (ℓ=2) for Q=0, the IS-chain path is **incorrect** for this case.
+> The IS-chain introduces a spurious intermediate cusp-η dimension and produces a
+> non-zero refined filling even when the ordinary filling is zero (e.g. 5_1 at 1/0),
+> because the intermediate (m₁,e₁) charges do not inherit the cancellation structure
+> of I^ref(0,0) = I^ref(2,10).
+> **Fix:** In `compute_filled_refined_index`, override `hj_ks = [P], ell = 1` when
+> `Q = 0`, routing through the direct ℓ=1 kernel path.
+
 Algorithm for shortest form:
 1. Q = 0: return `[0, 0]`
 2. Q = 1: return `[P]`
-3. Try length-2: search divisors d of Q with Q | (P + d), return `[k₁, k₂]`
+3. **Try length-2:** search integer divisors d of Q (including negatives: ±1, ±Q, ±factors)
+   with `(P + d) % Q == 0`.  For each valid d, set `k₁ = (P + d) // Q` and `k₂ = Q // d`.
+   Return `[k₁, k₂]` for the first valid d found (prefer smallest |k₂|).
+
+   *Why this works:* P/Q = k₁ − 1/k₂ ⟺ k₂·P = k₁·k₂·Q − Q ⟺ P + Q/k₂ = k₁·Q.
+   For k₂ integer we need k₂ | Q, and then k₁ = (P + Q/k₂) / Q = (P + d) / Q
+   where d = Q/k₂ is a divisor of Q.
+
+   Example: P=1, Q=3 → divisors of 3: ±1, ±3.
+   d=−1: (1+(−1)) % 3 = 0 ✓ → k₁=(1−1)/3=0, k₂=3/(−1)=−3 → [0, −3] ✓.
 4. General: compute both ceiling-based and nearest-integer-rounding CFs,
    return the shorter one.
 
@@ -127,7 +145,19 @@ _etilde_is(m1, e1, m2, e2, qq_order, eta_order) -> dict[(int,int), int]
    - Convolve s3·s4 with `np.convolve`
    - FFT-batched path for N_batch ≥ 4: stack s12 arrays, single `rfft` pass
    - Scalar path for small batches
-5. Returns sparse dict[(qq, eta) → int] (always integers empirically)
+5. Returns sparse dict[(qq, eta) → int]
+
+   **Why the values are always integers** (not merely empirical):
+   - Each I_Δ(m, e) series has integer coefficients (by construction in Phase 6).
+   - The phase factor `(−q^{1/2})^{exponent}` contributes ±1 to every coefficient
+     (the exponent is always an integer due to the integrality filters in step 1:
+     m_a1 integer ⟹ −m₂/2 is a half-integer offset that cancels with e₁ integer;
+     m_a3 integer gives the same guarantee for the other pair; parity filter ensures
+     the e_var term is even).
+   - The full product of four I_Δ series and the phase factor therefore has integer
+     coefficients, and the η-exponent is always an integer.
+   Add a debug-mode assertion `assert all(isinstance(v, int) for v in result.values())`
+   when first porting this function.
 
 **Dense cache:**
 ```python
@@ -239,7 +269,11 @@ class FilledRefinedResult:
    - Grid scan: m ∈ [−2·qq_int, 2·qq_int], e ∈ half-integers
    - Apply ℓ−1 IS steps via `_apply_is_step`
    - Apply final K(kₗ,1) via `_apply_k1_factor_multi` with `int_mode=True`
-   - LCD = 2^ℓ (divide back to Fraction at end)
+   - LCD = 2^ℓ (divide back to Fraction at end).
+     **Use Python `int` throughout** — do NOT use numpy int64 for the IS chain
+     accumulator.  For ℓ = 20 (a long HJ-CF), LCD = 2^20 ≈ 1M; int64 overflows
+     at ℓ ≥ 63 and silently wraps.  Python's arbitrary-precision int has no such
+     limit.  Only convert to numpy arrays at the final dense-array convolution step.
    - **Diamond truncation**: qq + |cusp_eta| ≤ qq_order
 
 **Cache infrastructure:**
@@ -315,7 +349,7 @@ class MultiCuspFillSpec:
 
 ```python
 assert hj_continued_fraction(1, 3) == [0, -3]
-assert hj_continued_fraction(5, 2) == [3, 2]
+assert hj_continued_fraction(5, 2) == [2, -2]   # 5/2 = 2 - 1/(-2); shortest form
 assert hj_continued_fraction(1, 1) == [1]
 assert hj_continued_fraction(1, 0) == [0, 0]  # Q=0 special
 assert hj_continued_fraction(-1, 0) == [0, 0]
@@ -373,7 +407,8 @@ Create two NZ objects with different basis changes.  Verify
 - `_etilde_is` and `_is_kernel` use `@lru_cache(maxsize=None)` — clear
   when switching manifolds via `clear_filling_caches()`
 - `_tet_index_array` uses a module-level dict cache (`_tet_arr_cache`)
-- FFT-batched convolution in `_etilde_is` for N_batch ≥ 4, qq ≥ 32
+- FFT-batched convolution in `_etilde_is` when **N_batch ≥ 4 OR qq_order ≥ 50**
+  (FFT beats O(n²) convolution even for N_batch=1 at large qq_order)
 - `int_mode=True` in IS chain gives 3-5× speedup over Fraction path
 - Diamond truncation prevents unreliable high-η artifacts
 

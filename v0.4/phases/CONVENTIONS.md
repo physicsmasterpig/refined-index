@@ -114,8 +114,13 @@ def _nz_content_key(nz_data):
 ## 6. Fraction vs Float
 
 - **Exact arithmetic:** Use `fractions.Fraction` (e_ext values, g_NZ_inv).
-- **NumPy arrays:** `g_NZ` stores exact rationals as `float64`.
-  The exact inverse `g_NZ_inv()` returns a Fraction array.
+- **NumPy arrays:** `g_NZ` entries are stored as `float64` (an approximation
+  of the underlying rationals). They are **not** exact. The exact inverse
+  `g_NZ_inv()` recovers exact values via `Fraction(v).limit_denominator(1000)`.
+  This recovery is valid so long as all g_NZ denominators are ≤ 1000, which
+  holds for all known SnaPy census manifolds. If you encounter a manifold
+  where this assumption fails, `is_symplectic()` will return False with
+  tol=1e-9 and the NZ build must be debugged.
 - **Hot-path integer trick:** `g_NZ_inv_scaled()` returns `(S, int64_array)`
   where `S` is the LCD and `int64_array = S · g_NZ_inv`, all entries integer.
 

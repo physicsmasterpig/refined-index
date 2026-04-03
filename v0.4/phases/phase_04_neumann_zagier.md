@@ -123,6 +123,17 @@ Returns Ω_block as (2n, 2n) int array.
 Given an **n × 2n** integer matrix A of full row-rank, find a **2n × n**
 rational matrix Q_T (entries are `Fraction`) such that `A @ Q_T = I_n`.
 
+**Pre-condition (assert before proceeding):**
+```python
+rank = np.linalg.matrix_rank(A.astype(float))
+if rank < n:
+    raise ValueError(
+        f"_int_right_inverse: A has rank {rank} < n={n}. "
+        "The NZ position block P @ omega is rank-deficient — "
+        "this indicates a degenerate or incorrectly assembled manifold."
+    )
+```
+
 ### Algorithm: Euclidean column reduction
 
 Work with Python lists-of-lists for exact integer arithmetic.
@@ -276,6 +287,20 @@ new_L/2 = (c/2) · M + d · (L/2)        [entries in Z/2]
 No parity requirement on a. The resulting L/2 row may have half-int entries.
 
 **Raises** ValueError if det ≠ 1 or cusp_idx out of range.
+
+### Which function to use?
+
+| Situation | Use |
+|-----------|-----|
+| Dehn filling at slope P/Q with P **odd** | `apply_cusp_basis_change(nz, k, P, Q)` |
+| Dehn filling at slope P/Q with P **even** | `apply_general_cusp_basis_change(nz, k, P, Q//gcd, Q, -P//gcd)` — but note: even-P slopes cannot be handled directly because `apply_cusp_basis_change` requires P odd (gcd(P,2Q)=1). Instead, use the unrefined kernel K(P,Q;m,e) directly from Phase 9 without a basis change. |
+| Non-closable cycle search or Weyl basis | `apply_cusp_basis_change` (NC basis always has P=1, which is odd) |
+| General SL(2,ℤ) diagnostic/test | `apply_general_cusp_basis_change` |
+
+> **Note on downstream half-integer rows:** When `apply_general_cusp_basis_change`
+> is used, the resulting `nu_p[k]` may be non-integer (half-integer).  Phase 6's
+> `phase_exponent` handles this correctly via `Fraction(v).limit_denominator(1000)`.
+> `apply_cusp_basis_change` always produces integer `nu_p[k]` because P is odd.
 
 ---
 

@@ -26,7 +26,7 @@ via PyInstaller.
 
 ```toml
 [build-system]
-requires = ["setuptools>=68", "setuptools-scm"]
+requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 ```
 
@@ -137,9 +137,9 @@ src/
       __init__.py
       manifold.py          # Phase 1
       gluing_equations.py  # Phase 2
-      basis_selection.py   # Phase 3
+      phase_space.py       # Phase 3
       neumann_zagier.py    # Phase 4
-      phase_space.py       # Phase 5
+      basis_selection.py   # Phase 5
       index_3d.py          # Phase 6
       refined_index.py     # Phase 7
       weyl_check.py        # Phase 8
@@ -298,7 +298,12 @@ from manifold_index.core.refined_index import compute_refined_index
 
 ```bash
 pip install -e .
-manifold-index --help  # or check it at least starts
+# Do NOT run `manifold-index --help` — the entry point calls launch_gui()
+# which starts PySide6 and will hang indefinitely waiting for user input.
+# Instead, verify the entry point is registered:
+python -c "import manifold_index.app; print('entry point OK')"
+# Or check console_scripts via pip:
+pip show -f manifold-index | grep manifold-index
 ```
 
 ### T15.4 — C Extension Builds
