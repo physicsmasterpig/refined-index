@@ -1,0 +1,23 @@
+{
+  "_comment": "Static work assignments per machine hostname. Run `hostname` to get your machine's id.",
+  "census": "m003-m412",
+  "machines": {
+    "Soochangs-MacBook-Pro.local": {
+      "name": "M4 Max",
+      "tasks": [
+        {"type": "kernels", "qq": 25, "q_min": 5, "q_max": 5, "workers": 12},
+        {"type": "kernels", "qq": 50, "q_min": 0, "q_max": 5, "workers": 12},
+        {"type": "iref",    "qq": 25},
+        {"type": "iref",    "qq": 50},
+        {"type": "nc",      "qq": 20}
+      ]
+    },
+    "PLACEHOLDER-m1-mac-hostname": {
+      "_comment": "Replace PLACEHOLDER-m1-mac-hostname with output of `hostname` on the M1 Mac",
+      "name": "M1 Max",
+      "tasks": [
+        {"type": "kernels", "qq": 25, "q_min": 0, "q_max": 4, "workers": 8}
+      ]
+    }
+  }
+}

@@ -55,11 +55,18 @@ MultiEtaSeries = dict[tuple[int, ...], Fraction]
 def _user_cache_dir() -> Path:
     """Return a platform-appropriate writable cache directory.
 
+    Override by setting the environment variable MANIFOLD_INDEX_CACHE_DIR
+    to any absolute path (e.g. a repo-tracked ``cache/`` folder).
+
     macOS:   ~/Library/Caches/manifold-index/
     Linux:   $XDG_CACHE_HOME/manifold-index/ (default ~/.cache/)
     Windows: %LOCALAPPDATA%/manifold-index/
     """
     import sys
+
+    env_override = os.environ.get("MANIFOLD_INDEX_CACHE_DIR")
+    if env_override:
+        return Path(env_override)
 
     if sys.platform == "darwin":
         base = Path.home() / "Library" / "Caches"
@@ -818,6 +825,189 @@ def list_iref_caches(
                     "n_entries": len(payload.get("entries", {})),
                     "n_tetrahedra": payload.get("n_tetrahedra", "?"),
                     "n_cusps": payload.get("n_cusps", "?"),
+                })
+        except Exception:
+            continue
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Non-closable cycle disk cache
+# ---------------------------------------------------------------------------
+# Stores NonClosableCycleResult objects (one per cusp) for a manifold.
+# Results are keyed by the NZ content-hash so they are invalidated
+# automatically if the manifold's gluing data changes.
+#
+# Storage: ~/Library/Caches/manifold-index/nc_cycle_cache/
+#          nc_cycle_{name}_{hash16}_qq{qq}.pkl.gz
+# ---------------------------------------------------------------------------
+
+_DEFAULT_NC_DIR = _user_cache_dir() / "nc_cycle_cache"
+
+
+def _nc_cycle_filename(
+    manifold_name: str,
+    nz_data: Any,
+    q_order_half: int,
+    p_range: tuple[int, int],
+    q_range: tuple[int, int],
+) -> str:
+    """Canonical filename for an NC-cycle cache file."""
+    h = _nz_hash(nz_data)
+    safe = manifold_name.replace("/", "_").replace(" ", "_")
+    plo, phi = p_range
+    qlo, qhi = q_range
+    return (
+        f"nc_cycle_{safe}_{h}"
+        f"_qq{q_order_half}"
+        f"_P{plo}to{phi}"
+        f"_Q{qlo}to{qhi}"
+        f".pkl.gz"
+    )
+
+
+def save_nc_cycle_cache(
+    nz_data: Any,
+    manifold_name: str,
+    nc_results: list,
+    q_order_half: int,
+    p_range: tuple[int, int] = (-3, 3),
+    q_range: tuple[int, int] = (0, 3),
+    cache_dir: str | Path | None = None,
+) -> Path:
+    """Save non-closable cycle results for a manifold to disk.
+
+    Parameters
+    ----------
+    nz_data : NeumannZagierData
+    manifold_name : str
+    nc_results : list[NonClosableCycleResult]
+        One entry per cusp (from ``find_non_closable_cycles``).
+    q_order_half : int
+        The ``q_order_half`` value used during the NC search.
+    p_range, q_range : tuple[int, int]
+        (min, max) inclusive bounds used during the slope search.
+    cache_dir : Path or None
+
+    Returns
+    -------
+    Path  — path of the written file.
+    """
+    payload: dict[str, Any] = {
+        "manifold_name": manifold_name,
+        "nz_hash": _nz_hash(nz_data),
+        "n_tetrahedra": int(nz_data.n),
+        "n_cusps": int(nz_data.r),
+        "q_order_half": q_order_half,
+        "p_range": list(p_range),
+        "q_range": list(q_range),
+        "results": [],
+    }
+
+    for nc in nc_results:
+        payload["results"].append({
+            "cusp_idx": nc.cusp_idx,
+            "cycles": [
+                {"cusp_idx": c.cusp_idx, "P": c.P, "Q": c.Q}
+                for c in nc.cycles
+            ],
+            "slopes_tested": list(nc.slopes_tested),
+        })
+
+    d = Path(cache_dir) if cache_dir else _DEFAULT_NC_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    fname = _nc_cycle_filename(
+        manifold_name, nz_data, q_order_half, p_range, q_range,
+    )
+    path = d / fname
+    with gzip.open(path, "wb") as f:
+        pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+    return path
+
+
+def load_nc_cycle_cache(
+    nz_data: Any,
+    manifold_name: str,
+    q_order_half: int,
+    p_range: tuple[int, int] = (-3, 3),
+    q_range: tuple[int, int] = (0, 3),
+    cache_dir: str | Path | None = None,
+) -> list | None:
+    """Load cached non-closable cycle results from disk.
+
+    Returns
+    -------
+    list[NonClosableCycleResult]  or  None if not found / hash mismatch.
+    """
+    from manifold_index.core.dehn_filling import (
+        NonClosableCycle,
+        NonClosableCycleResult,
+    )
+
+    d = Path(cache_dir) if cache_dir else _DEFAULT_NC_DIR
+    fname = _nc_cycle_filename(
+        manifold_name, nz_data, q_order_half, p_range, q_range,
+    )
+    path = d / fname
+    if not path.exists():
+        return None
+
+    try:
+        with gzip.open(path, "rb") as f:
+            payload = pickle.load(f)
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("nz_hash") != _nz_hash(nz_data):
+        return None
+
+    results = []
+    for entry in payload.get("results", []):
+        nc = NonClosableCycleResult(cusp_idx=entry["cusp_idx"])
+        nc.cycles = [
+            NonClosableCycle(
+                cusp_idx=c["cusp_idx"], P=c["P"], Q=c["Q"],
+            )
+            for c in entry.get("cycles", [])
+        ]
+        nc.slopes_tested = [tuple(s) for s in entry.get("slopes_tested", [])]
+        results.append(nc)
+    return results
+
+
+def list_nc_cycle_caches(
+    cache_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """List all NC-cycle cache files with their metadata.
+
+    Returns a list of dicts with keys: ``path``, ``manifold_name``,
+    ``nz_hash``, ``n_cusps``, ``q_order_half``, ``p_range``, ``q_range``,
+    ``n_nc_cycles`` (total across all cusps).
+    """
+    d = Path(cache_dir) if cache_dir else _DEFAULT_NC_DIR
+    if not d.exists():
+        return []
+    result = []
+    for path in sorted(d.glob("nc_cycle_*.pkl.gz")):
+        try:
+            with gzip.open(path, "rb") as f:
+                payload = pickle.load(f)
+            if isinstance(payload, dict):
+                n_nc = sum(
+                    len(r.get("cycles", []))
+                    for r in payload.get("results", [])
+                )
+                result.append({
+                    "path": str(path),
+                    "manifold_name": payload.get("manifold_name", "?"),
+                    "nz_hash": payload.get("nz_hash", "?"),
+                    "n_cusps": payload.get("n_cusps", "?"),
+                    "q_order_half": payload.get("q_order_half", "?"),
+                    "p_range": payload.get("p_range", "?"),
+                    "q_range": payload.get("q_range", "?"),
+                    "n_nc_cycles": n_nc,
                 })
         except Exception:
             continue
