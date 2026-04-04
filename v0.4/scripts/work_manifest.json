@@ -12,7 +12,7 @@
         {"type": "nc",      "qq": 20}
       ]
     },
-    "PLACEHOLDER-m1-mac-hostname": {
+    "SNU-CTPs-MacBook-Pro.local": {
       "_comment": "Replace PLACEHOLDER-m1-mac-hostname with output of `hostname` on the M1 Mac",
       "name": "M1 Max",
       "tasks": [
