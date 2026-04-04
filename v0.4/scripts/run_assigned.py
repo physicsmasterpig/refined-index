@@ -319,15 +319,16 @@ def main() -> None:
     task_list = [tasks[args.task]] if args.task is not None else tasks
 
     for i, task in enumerate(task_list):
+        idx = args.task if args.task is not None else i
+
         # Check for pause request BEFORE starting each task
         if pause_requested():
-            banner(f"PAUSED after task {i}/{len(tasks)}  —  run ./run.sh to resume", "-")
+            banner(f"PAUSED before task {idx+1}/{len(tasks)}  —  run ./run.sh to resume", "-")
             if PAUSE_FILE.exists():
                 PAUSE_FILE.unlink()
             sys.exit(0)
 
         t = task["type"]
-        idx = args.task if args.task is not None else i
         print(f"\n>>> Task [{idx+1}/{len(tasks)}]: {t}  {task}")
 
         if t == "kernels":
