@@ -1,5 +1,40 @@
-python scripts/rebuild_kernels.py \
-    --qq 25 \
-    --q-min 0 --q-max 4 \
-    --workers 8 \
-    --census m003-m412
+snu-ctp@SNU-CTPs-MacBook-Pro refined-index % cd v0.4                                
+snu-ctp@SNU-CTPs-MacBook-Pro v0.4 % ./run.sh 
+============================================================
+  Manifold Index — Data Generation
+  Host    : SNU-CTPs-MacBook-Pro.local
+  Dir     : /Users/snu-ctp/Documents/ultimate/refined-index/v0.4
+  Python  : Python 3.9.6
+  Date    : Sat Apr  4 12:49:39 KST 2026
+============================================================
+
+============================================================
+Machine : M1 Max  (SNU-CTPs-MacBook-Pro.local)
+Tasks   : 1
+Census  : m003-m412
+Cache   : /Users/snu-ctp/Documents/ultimate/refined-index/v0.4/cache
+============================================================
+
+------------------------------------------------------------
+git pull --rebase
+------------------------------------------------------------
+Already up to date.
+
+>>> Task [1/1]: kernels  {'type': 'kernels', 'qq': 25, 'q_min': 0, 'q_max': 4, 'workers': 8}
+
+============================================================
+KERNELS  qq=25  Q=0–4  workers=8
+============================================================
+Traceback (most recent call last):
+  File "/Users/snu-ctp/Documents/ultimate/refined-index/v0.4/scripts/rebuild_kernels.py", line 37, in <module>
+    from manifold_index.core.kernel_cache import (
+  File "/Users/snu-ctp/Documents/ultimate/refined-index/v0.4/src/manifold_index/core/kernel_cache.py", line 46, in <module>
+    import numpy as np
+ModuleNotFoundError: No module named 'numpy'
+
+------------------------------------------------------------
+Committing & pushing: kernels qq=25 Q=0–4
+------------------------------------------------------------
+[run_assigned] Cache unchanged — nothing to commit.
+[run_assigned] ERROR: kernels task failed (code 1)
+snu-ctp@SNU-CTPs-MacBook-Pro v0.4 % 
