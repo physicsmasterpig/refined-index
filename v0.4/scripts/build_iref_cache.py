@@ -156,9 +156,9 @@ def main() -> None:
     kernels_at_qq = [(P, Q, qq) for P, Q, qq in all_kernels if qq == qq_order]
 
     if not kernels_at_qq:
-        print(f"[ERROR] No kernels found at qq={qq_order}.")
-        print(f"        Run rebuild_kernels.py --qq {qq_order} first.")
-        sys.exit(1)
+        print(f"[SKIP] No kernels found at qq={qq_order} — nothing to cache.")
+        print(f"       Run rebuild_kernels.py --qq {qq_order} first.")
+        sys.exit(0)  # Not an error: kernels simply not computed yet
 
     print(f"Manifolds      : {len(names)}")
     print(f"qq_order       : {qq_order}")
