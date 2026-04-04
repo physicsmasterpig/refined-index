@@ -1403,7 +1403,7 @@ def precompute_filling_kernel(
                 ): i
                 for i, chunk in enumerate(chunks)
             }
-            done_count = len(kernel_table)  # pilot entries
+            done_count = len(pilot_pts_list)  # pilot computed this many points (incl. zeros)
             chunks_done = 0
             log_interval = max(1, len(chunks) // 20)  # ~5% increments
             for future in as_completed(futures):
