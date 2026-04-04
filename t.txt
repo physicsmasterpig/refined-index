@@ -1,0 +1,5 @@
+python scripts/rebuild_kernels.py \
+    --qq 25 \
+    --q-min 0 --q-max 4 \
+    --workers 8 \
+    --census m003-m412
