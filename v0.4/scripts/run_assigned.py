@@ -14,6 +14,12 @@ Flags:
     --dry-run   Show what would be done, compute nothing.
     --no-push   Run computation but skip git commit/push.
     --task N    Only run task number N (0-indexed) from this machine's list.
+
+Pausing:
+    Method 1 — touch v0.4/PAUSE        (stops after current task finishes)
+    Method 2 — Ctrl+C / kill signal    (stops after current slope finishes,
+                                         then pushes what's done)
+    Resume:     ./run.sh               (skip-existing means it picks up where it left off)
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -35,13 +42,42 @@ REPO_ROOT   = SCRIPT_DIR.parent.parent                  # ultimate/
 V04_DIR     = SCRIPT_DIR.parent                         # v0.4/
 CACHE_DIR   = V04_DIR / "cache"                         # v0.4/cache/
 MANIFEST    = SCRIPT_DIR / "work_manifest.json"
+PAUSE_FILE  = V04_DIR / "PAUSE"                         # touch this to pause cleanly
 LOG_DIR     = V04_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Pause / interrupt state
 # ---------------------------------------------------------------------------
+_interrupted = False   # set True on Ctrl+C; checked between tasks
+
+
+def _handle_sigint(sig, frame):
+    global _interrupted
+    if _interrupted:
+        print("\n[run_assigned] Force-killed. Exiting immediately.")
+        sys.exit(130)
+    _interrupted = True
+    print("\n\n[run_assigned] Interrupt received.")
+    print("  Current slope will finish saving, then we push & exit.")
+    print("  Press Ctrl+C again to force-quit without pushing.")
+
+
+signal.signal(signal.SIGINT,  _handle_sigint)
+signal.signal(signal.SIGTERM, _handle_sigint)
+
+
+def pause_requested() -> bool:
+    """Return True if either PAUSE file exists or Ctrl+C was pressed."""
+    if _interrupted:
+        return True
+    if PAUSE_FILE.exists():
+        print(f"\n[run_assigned] PAUSE file detected ({PAUSE_FILE.name}). Stopping after this task.")
+        return True
+    return False
+
+
 
 def banner(msg: str, char: str = "=") -> None:
     line = char * 60
@@ -129,6 +165,31 @@ def git_push_cache(message: str, dry_run: bool = False) -> None:
 # Task runners
 # ---------------------------------------------------------------------------
 
+def _run_script(script: str, script_args: list[str], log_file: Path) -> int:
+    """Run a script under v0.4/scripts/, tee output to log_file.
+
+    Handles Ctrl+C gracefully: the child process receives the signal
+    naturally (same process group), finishes its current atomic unit
+    (slope / manifold), then we return its exit code so the caller
+    can push whatever was saved and exit cleanly.
+    """
+    env = {**os.environ, "MANIFOLD_INDEX_CACHE_DIR": str(CACHE_DIR)}
+    with open(log_file, "a") as lf:
+        lf.write(f"\n\n{'='*60}\nRUN: {timestamp()}\n{'='*60}\n")
+        proc = subprocess.Popen(
+            [sys.executable, str(SCRIPT_DIR / script), *script_args],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        for line in proc.stdout:
+            sys.stdout.write(line)
+            lf.write(line)
+        proc.wait()
+    return proc.returncode
+
+
 def run_kernels(task: dict, census: str, dry_run: bool, no_push: bool) -> None:
     qq      = task["qq"]
     q_min   = task.get("q_min", 0)
@@ -139,41 +200,30 @@ def run_kernels(task: dict, census: str, dry_run: bool, no_push: bool) -> None:
     banner(f"KERNELS  qq={qq}  Q={q_min}–{q_max}  workers={workers}")
 
     args = [
-        "rebuild_kernels.py",
         "--qq", str(qq),
         "--q-min", str(q_min),
         "--q-max", str(q_max),
         "--workers", str(workers),
         "--census", census,
-        "--no-iref",   # iref handled as separate tasks
+        "--no-iref",
         "--no-nc",
     ]
     if dry_run:
         args.append("--dry-run")
 
-    # Tee output to log file
-    env = {"MANIFOLD_INDEX_CACHE_DIR": str(CACHE_DIR)}
-    merged = {**os.environ, **env}
-    with open(log_file, "a") as lf:
-        lf.write(f"\n\n{'='*60}\nRUN: {timestamp()}\n{'='*60}\n")
-        proc = subprocess.Popen(
-            [sys.executable, str(SCRIPT_DIR / args[0]), *args[1:]],
-            env=merged,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        for line in proc.stdout:
-            sys.stdout.write(line)
-            lf.write(line)
-        proc.wait()
+    rc = _run_script("rebuild_kernels.py", args, log_file)
 
-    if proc.returncode != 0:
-        print(f"[run_assigned] ERROR: kernels task failed (code {proc.returncode})")
-        sys.exit(proc.returncode)
-
+    # Push whatever was saved, even if interrupted (rc=130) or failed
     if not no_push:
         git_push_cache(f"kernels qq={qq} Q={q_min}–{q_max}", dry_run=dry_run)
+
+    if rc not in (0, 130):   # 130 = SIGINT, treat as clean pause
+        print(f"[run_assigned] ERROR: kernels task failed (code {rc})")
+        sys.exit(rc)
+
+    if rc == 130 or _interrupted:
+        banner("PAUSED — current slope saved. Run ./run.sh to resume.", "-")
+        sys.exit(0)
 
 
 def run_iref(task: dict, census: str, dry_run: bool, no_push: bool) -> None:
@@ -181,37 +231,22 @@ def run_iref(task: dict, census: str, dry_run: bool, no_push: bool) -> None:
     log_file = LOG_DIR / f"iref_qq{qq}.log"
     banner(f"IREF CACHE  qq={qq}")
 
-    args = [
-        "build_iref_cache.py",
-        "--qq", str(qq),
-        "--census", census,
-        "--skip-existing",
-    ]
+    args = ["--qq", str(qq), "--census", census, "--skip-existing"]
     if dry_run:
         args.append("--dry-run")
 
-    env = {"MANIFOLD_INDEX_CACHE_DIR": str(CACHE_DIR)}
-    merged = {**os.environ, **env}
-    with open(log_file, "a") as lf:
-        lf.write(f"\n\n{'='*60}\nRUN: {timestamp()}\n{'='*60}\n")
-        proc = subprocess.Popen(
-            [sys.executable, str(SCRIPT_DIR / args[0]), *args[1:]],
-            env=merged,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        for line in proc.stdout:
-            sys.stdout.write(line)
-            lf.write(line)
-        proc.wait()
-
-    if proc.returncode != 0:
-        print(f"[run_assigned] ERROR: iref task failed (code {proc.returncode})")
-        sys.exit(proc.returncode)
+    rc = _run_script("build_iref_cache.py", args, log_file)
 
     if not no_push:
         git_push_cache(f"iref cache qq={qq}", dry_run=dry_run)
+
+    if rc not in (0, 130):
+        print(f"[run_assigned] ERROR: iref task failed (code {rc})")
+        sys.exit(rc)
+
+    if rc == 130 or _interrupted:
+        banner("PAUSED — progress saved. Run ./run.sh to resume.", "-")
+        sys.exit(0)
 
 
 def run_nc(task: dict, census: str, dry_run: bool, no_push: bool) -> None:
@@ -219,37 +254,22 @@ def run_nc(task: dict, census: str, dry_run: bool, no_push: bool) -> None:
     log_file = LOG_DIR / f"nc_qq{qq}.log"
     banner(f"NC CYCLE CACHE  qq={qq}")
 
-    args = [
-        "build_nc_cache.py",
-        "--qq", str(qq),
-        "--census", census,
-        "--skip-existing",
-    ]
+    args = ["--qq", str(qq), "--census", census, "--skip-existing"]
     if dry_run:
         args.append("--dry-run")
 
-    env = {"MANIFOLD_INDEX_CACHE_DIR": str(CACHE_DIR)}
-    merged = {**os.environ, **env}
-    with open(log_file, "a") as lf:
-        lf.write(f"\n\n{'='*60}\nRUN: {timestamp()}\n{'='*60}\n")
-        proc = subprocess.Popen(
-            [sys.executable, str(SCRIPT_DIR / args[0]), *args[1:]],
-            env=merged,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        for line in proc.stdout:
-            sys.stdout.write(line)
-            lf.write(line)
-        proc.wait()
-
-    if proc.returncode != 0:
-        print(f"[run_assigned] ERROR: nc task failed (code {proc.returncode})")
-        sys.exit(proc.returncode)
+    rc = _run_script("build_nc_cache.py", args, log_file)
 
     if not no_push:
         git_push_cache(f"nc cycle cache qq={qq}", dry_run=dry_run)
+
+    if rc not in (0, 130):
+        print(f"[run_assigned] ERROR: nc task failed (code {rc})")
+        sys.exit(rc)
+
+    if rc == 130 or _interrupted:
+        banner("PAUSED — progress saved. Run ./run.sh to resume.", "-")
+        sys.exit(0)
 
 
 # ---------------------------------------------------------------------------
@@ -290,10 +310,22 @@ def main() -> None:
     if not args.dry_run:
         git_pull()
 
+    # ── Remove stale PAUSE file if present at startup ──
+    if PAUSE_FILE.exists():
+        print(f"[run_assigned] Removing stale PAUSE file from previous run.")
+        PAUSE_FILE.unlink()
+
     # ── Run tasks ──
     task_list = [tasks[args.task]] if args.task is not None else tasks
 
     for i, task in enumerate(task_list):
+        # Check for pause request BEFORE starting each task
+        if pause_requested():
+            banner(f"PAUSED after task {i}/{len(tasks)}  —  run ./run.sh to resume", "-")
+            if PAUSE_FILE.exists():
+                PAUSE_FILE.unlink()
+            sys.exit(0)
+
         t = task["type"]
         idx = args.task if args.task is not None else i
         print(f"\n>>> Task [{idx+1}/{len(tasks)}]: {t}  {task}")
