@@ -19,7 +19,7 @@ cd "$(dirname "$0")"   # always run from v0.4/
 
 # ── Auto-detect a working Python (3.10+, has numpy) ──────────────────────────
 PYTHON=""
-for candidate in python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
+for candidate in ./.venv/bin/python python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
   if command -v "$candidate" &>/dev/null; then
     # Check version >= 3.10 and numpy importable
     if "$candidate" -c "import sys,numpy; assert sys.version_info>=(3,10)" 2>/dev/null; then
@@ -34,7 +34,8 @@ if [ -z "$PYTHON" ]; then
   echo ""
   echo "Fix with:"
   echo "  brew install python@3.12"
-  echo "  python3.12 -m pip install -e ."
+  echo "  python3.12 -m venv .venv"
+  echo "  .venv/bin/python -m pip install -e ."
   exit 1
 fi
 
