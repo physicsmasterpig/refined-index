@@ -8,7 +8,7 @@
 #   ./run.sh --task 0     # run only the first assigned task
 #
 # What it does:
-#   1. Activates the correct Python (system python3 with snappy)
+#   1. Auto-detects the best available Python (3.10+ with snappy/numpy)
 #   2. Sets MANIFOLD_INDEX_CACHE_DIR → v0.4/cache/  (tracked by git LFS)
 #   3. Pulls latest from GitHub (gets other machine's finished kernels)
 #   4. Runs this machine's assigned tasks from work_manifest.json
@@ -17,11 +17,32 @@
 set -e
 cd "$(dirname "$0")"   # always run from v0.4/
 
+# ── Auto-detect a working Python (3.10+, has numpy) ──────────────────────────
+PYTHON=""
+for candidate in python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
+  if command -v "$candidate" &>/dev/null; then
+    # Check version >= 3.10 and numpy importable
+    if "$candidate" -c "import sys,numpy; assert sys.version_info>=(3,10)" 2>/dev/null; then
+      PYTHON="$candidate"
+      break
+    fi
+  fi
+done
+
+if [ -z "$PYTHON" ]; then
+  echo "ERROR: No suitable Python found (need 3.10+ with numpy installed)."
+  echo ""
+  echo "Fix with:"
+  echo "  brew install python@3.12"
+  echo "  python3.12 -m pip install -e ."
+  exit 1
+fi
+
 echo "============================================================"
 echo "  Manifold Index — Data Generation"
 echo "  Host    : $(hostname)"
 echo "  Dir     : $(pwd)"
-echo "  Python  : $(python3 --version 2>&1)"
+echo "  Python  : $($PYTHON --version 2>&1)  ($PYTHON)"
 echo "  Date    : $(date)"
 echo "============================================================"
 
@@ -29,4 +50,4 @@ echo "============================================================"
 export MANIFOLD_INDEX_CACHE_DIR="$(pwd)/cache"
 
 # Run the coordinator (pass through any flags: --dry-run, --no-push, --task N)
-python3 scripts/run_assigned.py "$@"
+"$PYTHON" scripts/run_assigned.py "$@"
