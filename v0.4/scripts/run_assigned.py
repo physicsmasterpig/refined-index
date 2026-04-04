@@ -194,13 +194,17 @@ def run_kernels(task: dict, census: str, dry_run: bool, no_push: bool) -> None:
     qq      = task["qq"]
     q_min   = task.get("q_min", 0)
     q_max   = task.get("q_max", 5)
+    p_min   = task.get("p_min", -5)
+    p_max   = task.get("p_max", 5)
     workers = task.get("workers", 8)
 
     log_file = LOG_DIR / f"kernels_qq{qq}_Q{q_min}to{q_max}.log"
-    banner(f"KERNELS  qq={qq}  Q={q_min}–{q_max}  workers={workers}")
+    banner(f"KERNELS  qq={qq}  P={p_min}–{p_max}  Q={q_min}–{q_max}  workers={workers}")
 
     args = [
         "--qq", str(qq),
+        "--p-min", str(p_min),
+        "--p-max", str(p_max),
         "--q-min", str(q_min),
         "--q-max", str(q_max),
         "--workers", str(workers),
