@@ -1072,7 +1072,16 @@ def _compute_one_kernel_entry(
             int_mode=True,
         )
         if contribution:
-            entry = _multi_add(entry, contribution) if entry else dict(contribution)
+            if entry:
+                # In-place accumulation — avoids copying the full dict on each step
+                for key, val in contribution.items():
+                    new_val = entry.get(key, 0) + val
+                    if new_val == 0:
+                        entry.pop(key, None)
+                    else:
+                        entry[key] = new_val
+            else:
+                entry = dict(contribution)
 
     if entry:
         return {k: Fraction(v, lcd) for k, v in entry.items() if v != 0}

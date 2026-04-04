@@ -889,6 +889,7 @@ def _enumerate_slope1_terms(
     return terms
 
 
+@functools.lru_cache(maxsize=None)
 def _enumerate_slope1_all_halfshift(
     k: int,
     t_range: int,
@@ -927,6 +928,7 @@ def _enumerate_slope1_all_halfshift(
     return terms
 
 
+@functools.lru_cache(maxsize=None)
 def _enumerate_is_full(
     m1_range: int,
     e1_range: int,
@@ -944,6 +946,9 @@ def _enumerate_is_full(
 
     The c and phase slots (3rd and 4th elements) are set to 0 since
     they are unused by :func:`_apply_is_step`.
+
+    Cached: the list is identical for every grid point in the same slope
+    computation; callers must not mutate the returned list.
     """
     terms: list[tuple[int, Fraction, int, int]] = []
     for m1 in range(-m1_range, m1_range + 1):
@@ -952,6 +957,7 @@ def _enumerate_is_full(
     return terms
 
 
+@functools.lru_cache(maxsize=None)
 def _enumerate_slope1_all(
     k: int,
     t_range: int,
@@ -968,6 +974,9 @@ def _enumerate_slope1_all(
     for the ℓ ≥ 2 IS-kernel chain, where the (m, e) → (−m, −e) symmetry
     of the 3D index payload no longer holds for the intermediate IS state,
     so the doubling trick used in the ℓ = 1 path is invalid.
+
+    Cached: the list is identical for every grid point in the same slope
+    computation; callers must not mutate the returned list.
     """
     terms: list[tuple[int, Fraction, int, int]] = []
     seen: set[tuple[int, Fraction]] = set()
