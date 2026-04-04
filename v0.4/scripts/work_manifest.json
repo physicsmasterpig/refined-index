@@ -12,8 +12,8 @@
     "Soochangs-MacBook-Pro.local": {
       "name": "M4 Max (12 workers)",
       "tasks": [
-        {"type": "kernels", "qq": 50, "q_min": 2, "q_max": 7, "workers": 12,
-         "_note": "68 slopes: Q=2..7 — 44 ℓ=2 + 20 ℓ=3 x96s each. ETA ~49 min."},
+        {"type": "kernels", "qq": 50, "q_min": 2, "q_max": 7, "p_min": -10, "p_max": 10, "workers": 12,
+         "_note": "74 slopes: Q=2..7, |P|≤10 — 54 ℓ=2 + 20 ℓ=3 x96s each. ETA ~49 min."},
         {"type": "iref",    "qq": 25,
          "_note": "Run after qq=50 kernels are done and merged."},
         {"type": "iref",    "qq": 50},
@@ -24,8 +24,8 @@
       "name": "M1 Mac (8 workers)",
       "_setup": "brew install python@3.12 && cd v0.4 && python3.12 -m pip install -e . && ./run.sh",
       "tasks": [
-        {"type": "kernels", "qq": 50, "q_min": 8, "q_max": 10, "workers": 8,
-         "_note": "32 slopes: Q=8..10 — 16 ℓ=2 + 16 ℓ=3 x144s each. ETA ~45 min."}
+        {"type": "kernels", "qq": 50, "q_min": 8, "q_max": 10, "p_min": -10, "p_max": 10, "workers": 8,
+         "_note": "32 slopes: Q=8..10, |P|≤10 — 16 ℓ=2 + 16 ℓ=3 x144s each. ETA ~45 min."}
       ]
     }
   }
