@@ -19,7 +19,7 @@ Pausing:
     Method 1 — touch v0.4/PAUSE        (stops after current task finishes)
     Method 2 — Ctrl+C / kill signal    (stops after current slope finishes,
                                          then pushes what's done)
-    Resume:     ./run.sh               (skip-existing means it picks up where it left off)
+    Resume:     ./bin/kernel_build_resume.sh  (skip-existing picks up where it left off)
 """
 
 from __future__ import annotations
@@ -226,7 +226,7 @@ def run_kernels(task: dict, census: str, dry_run: bool, no_push: bool) -> None:
         sys.exit(rc)
 
     if rc == 130 or _interrupted:
-        banner("PAUSED — current slope saved. Run ./run.sh to resume.", "-")
+        banner("PAUSED — current slope saved. Run ./bin/kernel_build_resume.sh to resume.", "-")
         sys.exit(0)
 
 
@@ -249,7 +249,7 @@ def run_iref(task: dict, census: str, dry_run: bool, no_push: bool) -> None:
         sys.exit(rc)
 
     if rc == 130 or _interrupted:
-        banner("PAUSED — progress saved. Run ./run.sh to resume.", "-")
+        banner("PAUSED — progress saved. Run ./bin/kernel_build_resume.sh to resume.", "-")
         sys.exit(0)
 
 
@@ -272,7 +272,7 @@ def run_nc(task: dict, census: str, dry_run: bool, no_push: bool) -> None:
         sys.exit(rc)
 
     if rc == 130 or _interrupted:
-        banner("PAUSED — progress saved. Run ./run.sh to resume.", "-")
+        banner("PAUSED — progress saved. Run ./bin/kernel_build_resume.sh to resume.", "-")
         sys.exit(0)
 
 
@@ -327,7 +327,7 @@ def main() -> None:
 
         # Check for pause request BEFORE starting each task
         if pause_requested():
-            banner(f"PAUSED before task {idx+1}/{len(tasks)}  —  run ./run.sh to resume", "-")
+            banner(f"PAUSED before task {idx+1}/{len(tasks)}  —  run ./bin/kernel_build_resume.sh to resume", "-")
             if PAUSE_FILE.exists():
                 PAUSE_FILE.unlink()
             sys.exit(0)
