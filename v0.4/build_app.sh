@@ -29,8 +29,12 @@ if [[ -d .venv ]]; then
     source .venv/bin/activate
 fi
 
-# ── Preflight checks ─────────────────────────────────────────────
-if ! command -v pyinstaller &>/dev/null; then
+# ── Prefer venv pyinstaller to avoid picking up wrong Python ─────
+if [[ -f .venv/bin/pyinstaller ]]; then
+    PYINSTALLER=".venv/bin/pyinstaller"
+elif command -v pyinstaller &>/dev/null; then
+    PYINSTALLER="pyinstaller"
+else
     echo "❌  PyInstaller not found. Install with: pip install pyinstaller"
     exit 1
 fi
@@ -46,7 +50,7 @@ echo "    Spec: $SPEC"
 echo "    Entry: launcher.py → manifold_index.app.main()"
 echo ""
 
-pyinstaller "$SPEC" --noconfirm 2>&1 | tail -30
+"$PYINSTALLER" "$SPEC" --noconfirm 2>&1 | tail -30
 
 echo ""
 
