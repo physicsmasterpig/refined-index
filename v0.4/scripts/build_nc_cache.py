@@ -2,57 +2,34 @@
 """
 scripts/build_nc_cache.py — Search non-closable cycles for census manifolds.
 
-Iterates over a range of census manifolds, runs find_non_closable_cycles for
-each cusp, and persists the results to disk via save_nc_cycle_cache().
-
-Why cache NC cycles?
---------------------
-Finding non-closable cycles requires evaluating the (unrefined) Dehn-filling
-index at every slope in the search range and checking whether the result is
-stably zero.  For a typical 1-cusp manifold with p_range = (-5, 5) and
-q_range = (0, 5), this means ~30 slope evaluations per manifold.  At qq=20
-(the default for NC search) each evaluation takes ~1-10 s, so total
-precomputation is ~1-5 min per manifold.  Storing the result on disk means the
-GUI can show NC cycles instantly.
+Parallel across manifolds using multiprocessing.Pool.  Each manifold is
+fully independent so there are no inter-process conflicts.
 
 Usage
 -----
-  # All m-series manifolds, default search range, qq=20:
-  python scripts/build_nc_cache.py
+  # All m003-m412, qq=20, 8 workers:
+  python scripts/build_nc_cache.py --qq 20 --workers 8
 
-  # Custom range and qq:
-  python scripts/build_nc_cache.py --census m003-m050 --qq 20
+  # Skip already-cached manifolds (safe to re-run after interruption):
+  python scripts/build_nc_cache.py --qq 20 --workers 8 --skip-existing
 
-  # Wider slope search (more thorough):
-  python scripts/build_nc_cache.py --census m003-m050 --p-max 7 --q-max 6
-
-  # Explicit manifolds:
-  python scripts/build_nc_cache.py --manifolds m003 m004 s000
-
-  # Skip already-cached manifolds:
-  python scripts/build_nc_cache.py --census m003-m412 --skip-existing
-
-  # Dry run:
-  python scripts/build_nc_cache.py --census m003-m050 --dry-run
+  # Mac 1 of 2 — split census:
+  python scripts/build_nc_cache.py --qq 20 --workers 8 --census m003-m207
+  # Mac 2 of 2:
+  python scripts/build_nc_cache.py --qq 20 --workers 8 --census m208-m412
 """
 
 from __future__ import annotations
 
 import argparse
+import multiprocessing
+import os
 import re
 import sys
 import time
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Make package importable when running from repo root or scripts/
-# ---------------------------------------------------------------------------
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 _M_SERIES_MIN = 3
 _M_SERIES_MAX = 412
@@ -71,25 +48,80 @@ def _parse_manifold_range(spec: str) -> list[str]:
     return [spec.strip()]
 
 
-def _build_pipeline(name: str):
-    from manifold_index.core.manifold import load_manifold
-    from manifold_index.core.phase_space import find_easy_edges
-    from manifold_index.core.neumann_zagier import build_neumann_zagier
+# ---------------------------------------------------------------------------
+# Worker initializer — set cache dir once per worker
+# ---------------------------------------------------------------------------
 
-    md = load_manifold(name)
-    easy = find_easy_edges(md)
-    nz = build_neumann_zagier(md, easy)
-    return md, nz
+def _init_worker(cache_dir: str) -> None:
+    if cache_dir:
+        os.environ["MANIFOLD_INDEX_CACHE_DIR"] = cache_dir
 
 
-def _cache_exists(nz_data, name, q_order_half, p_range, q_range) -> bool:
-    from manifold_index.core.kernel_cache import (
-        _DEFAULT_NC_DIR, _nc_cycle_filename,
-    )
-    path = _DEFAULT_NC_DIR / _nc_cycle_filename(
-        name, nz_data, q_order_half, p_range, q_range,
-    )
-    return path.exists()
+# ---------------------------------------------------------------------------
+# Per-manifold worker (top-level for pickling)
+# ---------------------------------------------------------------------------
+
+def _process_manifold(args: tuple) -> dict:
+    name, qq, p_max, q_max, skip_existing = args
+    res: dict = {"name": name, "status": "ok", "n_nc": 0,
+                 "n_tet": "?", "n_cusps": 1, "elapsed": 0.0, "error": ""}
+    t0 = time.perf_counter()
+    try:
+        from manifold_index.core.manifold import load_manifold
+        from manifold_index.core.phase_space import find_easy_edges
+        from manifold_index.core.neumann_zagier import build_neumann_zagier
+        from manifold_index.core.dehn_filling import find_non_closable_cycles
+        from manifold_index.core.kernel_cache import (
+            save_nc_cycle_cache,
+            _DEFAULT_NC_DIR,
+            _nc_cycle_filename,
+        )
+
+        p_range = (-p_max, p_max)
+        q_range = (0, q_max)
+
+        md = load_manifold(name)
+        easy = find_easy_edges(md)
+        nz = build_neumann_zagier(md, easy)
+        res["n_tet"] = md.num_tetrahedra
+        res["n_cusps"] = md.num_cusps
+
+        if skip_existing:
+            cache_path = _DEFAULT_NC_DIR / _nc_cycle_filename(
+                name, nz, qq, p_range, q_range,
+            )
+            if cache_path.exists():
+                res["status"] = "skipped"
+                res["elapsed"] = time.perf_counter() - t0
+                return res
+
+        nc_results = []
+        for cusp_idx in range(md.num_cusps):
+            nc = find_non_closable_cycles(
+                nz,
+                cusp_idx=cusp_idx,
+                p_range=range(p_range[0], p_range[1] + 1),
+                q_range=range(q_range[0], q_range[1] + 1),
+                q_order_half=qq,
+                use_symmetry=True,
+                verbose=False,
+            )
+            nc_results.append(nc)
+
+        save_nc_cycle_cache(
+            nz, name, nc_results,
+            q_order_half=qq,
+            p_range=p_range,
+            q_range=q_range,
+        )
+        res["n_nc"] = sum(len(r.cycles) for r in nc_results)
+
+    except Exception as e:
+        res["status"] = "failed"
+        res["error"] = str(e)
+
+    res["elapsed"] = time.perf_counter() - t0
+    return res
 
 
 # ---------------------------------------------------------------------------
@@ -98,45 +130,26 @@ def _cache_exists(nz_data, name, q_order_half, p_range, q_range) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Pre-compute NC cycle cache for census manifolds.",
+        description="Pre-compute NC cycle cache for census manifolds (parallel).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument(
-        "--qq", type=int, default=20,
-        help="q_order_half for the NC search (default: 20).",
-    )
-    parser.add_argument(
-        "--p-max", type=int, default=5,
-        help="Search |P| ≤ p_max (default: 5); range is [-p_max, +p_max].",
-    )
-    parser.add_argument(
-        "--q-max", type=int, default=5,
-        help="Search Q ∈ [0, q_max] (default: 5).",
-    )
-    parser.add_argument(
-        "--census", metavar="RANGE",
-        help="Manifold range, e.g. 'm003-m412'.  Default: m003-m412.",
-    )
-    parser.add_argument(
-        "--manifolds", nargs="+", metavar="NAME",
-        help="Explicit manifold names (overrides --census).",
-    )
-    parser.add_argument(
-        "--skip-existing", action="store_true",
-        help="Skip manifolds that already have an NC cycle cache file.",
-    )
-    parser.add_argument(
-        "--verbose", action="store_true",
-        help="Print per-slope progress from find_non_closable_cycles.",
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true",
-        help="List what would be computed without actually running.",
-    )
+    parser.add_argument("--qq", type=int, default=20,
+                        help="q_order_half for NC search (default: 20).")
+    parser.add_argument("--p-max", type=int, default=5,
+                        help="Search |P| <= p_max (default: 5).")
+    parser.add_argument("--q-max", type=int, default=5,
+                        help="Search Q in [0, q_max] (default: 5).")
+    parser.add_argument("--census", metavar="RANGE",
+                        help="Manifold range, e.g. 'm003-m412'. Default: all.")
+    parser.add_argument("--manifolds", nargs="+", metavar="NAME")
+    parser.add_argument("--workers", type=int,
+                        default=max(1, (os.cpu_count() or 4) - 1),
+                        help="Parallel worker processes (default: cpu_count-1).")
+    parser.add_argument("--skip-existing", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    # ----- Determine manifold list -----
     if args.manifolds:
         names = args.manifolds
     elif args.census:
@@ -146,92 +159,68 @@ def main() -> None:
     else:
         names = _default_census_names()
 
-    q_order_half = args.qq
-    p_range = (-args.p_max, args.p_max)
-    q_range = (0, args.q_max)
-
-    print(f"Manifolds      : {len(names)}")
-    print(f"q_order_half   : {q_order_half}")
-    print(f"slope P range  : {p_range[0]} … {p_range[1]}")
-    print(f"slope Q range  : {q_range[0]} … {q_range[1]}")
-    print(f"skip_existing  : {args.skip_existing}")
+    print("=" * 62)
+    print("  NC Cycle Cache Builder — parallel")
+    print(f"  Host      : {os.uname().nodename}")
+    print(f"  Date      : {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 62)
+    print(f"  Manifolds : {len(names)}  ({names[0]} … {names[-1]})")
+    print(f"  qq        : {args.qq}")
+    print(f"  P range   : [-{args.p_max}, +{args.p_max}]")
+    print(f"  Q range   : [0, {args.q_max}]")
+    print(f"  Workers   : {args.workers}")
+    print(f"  Skip exist: {args.skip_existing}")
     print()
 
     if args.dry_run:
-        print(f"Manifolds ({len(names)} total):")
-        for n in names[:20]:
+        for n in names[:15]:
             print(f"  {n}")
-        if len(names) > 20:
-            print(f"  … and {len(names) - 20} more")
+        if len(names) > 15:
+            print(f"  … and {len(names)-15} more")
         print("\n[dry-run] No computation performed.")
         return
 
-    from manifold_index.core.dehn_filling import find_non_closable_cycles
-    from manifold_index.core.kernel_cache import save_nc_cycle_cache
+    tasks = [
+        (name, args.qq, args.p_max, args.q_max, args.skip_existing)
+        for name in names
+    ]
+    cache_dir = os.environ.get("MANIFOLD_INDEX_CACHE_DIR", "")
 
     t_global = time.perf_counter()
-    n_skipped = 0
-    n_ok = 0
-    n_fail = 0
+    n_ok = n_skip = n_fail = 0
+    total = len(tasks)
 
-    for idx, name in enumerate(names, 1):
-        print(f"[{idx}/{len(names)}] {name} ", end="", flush=True)
-        t_m = time.perf_counter()
-
-        # --- Build NZ pipeline ---
-        try:
-            md, nz = _build_pipeline(name)
-        except Exception as e:
-            print(f"  PIPELINE ERROR: {e}")
-            n_fail += 1
-            continue
-
-        n_cusps = md.num_cusps
-        print(f"(n={md.num_tetrahedra}, r={n_cusps})", end=" ", flush=True)
-
-        # --- Skip if already cached ---
-        if args.skip_existing and _cache_exists(nz, name, q_order_half, p_range, q_range):
-            print("→ skipped (cache exists)")
-            n_skipped += 1
-            continue
-
-        # --- Search NC cycles for each cusp ---
-        try:
-            nc_results = []
-            for cusp_idx in range(n_cusps):
-                nc = find_non_closable_cycles(
-                    nz,
-                    cusp_idx=cusp_idx,
-                    p_range=range(p_range[0], p_range[1] + 1),
-                    q_range=range(q_range[0], q_range[1] + 1),
-                    q_order_half=q_order_half,
-                    use_symmetry=True,
-                    verbose=args.verbose,
+    ctx = multiprocessing.get_context("spawn")
+    with ctx.Pool(
+        processes=args.workers,
+        initializer=_init_worker,
+        initargs=(cache_dir,),
+    ) as pool:
+        for idx, res in enumerate(pool.imap_unordered(_process_manifold, tasks), 1):
+            st = res["status"]
+            elapsed = res["elapsed"]
+            name = res["name"]
+            if st == "skipped":
+                n_skip += 1
+                print(f"[{idx:4d}/{total}] {name:8s}  SKIPPED  ({elapsed:.1f}s)", flush=True)
+            elif st == "failed":
+                n_fail += 1
+                print(f"[{idx:4d}/{total}] {name:8s}  FAILED   ({elapsed:.1f}s)  {res['error']}", flush=True)
+            else:
+                n_ok += 1
+                nc_str = f"{res['n_nc']} NC" if res["n_nc"] else "0 NC"
+                print(
+                    f"[{idx:4d}/{total}] {name:8s}  ok  "
+                    f"{nc_str:8s}  "
+                    f"({res['n_tet']} tet)  {elapsed:.1f}s",
+                    flush=True,
                 )
-                nc_results.append(nc)
 
-            path = save_nc_cycle_cache(
-                nz, name, nc_results,
-                q_order_half=q_order_half,
-                p_range=p_range,
-                q_range=q_range,
-            )
-
-            total_nc = sum(len(r.cycles) for r in nc_results)
-            dt = time.perf_counter() - t_m
-            print(f"→ {total_nc} NC cycles found  ({dt:.1f}s)  → {path.name}")
-            n_ok += 1
-
-        except Exception as e:
-            dt = time.perf_counter() - t_m
-            print(f"  COMPUTE ERROR ({dt:.1f}s): {e}")
-            n_fail += 1
-
-    dt_total = time.perf_counter() - t_global
-    print(f"\n{'='*60}")
-    print(f"Done.  ok={n_ok}  skipped={n_skipped}  failed={n_fail}")
-    print(f"Total time: {dt_total:.1f}s  ({dt_total/60:.1f} min)")
-    print(f"{'='*60}")
+    dt = time.perf_counter() - t_global
+    print(f"\n{'='*62}")
+    print(f"Done.  ok={n_ok}  skipped={n_skip}  failed={n_fail}")
+    print(f"Wall time: {dt:.1f}s  ({dt/60:.1f} min)")
+    print(f"{'='*62}")
 
 
 if __name__ == "__main__":
