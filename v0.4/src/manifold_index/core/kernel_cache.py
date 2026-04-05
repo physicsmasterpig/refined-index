@@ -277,6 +277,7 @@ def _compute_degree_bounds(
     m1_range: int,
     final_term_info: dict,
     status_fn=None,
+    override_reachable: set[tuple[int, int]] | None = None,
 ) -> tuple[dict[int, tuple[int, int]], list[int]]:
     """Compute per-m₀ e-bounds via degree analysis.
 
@@ -288,6 +289,15 @@ def _compute_degree_bounds(
     Uses numpy-vectorised degree evaluation over all (e_half, target)
     pairs per m₀ row.  Backward reachability prunes the target set
     for ℓ ≥ 3 IS-chain steps.
+
+    Parameters
+    ----------
+    override_reachable : set of (int, int) or None
+        When provided, skip the backward reachability pass entirely and
+        use this set of (m, e_half) pairs as the target set for the
+        forward pass.  Used by the V-map path where the reachable
+        intermediates have already been degree-filtered during V-map
+        precomputation.
     """
     from manifold_index.core.refined_dehn_filling import (
         _enumerate_is_full,
@@ -304,35 +314,43 @@ def _compute_degree_bounds(
         final_targets.add((m_t, e_t_half))
 
     # --- Backward reachability for ℓ ≥ 3 ---
-    reachable: set[tuple[int, int]] = final_targets
-
-    for step_i in range(ell - 2, 0, -1):
-        k_curr = hj_ks[step_i]
-        k_next = hj_ks[step_i + 1]
-        # For the last IS step (step_i == ℓ-2) the output feeds into
-        # the final K-factor, so candidates are on K(k_ℓ, 1) support.
-        # For intermediate steps, the IS kernel can map to the full
-        # (½)ℤ² lattice — NOT restricted to any K-support.
-        is_last = (step_i == ell - 2)
-        if is_last:
-            src_terms = _enumerate_slope1_all(k_next, m1_range)
-        else:
-            e1_range = qq_internal + m1_range // 2
-            src_terms = _enumerate_is_full(m1_range, e1_range)
-        new_reachable: set[tuple[int, int]] = set()
-
-        for (m1, e1, _, _) in src_terms:
-            e1_half = int(2 * e1)
-            e_in_half = -(e1_half + k_curr * m1)
-            for (m_tgt, e_tgt_half) in reachable:
-                d = _is_kernel_min_degree_x2(m1, e_in_half, m_tgt, e_tgt_half)
-                if d <= qq_limit_x2:
-                    new_reachable.add((m1, e1_half))
-                    break
+    if override_reachable is not None:
+        reachable: set[tuple[int, int]] = override_reachable
         if status_fn:
-            status_fn(f"[degree]   Backward step {step_i}: "
-                       f"{len(new_reachable)} reachable from {len(reachable)} targets")
-        reachable = new_reachable
+            status_fn(
+                f"[degree]   Override reachable: {len(reachable)} V-map targets "
+                f"(skipping backward pass)"
+            )
+    else:
+        reachable = final_targets
+
+        for step_i in range(ell - 2, 0, -1):
+            k_curr = hj_ks[step_i]
+            k_next = hj_ks[step_i + 1]
+            # For the last IS step (step_i == ℓ-2) the output feeds into
+            # the final K-factor, so candidates are on K(k_ℓ, 1) support.
+            # For intermediate steps, the IS kernel can map to the full
+            # (½)ℤ² lattice — NOT restricted to any K-support.
+            is_last = (step_i == ell - 2)
+            if is_last:
+                src_terms = _enumerate_slope1_all(k_next, m1_range)
+            else:
+                e1_range = qq_internal + m1_range // 2
+                src_terms = _enumerate_is_full(m1_range, e1_range)
+            new_reachable: set[tuple[int, int]] = set()
+
+            for (m1, e1, _, _) in src_terms:
+                e1_half = int(2 * e1)
+                e_in_half = -(e1_half + k_curr * m1)
+                for (m_tgt, e_tgt_half) in reachable:
+                    d = _is_kernel_min_degree_x2(m1, e_in_half, m_tgt, e_tgt_half)
+                    if d <= qq_limit_x2:
+                        new_reachable.add((m1, e1_half))
+                        break
+            if status_fn:
+                status_fn(f"[degree]   Backward step {step_i}: "
+                           f"{len(new_reachable)} reachable from {len(reachable)} targets")
+            reachable = new_reachable
 
     # --- Forward pass: vectorised per m₀ row ---
     k1 = hj_ks[0]
@@ -1030,12 +1048,28 @@ def _compute_one_kernel_entry(
     eta_order: int,
     m1_range: int,
     final_term_info: dict[tuple[int, Fraction], tuple[int, int, int]],
-) -> QEtaSeries | None:
+    tail_map: dict[tuple[int, Fraction], dict[tuple[int, int], int]] | None = None,
+    _return_raw_int: bool = False,
+) -> QEtaSeries | dict[tuple[int, int], int] | None:
     """Compute a single kernel table entry K^ref(m0, e0).
 
     Returns the QEtaSeries if non-zero, else None.
     Factored out so that both serial/parallel and adaptive paths share
     exactly the same computation.
+
+    Parameters
+    ----------
+    tail_map : dict or None
+        Optional precomputed IS-chain tail map for ℓ≥3 (see
+        ``_precompute_tail_map``).  When provided, IS steps 1..ℓ-1 and
+        the final K-factor are replaced by a single O(1) lookup plus a
+        series convolution — O(|intermediate_state| × |F_entry|) — instead
+        of O(|intermediate_state| × |K-support|) per grid point.
+        Ignored when ℓ<3.
+    _return_raw_int : bool
+        When True, return the raw integer dict (values are true ×2^ℓ
+        coefficients) instead of converting to Fractions.  Used by
+        ``_precompute_v_map`` when building the V-map base case.
     """
     from manifold_index.core.refined_dehn_filling import (
         _apply_is_step,
@@ -1048,6 +1082,44 @@ def _compute_one_kernel_entry(
     unit: MultiEtaSeries = {(0, 0): 1}
     state: dict[tuple[int, Fraction], MultiEtaSeries] = {(m0, e0): unit}
 
+    if tail_map is not None and ell >= 3:
+        # ── Fast path for ℓ≥3: one IS step + precomputed tail lookup ──
+        #
+        # IS step 0 only (intermediate step, is_last_step=False).
+        # After this step, state[(m1, e1)] holds ×2 int series — each entry
+        # is the IS-kernel contribution from (m0, e0) to that (m1, e1).
+        state = _apply_is_step(
+            state, hj_ks[0], hj_ks[1],
+            qq_internal, eta_order, m1_range,
+            use_int=True, is_last_step=False,
+        )
+        # Contract intermediate state with precomputed tail map.
+        #   state[(m1,e1)]:    ×2^1 ints  (one IS step from unit source)
+        #   tail_map[(m1,e1)]: ×2^(ℓ-1) ints  (tail sub-chain + K-factor)
+        #   product:           ×2^ℓ ints  → Fraction(v, 2^ℓ) = Fraction(v, lcd)
+        int_entry: dict[tuple[int, int], int] = {}
+        for (m1, e1), src_series in state.items():
+            if not src_series:
+                continue
+            F_int = tail_map.get((m1, e1))
+            if F_int is None:
+                continue
+            for (qq_s, eta_s), v_s in src_series.items():
+                for (qq_f, eta_f), v_f in F_int.items():
+                    new_qq = qq_s + qq_f
+                    if new_qq > qq_internal:
+                        continue
+                    key = (new_qq, eta_s + eta_f)
+                    new_val = int_entry.get(key, 0) + v_s * v_f
+                    if new_val == 0:
+                        int_entry.pop(key, None)
+                    else:
+                        int_entry[key] = new_val
+        if int_entry:
+            if _return_raw_int:
+                return {k: v for k, v in int_entry.items() if v != 0}
+            return {k: Fraction(v, lcd) for k, v in int_entry.items() if v != 0}
+        return None
     for step_i in range(ell - 1):
         k_curr = hj_ks[step_i]
         k_next = hj_ks[step_i + 1]
@@ -1084,6 +1156,8 @@ def _compute_one_kernel_entry(
                 entry = dict(contribution)
 
     if entry:
+        if _return_raw_int:
+            return {k: v for k, v in entry.items() if v != 0}
         return {k: Fraction(v, lcd) for k, v in entry.items() if v != 0}
     return None
 
@@ -1158,6 +1232,527 @@ def _worker_compute_chunk(
     return result, n_computed
 
 
+def _worker_compute_chunk_with_map(
+    points: list[tuple[int, int]],
+    hj_ks: list[int],
+    qq_internal: int,
+    eta_order: int,
+    m1_range: int,
+    final_term_info: dict[tuple[int, Fraction], tuple[int, int, int]],
+    tail_map: dict[tuple[int, Fraction], dict[tuple[int, int], int]],
+) -> tuple[dict[tuple[int, Fraction], QEtaSeries], int]:
+    """Like ``_worker_compute_chunk`` but uses a precomputed tail map.
+
+    For ℓ≥3 kernels, the tail_map lets each point skip the inner IS steps
+    (steps 1..ℓ-1) and the K-factor, replacing them with a lookup and a
+    cheap series contraction.
+    """
+    result: dict[tuple[int, Fraction], QEtaSeries] = {}
+    n_computed = 0
+    for m0, e_half in points:
+        e0 = Fraction(e_half, 2)
+        n_computed += 1
+        entry = _compute_one_kernel_entry(
+            m0, e0, hj_ks, qq_internal, eta_order,
+            m1_range, final_term_info,
+            tail_map=tail_map,
+        )
+        if entry is not None:
+            result[(m0, e0)] = entry
+    return result, n_computed
+
+
+def _worker_compute_tail_chunk(
+    m1_e1_halves: list[tuple[int, int]],
+    sub_ks: list[int],
+    qq_internal: int,
+    eta_order: int,
+    m1_range: int,
+    final_term_info: dict[tuple[int, Fraction], tuple[int, int, int]],
+    sub_tail_map: dict[tuple[int, Fraction], dict[tuple[int, int], int]] | None,
+) -> dict[tuple[int, Fraction], dict[tuple[int, int], int]]:
+    """Worker for parallel tail-map precomputation.
+
+    For each (m1, e1) in *m1_e1_halves* (encoded as (m1, 2*e1) ints),
+    computes the sub-chain kernel entry and returns the raw ×(2^ℓ') int
+    version for use by ``_precompute_tail_map``.
+    """
+    sub_lcd = 1 << len(sub_ks)
+    chunk_result: dict[tuple[int, Fraction], dict[tuple[int, int], int]] = {}
+    for m1, e1_half in m1_e1_halves:
+        e1 = Fraction(e1_half, 2)
+        F_frac = _compute_one_kernel_entry(
+            m1, e1, sub_ks, qq_internal, eta_order,
+            m1_range, final_term_info,
+            tail_map=sub_tail_map,
+        )
+        if F_frac is not None:
+            # Convert Fraction(v, sub_lcd) → int v.  All values have
+            # denominator dividing sub_lcd by construction, so v*sub_lcd
+            # is always an exact integer.
+            F_int = {k: int(v * sub_lcd) for k, v in F_frac.items()}
+            if F_int:
+                chunk_result[(m1, e1)] = F_int
+    return chunk_result
+
+
+def _precompute_tail_map(
+    hj_ks: list[int],
+    qq_internal: int,
+    eta_order: int,
+    m1_range: int,
+    final_term_info: dict[tuple[int, Fraction], tuple[int, int, int]],
+    n_workers: int = 1,
+    status_fn: Any = None,
+) -> dict[tuple[int, Fraction], dict[tuple[int, int], int]]:
+    """Precompute the IS-chain tail map for ℓ≥3 kernel computation.
+
+    For a kernel with HJ-CF chain hj_ks = [k₁, …, kₗ] (ℓ≥3), precomputes:
+
+        tail_map[(m₁, e₁)] = raw ×(2^(ℓ-1)) int series
+                             = IS steps [k₂,…,kₗ] + K-factor applied to
+                               unit source at (m₁, e₁)
+
+    This allows ``_compute_one_kernel_entry`` to skip the expensive inner IS
+    steps for every grid point: instead of re-running steps 1..ℓ-1 + K-factor
+    for each of N_grid source points, those steps are done once here for the
+    ~38K possible intermediate (m₁, e₁) targets.
+
+    For ℓ=3 this is a one-time cost of O(N_intermediate × |K-support|) IS
+    kernel evaluations, after which each grid point only needs step 0
+    (O(N_intermediate) evals) plus an O(|sparse_state|) contraction.
+
+    Recursive for ℓ≥4: the sub-chain [k₂,…,kₗ] tail map is itself built
+    with this function, so deep chains are handled by a bottom-up sequence of
+    fast sub-chain computations.
+
+    Parameters
+    ----------
+    hj_ks : list[int]
+        Full HJ-CF chain [k₁, …, kₗ] with ℓ ≥ 3.
+    qq_internal : int
+        Internal qq truncation order.
+    eta_order : int
+        Maximum |cusp V| exponent retained.
+    m1_range : int
+        Intermediate lattice bound |m₁| ≤ m1_range.
+    final_term_info : dict
+        K-factor lookup (for the last HJ entry kₗ).
+    n_workers : int
+        Number of parallel worker processes for the precomputation.
+    status_fn : callable or None
+        Progress callback.
+
+    Returns
+    -------
+    dict[(m₁, e₁) → {(qq, η) → int}]
+        Only non-zero entries are included.  Values are ×(2^(ℓ-1)) ints.
+    """
+    from manifold_index.core.refined_dehn_filling import _enumerate_is_full
+
+    ell = len(hj_ks)
+    assert ell >= 3, f"_precompute_tail_map requires ℓ ≥ 3, got {ell}"
+
+    sub_ks = list(hj_ks[1:])          # [k₂, …, kₗ], length ℓ-1
+    sub_lcd = 1 << len(sub_ks)        # 2^(ℓ-1)
+
+    # Recursively build a sub_tail_map for the sub-chain when ℓ'≥3.
+    sub_tail_map: dict | None = None
+    if len(sub_ks) >= 3:
+        if status_fn:
+            status_fn(
+                f"[tail_map] Recursively building sub-tail-map for "
+                f"sub-chain {sub_ks} (ℓ'={len(sub_ks)})"
+            )
+        sub_tail_map = _precompute_tail_map(
+            sub_ks, qq_internal, eta_order, m1_range, final_term_info,
+            n_workers=n_workers, status_fn=status_fn,
+        )
+
+    # Enumerate the full intermediate (½)ℤ² lattice.
+    e1_range = qq_internal + m1_range // 2
+    all_targets = _enumerate_is_full(m1_range, e1_range)
+    # Encode as (m1, e1_half) int pairs for easy chunking / worker dispatch.
+    all_m1_e1_halves: list[tuple[int, int]] = [
+        (m1, int(2 * e1)) for m1, e1, _, _ in all_targets
+    ]
+
+    if status_fn:
+        status_fn(
+            f"[tail_map] Pre-computing tail map for ℓ={ell}, "
+            f"sub-chain {sub_ks}: {len(all_m1_e1_halves)} intermediate targets"
+        )
+
+    tail_map: dict[tuple[int, Fraction], dict[tuple[int, int], int]] = {}
+
+    if n_workers >= 2 and len(all_m1_e1_halves) > n_workers * 4:
+        # Parallel precomputation: split intermediate targets into chunks.
+        _TAIL_CHUNK = max(50, len(all_m1_e1_halves) // (n_workers * 8))
+        chunks: list[list[tuple[int, int]]] = [
+            all_m1_e1_halves[i : i + _TAIL_CHUNK]
+            for i in range(0, len(all_m1_e1_halves), _TAIL_CHUNK)
+        ]
+        ctx = multiprocessing.get_context("fork")
+        with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as pool:
+            futures = [
+                pool.submit(
+                    _worker_compute_tail_chunk,
+                    chunk, sub_ks, qq_internal, eta_order,
+                    m1_range, final_term_info, sub_tail_map,
+                )
+                for chunk in chunks
+            ]
+            n_done = 0
+            log_every = max(1, len(chunks) // 10)
+            for i, fut in enumerate(as_completed(futures)):
+                tail_map.update(fut.result())
+                n_done += 1
+                if n_done % log_every == 0 or n_done == len(chunks):
+                    if status_fn:
+                        status_fn(
+                            f"[tail_map]   {n_done}/{len(chunks)} chunks, "
+                            f"{len(tail_map)} non-zero so far"
+                        )
+    else:
+        # Serial precomputation.
+        for m1, e1_half in all_m1_e1_halves:
+            e1 = Fraction(e1_half, 2)
+            F_frac = _compute_one_kernel_entry(
+                m1, e1, sub_ks, qq_internal, eta_order,
+                m1_range, final_term_info,
+                tail_map=sub_tail_map,
+            )
+            if F_frac is not None:
+                F_int = {k: int(v * sub_lcd) for k, v in F_frac.items()}
+                if F_int:
+                    tail_map[(m1, e1)] = F_int
+
+    if status_fn:
+        status_fn(
+            f"[tail_map]   → {len(tail_map)} non-zero entries "
+            f"out of {len(all_m1_e1_halves)} targets "
+            f"({len(tail_map)/len(all_m1_e1_halves)*100:.1f}%)"
+        )
+    return tail_map
+
+
+# ---------------------------------------------------------------------------
+# V-map optimisation for ℓ ≥ 3 kernels
+# ---------------------------------------------------------------------------
+# The existing _precompute_tail_map + _compute_one_kernel_entry(tail_map=…)
+# path has two compounding performance problems at high qq (e.g. qq=50):
+#
+#  (a) Phase 1 probes call _compute_one_kernel_entry WITHOUT a tail_map →
+#      IS step 0 uses _apply_is_step(is_last_step=False) which scans the
+#      FULL 151K intermediate grid → ~91 s per probe → SIGALRM timeout.
+#
+#  (b) Even with tail_map, IS step 0 in _compute_one_kernel_entry still
+#      calls _apply_is_step(is_last_step=False) → same 151K scan.
+#
+#  (c) _precompute_tail_map itself uses _enumerate_is_full (151K) as
+#      candidate targets with no degree filter → O(151K × 699) IS-kernel
+#      calls = ~105 M calls × 0.6 ms = ~63 000 s.
+#
+# The V-map approach solves all three:
+#  1. _precompute_v_map builds V_raw[(m_i, e_i)] for DEGREE-FEASIBLE
+#     intermediates only (typically a few hundred, vs 151K).
+#  2. _compute_entry_from_v replaces IS step 0 with a direct scan of
+#     V_raw.keys() → O(|V_raw|) IS-kernel calls per source point.
+#  3. Phase 1 probes use _compute_entry_from_v → fast.
+# ---------------------------------------------------------------------------
+
+_v_parts_global: Any = None  # fork-inherited V-map partition (set before fork)
+
+
+def _precompute_v_map(
+    hj_ks_sub: list[int],
+    qq_internal: int,
+    eta_order: int,
+    m1_range: int,
+    final_term_info: dict[tuple[int, Fraction], tuple[int, int, int]],
+    status_fn=None,
+) -> dict[tuple[int, Fraction], dict[tuple[int, int], int]]:
+    """Precompute degree-filtered V-map for the inner IS sub-chain.
+
+    Returns ``V_raw``: a dict mapping ``(m_i, e_i)`` intermediate points
+    to raw-integer series dicts (values scaled ×2^len(hj_ks_sub)).
+    Only intermediates that can BOTH:
+      (a) be reached via IS step 0 from some degree-feasible source, AND
+      (b) reach the K-support final targets via the sub-chain
+    are included.  Typically a few hundred entries vs the 151K full grid.
+
+    Base case (len=2)
+        Calls ``_compute_one_kernel_entry(..., _return_raw_int=True)``
+        for each degree-feasible (m_i, e_i) using the K-support targets.
+
+    Recursive case (len≥3)
+        Recurses on ``hj_ks_sub[1:]`` to get ``V_inner``, then degree-
+        filters using ``V_inner.keys()`` as the target set.
+    """
+    ell_sub = len(hj_ks_sub)
+    if ell_sub < 2:
+        raise ValueError(f"_precompute_v_map: sub-chain must have ≥2 steps, got {ell_sub}")
+
+    k_sub0 = hj_ks_sub[0]
+    e1_range = qq_internal + m1_range // 2
+    qq_limit_x2 = 2 * qq_internal
+    e_max_half = 2 * e1_range
+    e_half_all = np.arange(-e_max_half, e_max_half + 1, dtype=np.int32)
+
+    # ── Base case: ℓ_sub = 2 ─────────────────────────────────────────────
+    if ell_sub == 2:
+        # Degree-filter: find which (m_i, e_i) can reach K-support within qq
+        target_list = sorted((m_t, int(2 * e_t)) for (m_t, e_t) in final_term_info)
+        mt_all = np.array([mt for mt, _  in target_list], dtype=np.int32)
+        et_all = np.array([et for _,  et in target_list], dtype=np.int32)
+        mt_even = mt_all[et_all % 2 == 0];  et_even = et_all[et_all % 2 == 0]
+        mt_odd  = mt_all[et_all % 2 != 0];  et_odd  = et_all[et_all % 2 != 0]
+
+        V_raw: dict[tuple[int, Fraction], dict[tuple[int, int], int]] = {}
+        n_cands = 0
+        for m_i in range(-m1_range, m1_range + 1):
+            mt = mt_even if m_i % 2 == 0 else mt_odd
+            et = et_even if m_i % 2 == 0 else et_odd
+            if len(mt) == 0:
+                continue
+            feasible = _degree_feasible_row(m_i, k_sub0, e_half_all, mt, et, qq_limit_x2)
+            if not np.any(feasible):
+                continue
+            for e_half_i in e_half_all[feasible].tolist():
+                n_cands += 1
+                e_i = Fraction(e_half_i, 2)
+                raw = _compute_one_kernel_entry(
+                    m_i, e_i, hj_ks_sub, qq_internal, eta_order,
+                    m1_range, final_term_info,
+                    _return_raw_int=True,
+                )
+                if raw:
+                    V_raw[(m_i, e_i)] = raw
+
+        if status_fn:
+            status_fn(
+                f"[V-map] ℓ_sub={ell_sub}: {n_cands} candidates → "
+                f"{len(V_raw)} non-zero V entries"
+            )
+        return V_raw
+
+    # ── Recursive case: ℓ_sub ≥ 3 ────────────────────────────────────────
+    V_inner = _precompute_v_map(
+        hj_ks_sub[1:], qq_internal, eta_order, m1_range, final_term_info,
+        status_fn=status_fn,
+    )
+    if not V_inner:
+        return {}
+
+    v_inner_parts = _partition_v_map(V_inner)
+
+    # Degree-filter using V_inner.keys() as the reachable target set
+    v_inner_keys = sorted((m_k, int(2 * e_k)) for (m_k, e_k) in V_inner)
+    mt_inner = np.array([mt for mt, _  in v_inner_keys], dtype=np.int32)
+    et_inner = np.array([et for _,  et in v_inner_keys], dtype=np.int32)
+    mt_even_i = mt_inner[et_inner % 2 == 0];  et_even_i = et_inner[et_inner % 2 == 0]
+    mt_odd_i  = mt_inner[et_inner % 2 != 0];  et_odd_i  = et_inner[et_inner % 2 != 0]
+
+    V_raw = {}
+    n_cands = 0
+    for m_i in range(-m1_range, m1_range + 1):
+        mt = mt_even_i if m_i % 2 == 0 else mt_odd_i
+        et = et_even_i if m_i % 2 == 0 else et_odd_i
+        if len(mt) == 0:
+            continue
+        feasible = _degree_feasible_row(m_i, k_sub0, e_half_all, mt, et, qq_limit_x2)
+        if not np.any(feasible):
+            continue
+        for e_half_i in e_half_all[feasible].tolist():
+            n_cands += 1
+            e_i = Fraction(e_half_i, 2)
+            raw = _compute_raw_v_entry(
+                m_i, e_i, k_sub0, v_inner_parts, qq_internal, eta_order,
+            )
+            if raw:
+                V_raw[(m_i, e_i)] = raw
+
+    if status_fn:
+        status_fn(
+            f"[V-map] ℓ_sub={ell_sub}: {n_cands} candidates → "
+            f"{len(V_raw)} non-zero V entries"
+        )
+    return V_raw
+
+
+def _partition_v_map(
+    V_raw: dict[tuple[int, Fraction], dict],
+) -> tuple[list, list, list, list]:
+    """Partition V_raw into 4 groups by (m_i parity) × (e_i integrality).
+
+    Returns ``(v_even_eint, v_even_ehalf, v_odd_eint, v_odd_ehalf)``
+    where each element is a list of ``((m_i, e_i), raw_dict)`` pairs.
+
+    This matches the 4-way parity selection used by ``_apply_is_step``
+    with ``is_last_step=False``:
+      - ``p = -(e_half_src + k_curr * m_src)``
+      - m_i parity must equal ``p % 2``
+      - e_i integrality: integer iff m_src is even
+    """
+    v_even_eint: list = []
+    v_even_ehalf: list = []
+    v_odd_eint: list = []
+    v_odd_ehalf: list = []
+    for (m_i, e_i), raw in V_raw.items():
+        if m_i % 2 == 0:
+            if e_i.denominator == 1:
+                v_even_eint.append(((m_i, e_i), raw))
+            else:
+                v_even_ehalf.append(((m_i, e_i), raw))
+        else:
+            if e_i.denominator == 1:
+                v_odd_eint.append(((m_i, e_i), raw))
+            else:
+                v_odd_ehalf.append(((m_i, e_i), raw))
+    return v_even_eint, v_even_ehalf, v_odd_eint, v_odd_ehalf
+
+
+def _compute_raw_v_entry(
+    m0: int,
+    e0: Fraction,
+    k0: int,
+    v_inner_parts: tuple,
+    qq_internal: int,
+    eta_order: int,
+) -> dict[tuple[int, int], int] | None:
+    """Compute a raw-integer V-map entry from an inner V-map (recursive case).
+
+    For each (m_i, e_i) in the inner V-map:
+        result += IS_raw(m0, e_in0, m_i, e_i) ⊗ V_inner_raw[(m_i, e_i)]
+
+    where IS_raw is the ×2-scaled IS kernel.
+
+    LCD accounting:
+        IS_raw values are ×2.
+        V_inner_raw values are ×2^(ℓ_sub-1).
+        Product is ×2^ℓ_sub = ×lcd_this (correct for the caller level).
+
+    Used inside ``_precompute_v_map`` for ℓ_sub ≥ 3.
+    """
+    from manifold_index.core.refined_dehn_filling import _is_kernel as _isk
+
+    e_in0 = -e0 - Fraction(k0 * m0, 2)
+    p = -(int(2 * e0) + k0 * m0)
+    v_ee, v_eh, v_oe, v_oh = v_inner_parts
+    v_items = (v_ee if m0 % 2 == 0 else v_eh) if p % 2 == 0 else (v_oe if m0 % 2 == 0 else v_oh)
+    if not v_items:
+        return None
+
+    entry: dict[tuple[int, int], int] = {}
+    for (m_i, e_i), v_raw in v_items:
+        is_val = _isk(m0, e_in0, m_i, e_i, qq_internal, eta_order)
+        if not is_val:
+            continue
+        for (qq_is, eta_is), c_is in is_val.items():
+            for (qq_v, eta_v), c_v in v_raw.items():
+                new_qq = qq_is + qq_v
+                if new_qq > qq_internal:
+                    continue
+                key = (new_qq, eta_is + eta_v)
+                new_val = entry.get(key, 0) + c_is * c_v
+                if new_val:
+                    entry[key] = new_val
+                else:
+                    entry.pop(key, None)
+    return entry if entry else None
+
+
+def _compute_entry_from_v(
+    m0: int,
+    e0: Fraction,
+    k0: int,
+    v_parts: tuple,
+    qq_internal: int,
+    eta_order: int,
+    lcd_full: int,
+) -> QEtaSeries | None:
+    """Compute K^ref(m0, e0) for ℓ≥3 using the precomputed V-map.
+
+    Replaces the slow O(151K) IS-step-0 scan in ``_compute_one_kernel_entry``
+    with a targeted O(|V_raw|) scan over precomputed feasible intermediates.
+
+    LCD accounting:
+        IS kernel (_is_kernel) returns ×2 raw ints.
+        V_raw values are ×2^(ℓ-1) raw ints.
+        Product: ×2 × ×2^(ℓ-1) = ×2^ℓ = ×lcd_full ✓
+
+    Parameters
+    ----------
+    k0 : int
+        ``hj_ks[0]`` — the first Hirzebruch-Jung coefficient.
+    v_parts : tuple
+        4-way partition from ``_partition_v_map(V_raw)``.
+    lcd_full : int
+        ``2^ℓ`` — the LCD for converting raw ints to Fractions.
+    """
+    from manifold_index.core.refined_dehn_filling import _is_kernel as _isk
+
+    e_in0 = -e0 - Fraction(k0 * m0, 2)
+    p = -(int(2 * e0) + k0 * m0)
+    v_ee, v_eh, v_oe, v_oh = v_parts
+    v_items = (v_ee if m0 % 2 == 0 else v_eh) if p % 2 == 0 else (v_oe if m0 % 2 == 0 else v_oh)
+    if not v_items:
+        return None
+
+    entry: dict[tuple[int, int], int] = {}
+    for (m_i, e_i), v_raw in v_items:
+        is_val = _isk(m0, e_in0, m_i, e_i, qq_internal, eta_order)
+        if not is_val:
+            continue
+        for (qq_is, eta_is), c_is in is_val.items():
+            for (qq_v, eta_v), c_v in v_raw.items():
+                new_qq = qq_is + qq_v
+                if new_qq > qq_internal:
+                    continue
+                key = (new_qq, eta_is + eta_v)
+                new_val = entry.get(key, 0) + c_is * c_v
+                if new_val:
+                    entry[key] = new_val
+                else:
+                    entry.pop(key, None)
+
+    if entry:
+        return {k: Fraction(v, lcd_full) for k, v in entry.items() if v != 0}
+    return None
+
+
+def _worker_compute_chunk_v_map(
+    points: list[tuple[int, int]],
+    k0: int,
+    qq_internal: int,
+    eta_order: int,
+    lcd_full: int,
+) -> tuple[dict[tuple[int, Fraction], QEtaSeries], int]:
+    """Parallel worker for ℓ≥3 kernel entries using the fork-inherited V-map.
+
+    Uses the module-level ``_v_parts_global`` (set in the parent process
+    before the ``ProcessPoolExecutor`` is created) to avoid pickling the
+    potentially large V-map data.
+
+    Parameters
+    ----------
+    points : list of (m0, e_half) pairs
+    k0 : int
+        ``hj_ks[0]``.
+    """
+    result: dict[tuple[int, Fraction], QEtaSeries] = {}
+    n_computed = 0
+    for m0, e_half in points:
+        e0 = Fraction(e_half, 2)
+        n_computed += 1
+        entry = _compute_entry_from_v(
+            m0, e0, k0, _v_parts_global, qq_internal, eta_order, lcd_full,
+        )
+        if entry is not None:
+            result[(m0, e0)] = entry
+    return result, n_computed
+
+
 def precompute_filling_kernel(
     P: int,
     Q: int,
@@ -1166,6 +1761,7 @@ def precompute_filling_kernel(
     verbose: bool = False,
     progress_callback: Any = None,
     n_workers: int | None = None,
+    hj_ks_override: list[int] | None = None,
 ) -> KernelTable:
     """Pre-compute the full Dehn filling kernel K^ref(P/Q; m, e; η).
 
@@ -1202,6 +1798,13 @@ def precompute_filling_kernel(
     n_workers : int or None
         Number of worker processes.  ``None`` → ``max(1, cpu_count - 2)``.
         Set to ``0`` or ``1`` to disable multiprocessing.
+    hj_ks_override : list[int] or None
+        If provided, use this HJ-CF list instead of the one computed from
+        P/Q.  Useful for consistency checks: the same rational slope can
+        have multiple valid HJ decompositions (e.g. 1/2 = [0,-2] at ℓ=2
+        or [1,3,1] at ℓ=3); passing the alternate list forces the longer
+        decomposition through the V-map path so the two results can be
+        compared.  The list must evaluate to P/Q as an HJ-CF.
 
     Returns
     -------
@@ -1217,6 +1820,8 @@ def precompute_filling_kernel(
         eta_order = qq_order
 
     hj_ks = hj_continued_fraction(P, Q)
+    if hj_ks_override is not None:
+        hj_ks = list(hj_ks_override)
     ell = len(hj_ks)
 
     if ell < 2:
@@ -1254,6 +1859,259 @@ def precompute_filling_kernel(
 
     _status(f"[kernel] Pre-computing K^ref({P}/{Q}) at qq={qq_order}: "
             f"HJ={hj_ks}, ℓ={ell}, qq_internal={qq_internal}")
+
+    # ------------------------------------------------------------------
+    # ℓ ≥ 3: V-map fast path  (bypasses the slow 151K IS-step-0 scan)
+    # ------------------------------------------------------------------
+    # For ℓ ≥ 3 kernels the standard path is bottlenecked by IS step 0
+    # which calls _apply_is_step(is_last_step=False) → scans 151K
+    # intermediate targets (~91 s per probe at qq=50).
+    #
+    # The V-map path precomputes the inner sub-chain for degree-feasible
+    # intermediates only (typically a few hundred entries), then computes
+    # each (m0, e0) entry by scanning only those V-map keys — O(|V_raw|)
+    # IS-kernel calls instead of O(151K).
+    #
+    # This block handles ALL of Phases 1-4 for ℓ ≥ 3 and returns early,
+    # leaving the existing code below untouched for the ℓ = 2 case.
+    # ------------------------------------------------------------------
+    if ell >= 3:
+        _status(
+            f"[kernel] ℓ={ell}≥3: building V-map for sub-chain {hj_ks[1:]} ..."
+        )
+        t_vmap = time.perf_counter()
+        V_raw = _precompute_v_map(
+            hj_ks[1:], qq_internal, eta_order, m1_range, final_term_info,
+            status_fn=_status,
+        )
+        vmap_elapsed = time.perf_counter() - t_vmap
+        _status(
+            f"[kernel]   V-map: {len(V_raw)} non-zero intermediate points "
+            f"in {vmap_elapsed:.1f}s"
+        )
+
+        if not V_raw:
+            _status("[kernel]   V-map empty → kernel is identically zero")
+            return KernelTable(
+                P=P, Q=Q,
+                qq_order=qq_order,
+                qq_internal=qq_internal,
+                eta_order=eta_order,
+                hj_ks=hj_ks,
+                table={},
+                m_scan=m_scan,
+                e_scan=e_scan,
+                compute_time_s=0.0,
+            )
+
+        v_parts = _partition_v_map(V_raw)
+        lcd_full = 1 << ell  # 2^ℓ
+
+        # Phase 1 (V-map): fast parity detection
+        _status("[kernel] Phase 1: parity detection (V-map) ...")
+        has_even = has_odd = False
+        _probe_es_v = [Fraction(0), Fraction(1, 2), Fraction(1), Fraction(-1, 2)]
+        for m_probe in range(4):
+            if has_even and has_odd:
+                break
+            for e_probe in _probe_es_v:
+                entry = _compute_entry_from_v(
+                    m_probe, e_probe, hj_ks[0], v_parts,
+                    qq_internal, eta_order, lcd_full,
+                )
+                if entry is not None:
+                    if m_probe % 2 == 0:
+                        has_even = True
+                    else:
+                        has_odd = True
+                    break
+
+        if has_even and has_odd:
+            m_step_v, parity_desc_v = 1, "both parities"
+        elif has_even:
+            m_step_v, parity_desc_v = 2, "even-m only"
+        elif has_odd:
+            m_step_v, parity_desc_v = 2, "odd-m only"
+        else:
+            m_step_v, parity_desc_v = 1, "no hits in probe (full scan)"
+        m_start_v = 0 if has_even else 1
+        _status(f"[kernel]   → {parity_desc_v}, m_step={m_step_v}")
+
+        # Phase 2 (V-map): degree-bound analysis
+        _status("[kernel] Phase 2: degree-bound analysis (V-map targets) ...")
+        override_reach = {(m_i, int(2 * e_i)) for (m_i, e_i) in V_raw}
+        e_bounds_v, target_m_v = _compute_degree_bounds(
+            hj_ks, qq_internal, m_scan, e_scan, m_step_v, m_start_v,
+            m1_range, final_term_info,
+            status_fn=_status,
+            override_reachable=override_reach,
+        )
+        total_pts_v = sum(hi - lo + 1 for lo, hi in e_bounds_v.values())
+        full_pts_v = len(target_m_v) * (4 * e_scan + 1) if target_m_v else 1
+        _status(
+            f"[kernel]   → {len(target_m_v)} non-empty rows, "
+            f"target grid: {total_pts_v} pts "
+            f"(vs {full_pts_v} full = {total_pts_v/full_pts_v*100:.0f}%)"
+        )
+
+        # Phase 3 (V-map): compute entries
+        t0_v = time.perf_counter()
+        kernel_table_v: dict[tuple[int, Fraction], QEtaSeries] = {}
+
+        _PARALLEL_THRESHOLD_V = 60   # seconds
+        _PILOT_ROWS_V = 20
+
+        if n_workers >= 2 and total_pts_v > _PILOT_ROWS_V:
+            from manifold_index.core.refined_dehn_filling import clear_computation_caches
+            clear_computation_caches()
+
+            n_samp = min(_PILOT_ROWS_V, len(target_m_v))
+            stride_v = max(1, len(target_m_v) // n_samp)
+            pilot_pts_v: list[tuple[int, Fraction]] = []
+            for idx in range(0, len(target_m_v), stride_v):
+                m0 = target_m_v[idx]
+                e_lo, e_hi = e_bounds_v[m0]
+                e_mid = (e_lo + e_hi) // 2
+                pilot_pts_v.append((m0, Fraction(e_mid, 2)))
+
+            t_pilot_v = time.perf_counter()
+            for m0_p, e0_p in pilot_pts_v:
+                ent = _compute_entry_from_v(
+                    m0_p, e0_p, hj_ks[0], v_parts, qq_internal, eta_order, lcd_full,
+                )
+                if ent is not None:
+                    kernel_table_v[(m0_p, e0_p)] = ent
+            pilot_elapsed_v = time.perf_counter() - t_pilot_v
+            cost_per_pt_v = pilot_elapsed_v / max(1, len(pilot_pts_v))
+            est_serial_v = cost_per_pt_v * total_pts_v
+            use_parallel_v = est_serial_v > _PARALLEL_THRESHOLD_V
+
+            _status(
+                f"[kernel]   Pilot (V-map): {len(pilot_pts_v)} pts in "
+                f"{pilot_elapsed_v:.2f}s ({cost_per_pt_v*1000:.1f}ms/pt) → "
+                f"est. serial {est_serial_v:.0f}s → "
+                f"{'PARALLEL ×' + str(n_workers) if use_parallel_v else 'serial'}"
+            )
+        else:
+            use_parallel_v = False
+            pilot_pts_v = []
+
+        _status(
+            f"[kernel] Phase 3: computing {total_pts_v} grid pts (V-map path), "
+            f"workers={'parallel ×' + str(n_workers) if use_parallel_v else 'serial'}"
+        )
+
+        if use_parallel_v:
+            global _v_parts_global
+            _v_parts_global = v_parts
+
+            _CHUNK_SIZE_V = 50
+            chunks_v: list[list[tuple[int, int]]] = []
+            cur_chunk_v: list[tuple[int, int]] = []
+            pilot_set_v = {(m0, e0) for m0, e0 in pilot_pts_v}
+            for m0 in target_m_v:
+                e_lo, e_hi = e_bounds_v[m0]
+                for e_half in range(e_lo, e_hi + 1):
+                    if (m0, Fraction(e_half, 2)) in pilot_set_v:
+                        continue
+                    cur_chunk_v.append((m0, e_half))
+                    if len(cur_chunk_v) >= _CHUNK_SIZE_V:
+                        chunks_v.append(cur_chunk_v)
+                        cur_chunk_v = []
+            if cur_chunk_v:
+                chunks_v.append(cur_chunk_v)
+
+            remaining_v = sum(len(c) for c in chunks_v)
+            _status(
+                f"[kernel]   Chunk dispatch: {len(chunks_v)} chunks "
+                f"(~{_CHUNK_SIZE_V} pts each), {remaining_v} pts to compute"
+            )
+
+            ctx_v = multiprocessing.get_context("fork")
+            with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx_v) as pool_v:
+                futures_v = {
+                    pool_v.submit(
+                        _worker_compute_chunk_v_map,
+                        chunk, hj_ks[0], qq_internal, eta_order, lcd_full,
+                    ): i
+                    for i, chunk in enumerate(chunks_v)
+                }
+                done_v = len(pilot_pts_v)
+                chunks_done_v = 0
+                log_iv = max(1, len(chunks_v) // 20)
+                for fut_v in as_completed(futures_v):
+                    partial_v, nc_v = fut_v.result()
+                    kernel_table_v.update(partial_v)
+                    done_v += nc_v
+                    chunks_done_v += 1
+                    if chunks_done_v % log_iv == 0 or chunks_done_v == len(chunks_v):
+                        elapsed_v = time.perf_counter() - t0_v
+                        pct_v = done_v / total_pts_v * 100 if total_pts_v else 100
+                        eta_v = (
+                            elapsed_v / done_v * total_pts_v - elapsed_v
+                        ) if done_v else 0
+                        _status(
+                            f"[kernel]   {chunks_done_v}/{len(chunks_v)} chunks, "
+                            f"{done_v}/{total_pts_v} pts ({pct_v:.0f}%), "
+                            f"{elapsed_v:.0f}s elapsed, ~{eta_v:.0f}s remaining, "
+                            f"{len(kernel_table_v)} non-zero so far"
+                        )
+        else:
+            computed_v = len(kernel_table_v)
+            for m0 in target_m_v:
+                e_lo, e_hi = e_bounds_v[m0]
+                for e_half in range(e_lo, e_hi + 1):
+                    e0 = Fraction(e_half, 2)
+                    if (m0, e0) in kernel_table_v:
+                        computed_v += 1
+                        continue
+                    ent = _compute_entry_from_v(
+                        m0, e0, hj_ks[0], v_parts, qq_internal, eta_order, lcd_full,
+                    )
+                    if ent is not None:
+                        kernel_table_v[(m0, e0)] = ent
+                    computed_v += 1
+
+                if computed_v % max(1, total_pts_v // 20) < (e_hi - e_lo + 1):
+                    elapsed_v = time.perf_counter() - t0_v
+                    eta_v = (
+                        elapsed_v / computed_v * total_pts_v - elapsed_v
+                    ) if computed_v else 0
+                    _status(
+                        f"[kernel]   {computed_v}/{total_pts_v} "
+                        f"({computed_v/total_pts_v*100:.0f}%): "
+                        f"{elapsed_v:.0f}s elapsed, ~{eta_v:.0f}s remaining, "
+                        f"{len(kernel_table_v)} non-zero"
+                    )
+
+        # Phase 4 (V-map): Mirror symmetry  K(m,e) → K(−m,−e)
+        mirror_v: dict[tuple[int, Fraction], QEtaSeries] = {}
+        for (m, e), ent in kernel_table_v.items():
+            if m == 0 and e == Fraction(0):
+                continue
+            mirror_key = (-m, -e)
+            if mirror_key not in kernel_table_v:
+                mirror_v[mirror_key] = ent
+        kernel_table_v.update(mirror_v)
+
+        compute_time_v = time.perf_counter() - t0_v
+        _status(
+            f"[kernel] Done (V-map): {len(kernel_table_v)} non-zero entries "
+            f"(mirrored {len(mirror_v)}) "
+            f"in {compute_time_v:.1f}s ({compute_time_v/60:.1f}min)"
+        )
+        return KernelTable(
+            P=P, Q=Q,
+            qq_order=qq_order,
+            qq_internal=qq_internal,
+            eta_order=eta_order,
+            hj_ks=hj_ks,
+            table=kernel_table_v,
+            m_scan=m_scan,
+            e_scan=e_scan,
+            compute_time_s=compute_time_v,
+        )
+    # ── end ℓ ≥ 3 V-map fast path ─────────────────────────────────────
 
     # ------------------------------------------------------------------
     # Phase 1: Parity auto-detection
@@ -1317,6 +2175,34 @@ def precompute_filling_kernel(
     )
 
     # ------------------------------------------------------------------
+    # Phase 2.5: Precompute IS-chain tail map (ℓ≥3 only)
+    # ------------------------------------------------------------------
+    # For ℓ≥3 kernels, the dominant per-point cost is the inner IS steps
+    # (steps 1..ℓ-1) + K-factor, which touch O(|K-support|) IS-kernel
+    # evaluations for every non-zero intermediate (m1, e1) produced by
+    # IS step 0.  These inner evaluations depend only on (m1, e1), NOT on
+    # the source (m0, e0), so they can be pre-computed once for all
+    # possible intermediate targets and reused across the entire grid.
+    #
+    # The tail map is built with warm lru-caches (from degree analysis),
+    # then caches are cleared so the pilot measures the true cold cost of
+    # the now-fast per-point path.
+    tail_map: dict | None = None
+    t_tail = time.perf_counter()
+    if ell >= 3:
+        _status(f"[kernel] Phase 2.5: pre-computing IS tail map for ℓ={ell} ...")
+        tail_map = _precompute_tail_map(
+            hj_ks, qq_internal, eta_order, m1_range, final_term_info,
+            n_workers=n_workers,
+            status_fn=_status,
+        )
+        tail_elapsed = time.perf_counter() - t_tail
+        _status(
+            f"[kernel]   tail map ready: {len(tail_map)} entries "
+            f"in {tail_elapsed:.1f}s"
+        )
+
+    # ------------------------------------------------------------------
     # Phase 3: Compute kernel entries (m ≥ 0 only, symmetry)
     # ------------------------------------------------------------------
     t0 = time.perf_counter()
@@ -1352,6 +2238,7 @@ def precompute_filling_kernel(
             entry = _compute_one_kernel_entry(
                 m0_p, e0_p, hj_ks, qq_internal, eta_order,
                 m1_range, final_term_info,
+                tail_map=tail_map,
             )
             if entry is not None:
                 kernel_table[(m0_p, e0_p)] = entry
@@ -1404,14 +2291,25 @@ def precompute_filling_kernel(
 
         ctx = multiprocessing.get_context("fork")
         with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as pool:
-            futures = {
-                pool.submit(
-                    _worker_compute_chunk,
-                    chunk, hj_ks, qq_internal, eta_order,
-                    m1_range, final_term_info,
-                ): i
-                for i, chunk in enumerate(chunks)
-            }
+            if tail_map is not None:
+                # ℓ≥3 fast path: workers skip inner IS steps via tail_map.
+                futures = {
+                    pool.submit(
+                        _worker_compute_chunk_with_map,
+                        chunk, hj_ks, qq_internal, eta_order,
+                        m1_range, final_term_info, tail_map,
+                    ): i
+                    for i, chunk in enumerate(chunks)
+                }
+            else:
+                futures = {
+                    pool.submit(
+                        _worker_compute_chunk,
+                        chunk, hj_ks, qq_internal, eta_order,
+                        m1_range, final_term_info,
+                    ): i
+                    for i, chunk in enumerate(chunks)
+                }
             done_count = len(pilot_pts_list)  # pilot computed this many points (incl. zeros)
             chunks_done = 0
             log_interval = max(1, len(chunks) // 20)  # ~5% increments
@@ -1443,6 +2341,7 @@ def precompute_filling_kernel(
                 entry = _compute_one_kernel_entry(
                     m0, e0, hj_ks, qq_internal, eta_order,
                     m1_range, final_term_info,
+                    tail_map=tail_map,
                 )
                 if entry is not None:
                     kernel_table[(m0, e0)] = entry
