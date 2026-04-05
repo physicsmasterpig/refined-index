@@ -5,11 +5,11 @@
     {
       "id": "kernels_qq50",
       "name": "Filling Kernels qq=50",
-      "description": "Pre-computed K^ref Dehn filling kernels at qq=50. 54 slopes: coprime (P,Q) with |P|\u226410, Q\u22645.",
+      "description": "Pre-computed K^ref Dehn filling kernels at qq=50. 75 slopes: coprime (P,Q) with |P|\u226410, Q\u226410. Computed with v0.4 (IS chain fix included).",
       "filename": "kernels-qq50.tar.gz",
       "release_tag": "data-v1",
-      "size_bytes": 130828121,
-      "sha256": "bc5bca3c6208706362cab1eefaf52a882a7165024912aa389edb38fb68e195a6",
+      "size_bytes": 370900749,
+      "sha256": "cc81b8ecfdb8573359034df623fc137e0a08f2959467dd398e4de139052f4528",
       "target_subdir": "kernel_cache",
       "category": "kernels"
     }
