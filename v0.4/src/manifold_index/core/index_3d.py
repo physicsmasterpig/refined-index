@@ -439,39 +439,39 @@ def valid_half_integer_patterns(
     n: int,
     r: int,
 ) -> list[np.ndarray]:
-    """Find all δ ∈ {0, 1}^{n-r} that give integer g_NZ⁻¹ κ.
+    """Enumerate ALL δ ∈ {0, 1}^{n-r} candidate half-integer patterns.
 
-    When e_int = e0 + δ/2 (e0 integer, δ ∈ {0,1}^{n-r}), the
-    half-integer contribution to g_NZ⁻¹ κ is
+    When e_int = e0 + δ/2 (e0 integer, δ ∈ {0,1}^{n-r}), the integrality
+    of g_NZ⁻¹ κ depends on the FULL κ vector — including cusp charges
+    (m_ext, e_ext) — not just the internal-edge columns.  In particular,
+    when g_NZ⁻¹ has half-integer entries in cusp columns (common when the
+    SnapPy longitude has odd coefficients), a half-integer e_ext can flip
+    the parity so that a δ pattern rejected by the internal-only check
+    becomes valid (the cusp and internal half-integer parts cancel).
 
-        (1/2) · g_NZ_inv[:, n+r : 2n] @ δ
-
-    For the result to be an integer vector we need each component of
-    ``g_NZ_inv[:, n+r:2n] @ δ`` to be even.  All n-r internal-edge
-    columns are checked (both "hard" and "easy" edges).
+    Therefore this function returns ALL 2^{n-r} patterns.  The runtime
+    integrality check in ``_enumerate_with_state`` (``base_args_x2S % S2``)
+    performs the exact combined check for each (m_ext, e_ext, δ) triple.
 
     Parameters
     ----------
-    g_NZ_inv : np.ndarray, shape (2n, 2n), dtype int
+    g_NZ_inv : np.ndarray, shape (2n, 2n), dtype int or Fraction
     n, r : int
 
     Returns
     -------
     list of np.ndarray, each shape (n-r,) dtype int
-        All valid δ patterns (including all-zeros = integer summation).
+        All 2^{n-r} δ patterns (including all-zeros = integer summation).
     """
     n_int = n - r
     if n_int == 0:
         return [np.array([], dtype=int)]
 
-    int_cols = g_NZ_inv[:, n + r: 2 * n]  # (2n, n-r)
-    valid: list[np.ndarray] = []
+    patterns: list[np.ndarray] = []
     for bits in range(2 ** n_int):
         delta = np.array([(bits >> j) & 1 for j in range(n_int)], dtype=int)
-        product = int_cols @ delta  # (2n,)
-        if np.all(product % 2 == 0):
-            valid.append(delta)
-    return valid
+        patterns.append(delta)
+    return patterns
 
 
 def _axis_scan_bound(

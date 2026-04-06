@@ -713,7 +713,7 @@ def write_full_report(
     else:
         L.append(r"Define the Weyl-shifted index:")
         L.append(r"\[")
-        L.append(r"  f(\eta_j; m, e) = \eta_j^{a_j \cdot e + b_j \cdot m} "
+        L.append(r"  f(\eta_j; m, e) = \eta_j^{\sum_I (a_{j,I} \cdot e_I + b_{j,I} \cdot m_I)} "
                  r"\cdot \Iref(m, e)")
         L.append(r"\]")
         L.append(r"Weyl symmetry requires $f(m, e) = f(-m, -e)$ for each sector pair, "
@@ -728,10 +728,22 @@ def write_full_report(
             L.append(r"Hard edge $j$ & $a_j$ & $b_j$ & $a_j \in \mathbb{Z}$? "
                      r"& $2b_j \in \mathbb{Z}$? \\ \midrule")
             for j in range(ab.num_hard):
-                a_str = _frac_tex(ab.a[j])
-                b_str = _frac_tex(ab.b[j])
-                a_int = r"\checkmark" if ab.a[j].denominator == 1 else r"\crossmark"
-                b_hint = r"\checkmark" if (2 * ab.b[j]).denominator == 1 else r"\crossmark"
+                if ab.cusp_columns is not None:
+                    a_str = "(" + ", ".join(
+                        _frac_tex(col.a[j]) for col in ab.cusp_columns
+                    ) + ")"
+                    b_str = "(" + ", ".join(
+                        _frac_tex(col.b[j]) for col in ab.cusp_columns
+                    ) + ")"
+                    a_int_ok = all(col.a[j].denominator == 1 for col in ab.cusp_columns)
+                    b_hint_ok = all((2 * col.b[j]).denominator == 1 for col in ab.cusp_columns)
+                else:
+                    a_str = _frac_tex(ab.a[j])
+                    b_str = _frac_tex(ab.b[j])
+                    a_int_ok = ab.a[j].denominator == 1
+                    b_hint_ok = (2 * ab.b[j]).denominator == 1
+                a_int = r"\checkmark" if a_int_ok else r"\crossmark"
+                b_hint = r"\checkmark" if b_hint_ok else r"\crossmark"
                 L.append(rf"  {j} & ${a_str}$ & ${b_str}$ & {a_int} & {b_hint} \\")
             L.append(r"\bottomrule")
             L.append(r"\end{tabular}")
@@ -755,7 +767,7 @@ def write_full_report(
                          r"$a_j \in \mathbb{Z}$; incompatible edges are collapsed ($\eta_j = 1$).")
                 parts = []
                 for j in range(ab.num_hard):
-                    compat = ab.a[j].denominator == 1
+                    compat = ab.a_is_integer[j]
                     status = r"\passmark" if compat else r"\failmark"
                     parts.append(rf"H$_{j}$: {status}")
                 L.append(" ".join(parts))

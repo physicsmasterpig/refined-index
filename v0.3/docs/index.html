@@ -157,9 +157,9 @@
 
     <!-- ── Download ────────────────────────────────── -->
     <div class="download-card">
-      <div class="version">v0.4.0</div>
+      <div class="version">v0.4.2</div>
       <div class="platform">macOS&ensp;·&ensp;Apple&nbsp;Silicon (arm64)&ensp;·&ensp;macOS 11+</div>
-      <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.4.0/ManifoldIndex.zip">
+      <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.4.2/ManifoldIndex.zip">
         ⬇ Download .app
       </a>
       <p class="note">
@@ -247,6 +247,15 @@
     <!-- ── Changelog ─────────────────────────────── -->
     <section>
       <h2>Changelog</h2>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.4.2</h3>
+      <ul>
+        <li><strong>Critical fix</strong>: half-integer e summation in Dehn filling — <code>valid_half_integer_patterns</code> now enumerates all δ patterns instead of pre-filtering by internal columns only. The previous filter missed δ patterns that become valid when cusp charges (m, e) introduce cancelling half-integer contributions via g⁻¹. Affected most manifolds with odd SnapPy longitude coefficients (m003, m006, m007, m009, m015, m125, …).</li>
+        <li>Multi-cusp Weyl symmetry fix: <code>ABVectors</code> extended with per-cusp <code>cusp_columns</code>, <code>shift_x2()</code> method, and per-cusp accessors. Fixes garbage Weyl vectors for multi-cusp manifolds (e.g. m125).</li>
+        <li>Weyl convention text corrected: f(m,e) = f(−m,−e) (boundary charge flip), not f(η) = f(η⁻¹).</li>
+        <li>Removed stale I<sup>ref</sup> data pack (computed before the half-integer fix; will be recomputed).</li>
+        <li>76 tests pass.</li>
+      </ul>
 
       <h3 style="font-size:0.95rem; margin-top:1rem;">v0.4.0</h3>
       <ul>

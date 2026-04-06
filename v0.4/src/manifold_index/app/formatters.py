@@ -337,16 +337,31 @@ def format_weyl_check(weyl: WeylCheckResult | None, nz: NeumannZagierData) -> st
 
     lines = """
 <h3>Weyl Symmetry</h3>
-<p>Convention: $f(\\eta) = \\eta^{b \\cdot m + a \\cdot e} \\cdot I(m,e)$, &nbsp;
-$f(\\eta) = f(\\eta^{-1})$</p>
+<p>Convention: $f(m,e) = \\eta^{\\sum_I(a_I \\cdot e_I + b_I \\cdot m_I)} \\cdot I^{\\text{ref}}(m,e)$, &nbsp;
+Weyl: $f(m,e) = f(-m,-e)$</p>
 """
 
     if weyl.ab is not None:
         ab = weyl.ab
-        for j in range(ab.num_hard):
-            a_str = _frac_to_latex(ab.a[j])
-            b_str = _frac_to_latex(ab.b[j])
-            lines += f"<p>$a_{j} = {a_str}, \\quad b_{j} = {b_str}$</p>\n"
+        if ab.cusp_columns is not None:
+            # Multi-cusp: show per-cusp matrix
+            lines += "<p>Per-cusp Weyl vectors:</p>\n"
+            for j in range(ab.num_hard):
+                a_parts = ", ".join(
+                    _frac_to_latex(col.a[j]) for col in ab.cusp_columns
+                )
+                b_parts = ", ".join(
+                    _frac_to_latex(col.b[j]) for col in ab.cusp_columns
+                )
+                lines += (
+                    f"<p>$a_{j} = ({a_parts}), \\quad "
+                    f"b_{j} = ({b_parts})$</p>\n"
+                )
+        else:
+            for j in range(ab.num_hard):
+                a_str = _frac_to_latex(ab.a[j])
+                b_str = _frac_to_latex(ab.b[j])
+                lines += f"<p>$a_{j} = {a_str}, \\quad b_{j} = {b_str}$</p>\n"
 
         if ab.is_valid:
             lines += '<p class="success">✓ &nbsp; $a \\in \\mathbb{Z}$, $b \\in \\mathbb{Z}/2$ — Dehn filling compatible</p>\n'
@@ -1064,8 +1079,17 @@ def format_dehn_compatibility(weyl: WeylCheckResult | None) -> str:
         a_ok = ab.a_is_integer[j]
         b_ok = ab.b_is_half_integer[j]
         ok = compat[j]
-        a_str = _frac_to_latex(ab.a[j])
-        b_str = _frac_to_latex(ab.b[j])
+        if ab.cusp_columns is not None:
+            # Multi-cusp: show per-cusp vector
+            a_str = "(" + ", ".join(
+                _frac_to_latex(col.a[j]) for col in ab.cusp_columns
+            ) + ")"
+            b_str = "(" + ", ".join(
+                _frac_to_latex(col.b[j]) for col in ab.cusp_columns
+            ) + ")"
+        else:
+            a_str = _frac_to_latex(ab.a[j])
+            b_str = _frac_to_latex(ab.b[j])
         a_icon = "\u2713" if a_ok else "\u2717"
         b_icon = "\u2713" if b_ok else "\u2717"
         status = ('<span style="color:#2ea043;">\u2713 compatible</span>' if ok
@@ -1106,8 +1130,16 @@ def format_dehn_compatibility(weyl: WeylCheckResult | None) -> str:
         ab_eff = ab.make_filling_compatible()
         eff_parts = []
         for j in range(n):
-            a_s = _frac_to_latex(ab_eff.a[j])
-            b_s = _frac_to_latex(ab_eff.b[j])
+            if ab_eff.cusp_columns is not None:
+                a_s = "(" + ", ".join(
+                    _frac_to_latex(col.a[j]) for col in ab_eff.cusp_columns
+                ) + ")"
+                b_s = "(" + ", ".join(
+                    _frac_to_latex(col.b[j]) for col in ab_eff.cusp_columns
+                ) + ")"
+            else:
+                a_s = _frac_to_latex(ab_eff.a[j])
+                b_s = _frac_to_latex(ab_eff.b[j])
             eff_parts.append(f"a_{j}={a_s},\\; b_{j}={b_s}")
         lines.append(
             f'<p style="font-size:0.85em;">Effective vectors after zeroing: '

@@ -97,25 +97,39 @@ class ABVectors:
     """
     Weyl-symmetry vectors (a, b) for the refined index.
 
-    The physical Weyl monomial is  ``η^{a·e + b·m}``, so:
+    The physical Weyl monomial is
 
-    * ``a[j]`` couples to the longitude charge *e*
-    * ``b[j]`` couples to the meridian charge *m*
+    .. math::
 
-    An edge *j* is **compatible** with Dehn filling iff ``a[j] ∈ ℤ``
-    and ``2·b[j] ∈ ℤ``.  (This ensures the doubled-exponent shift
-    ``2(a·e + b·m)`` is always an integer for half-integer *e* and
-    integer *m*.)  Incompatible edges must have their refinement
-    turned off (η_j = 1, W_j = 0).
+        \\eta_j^{\\sum_I (a_I[j] \\cdot e_I + b_I[j] \\cdot m_I)}
+
+    For **1-cusp** manifolds the coupling is scalar:
+    ``shift_j = a[j]·e + b[j]·m``, and ``a[j]``, ``b[j]`` are plain
+    ``Fraction`` values.
+
+    For **multi-cusp** manifolds each cusp *I* contributes independently.
+    The per-cusp columns are stored in :attr:`cusp_columns`; the flat
+    ``a`` and ``b`` fields hold the **cusp-0 column** for display
+    backward-compatibility.  All shift computations must use
+    :meth:`shift_x2` which handles both cases correctly.
+
+    An edge *j* is **compatible** with Dehn filling iff, for every
+    cusp *I*, ``a_I[j] ∈ ℤ`` and ``2·b_I[j] ∈ ℤ``.
 
     Attributes
     ----------
     a : list[Fraction]
-        One entry per hard edge.  Compatible iff ``a[j] ∈ ℤ``.
+        One entry per hard edge.  For 1-cusp this is the full coupling;
+        for multi-cusp it is the cusp-0 column (see :attr:`cusp_columns`).
     b : list[Fraction]
-        One entry per hard edge.  Compatible iff ``2·b[j] ∈ ℤ``.
+        One entry per hard edge (same convention as *a*).
     num_hard : int
         Number of hard edges.
+    num_cusps : int
+        Number of cusps (default 1 for backward compatibility).
+    cusp_columns : list[ABVectors] or None
+        For multi-cusp manifolds: one single-cusp ``ABVectors`` per cusp.
+        ``None`` for single-cusp manifolds (where ``a``, ``b`` suffice).
     warnings : list[str]
         Non-fatal messages (e.g., inconsistency between different pair
         estimates, or missing data for some components).
@@ -124,16 +138,67 @@ class ABVectors:
     a: list[Fraction]
     b: list[Fraction]
     num_hard: int
+    num_cusps: int = 1
+    cusp_columns: "list[ABVectors] | None" = field(default=None, repr=False)
     warnings: list[str] = field(default_factory=list)
+
+    # ------------------------------------------------------------------
+    # Shift computation (correct for any number of cusps)
+    # ------------------------------------------------------------------
+
+    def shift_x2(
+        self,
+        m_ext: "Sequence[int]",
+        e_ext: "Sequence[Fraction]",
+    ) -> list[int]:
+        """Doubled Weyl shift for each hard edge.
+
+        Returns ``[2·Σ_I (a_I[j]·e_I + b_I[j]·m_I)  for j in 0..num_hard-1]``.
+
+        For 1-cusp manifolds (``cusp_columns is None``) this falls back to
+        the simple ``2·(a[j]·Σe + b[j]·Σm)`` formula, which is identical
+        since there is only one cusp.
+        """
+        if self.cusp_columns is not None:
+            out: list[int] = []
+            for j in range(self.num_hard):
+                s = sum(
+                    self.cusp_columns[I].a[j] * Fraction(e_ext[I])
+                    + self.cusp_columns[I].b[j] * m_ext[I]
+                    for I in range(self.num_cusps)
+                )
+                out.append(int(2 * s))
+            return out
+        # 1-cusp fast path
+        e_sum = sum(Fraction(v) for v in e_ext)
+        m_sum = sum(m_ext)
+        return [
+            int(2 * (self.a[j] * e_sum + self.b[j] * m_sum))
+            for j in range(self.num_hard)
+        ]
+
+    # ------------------------------------------------------------------
+    # Compatibility checks
+    # ------------------------------------------------------------------
 
     @property
     def a_is_integer(self) -> list[bool]:
-        """``a[j] ∈ ℤ`` for each j."""
+        """``a_I[j] ∈ ℤ`` for each j (across all cusps)."""
+        if self.cusp_columns is not None:
+            return [
+                all(col.a[j].denominator == 1 for col in self.cusp_columns)
+                for j in range(self.num_hard)
+            ]
         return [v.denominator == 1 for v in self.a]
 
     @property
     def b_is_half_integer(self) -> list[bool]:
-        """``2·b[j] ∈ ℤ`` for each j."""
+        """``2·b_I[j] ∈ ℤ`` for each j (across all cusps)."""
+        if self.cusp_columns is not None:
+            return [
+                all((col.b[j] * 2).denominator == 1 for col in self.cusp_columns)
+                for j in range(self.num_hard)
+            ]
         return [(v * 2).denominator == 1 for v in self.b]
 
     @property
@@ -145,8 +210,9 @@ class ABVectors:
     def edge_compatible(self) -> list[bool]:
         """Per-edge compatibility with Dehn filling.
 
-        Edge *j* is compatible iff ``a[j] ∈ ℤ`` and ``2·b[j] ∈ ℤ``.
-        Incompatible edges must be turned off: η_j = 1 (W_j = 0).
+        Edge *j* is compatible iff ``a_I[j] ∈ ℤ`` and ``2·b_I[j] ∈ ℤ``
+        for *every* cusp *I*.  Incompatible edges must be turned off:
+        η_j = 1 (W_j = 0).
         """
         return [
             a_ok and b_ok
@@ -157,8 +223,9 @@ class ABVectors:
         """Return a copy with incompatible edges zeroed out.
 
         For each hard edge j where :attr:`edge_compatible` is False,
-        sets ``a[j] = 0`` and ``b[j] = 0`` (i.e., η_j = 1 during
-        filling).  Compatible edges are kept unchanged.
+        sets ``a_I[j] = 0`` and ``b_I[j] = 0`` for *every* cusp *I*
+        (i.e., η_j = 1 during filling).  Compatible edges are kept
+        unchanged.
         """
         mask = self.edge_compatible
         a_new = [
@@ -176,18 +243,66 @@ class ABVectors:
                 f"Edges {zeroed} incompatible with half-integer e; "
                 f"set η_j=1 (W_j=0) for filling"
             )
+        # Zero out cusp columns too
+        new_columns = None
+        if self.cusp_columns is not None:
+            new_columns = []
+            for col in self.cusp_columns:
+                new_columns.append(ABVectors(
+                    a=[col.a[j] if mask[j] else Fraction(0)
+                       for j in range(self.num_hard)],
+                    b=[col.b[j] if mask[j] else Fraction(0)
+                       for j in range(self.num_hard)],
+                    num_hard=self.num_hard,
+                ))
         return ABVectors(
             a=a_new, b=b_new, num_hard=self.num_hard,
+            num_cusps=self.num_cusps, cusp_columns=new_columns,
             warnings=new_warnings,
         )
+
+    # ------------------------------------------------------------------
+    # Per-cusp accessors
+    # ------------------------------------------------------------------
+
+    def a_for_cusp(self, cusp_idx: int) -> list[Fraction]:
+        """Column of a-vectors for one cusp: ``[a_I[0], a_I[1], …]``."""
+        if self.cusp_columns is not None:
+            return list(self.cusp_columns[cusp_idx].a)
+        return list(self.a)
+
+    def b_for_cusp(self, cusp_idx: int) -> list[Fraction]:
+        """Column of b-vectors for one cusp."""
+        if self.cusp_columns is not None:
+            return list(self.cusp_columns[cusp_idx].b)
+        return list(self.b)
+
+    # ------------------------------------------------------------------
+    # Display
+    # ------------------------------------------------------------------
 
     def __str__(self) -> str:
         def _fmt(v: Fraction) -> str:
             return str(int(v)) if v.denominator == 1 else str(v)
 
+        valid = "✓" if self.is_valid else "✗"
+
+        if self.cusp_columns is not None:
+            # Multi-cusp: show matrix
+            lines = []
+            for j in range(self.num_hard):
+                a_parts = ", ".join(
+                    _fmt(col.a[j]) for col in self.cusp_columns
+                )
+                b_parts = ", ".join(
+                    _fmt(col.b[j]) for col in self.cusp_columns
+                )
+                lines.append(f"  edge {j}: a = ({a_parts})  b = ({b_parts})")
+            header = f"Weyl vectors ({self.num_cusps} cusps, {self.num_hard} hard edges)  {valid}"
+            return "\n".join([header] + lines + [f"  warning: {w}" for w in self.warnings])
+
         a_str = "(" + ", ".join(_fmt(v) for v in self.a) + ")"
         b_str = "(" + ", ".join(_fmt(v) for v in self.b) + ")"
-        valid = "✓" if self.is_valid else "✗"
         lines = [f"a = {a_str}  b = {b_str}  {valid}"]
         for w in self.warnings:
             lines.append(f"  warning: {w}")
@@ -311,7 +426,7 @@ def compute_ab_vectors(
 ) -> ABVectors | None:
     """
     Compute the Weyl-symmetry vectors (a, b) from a table of refined index
-    evaluations.
+    evaluations — **per-cusp** matrix model.
 
     The entries are ``(m_ext, e_ext, result)`` triples as produced by the
     multi-point evaluation grid in the GUI (and by ``compute_refined_index``
@@ -319,21 +434,14 @@ def compute_ab_vectors(
 
     Algorithm
     ---------
-    For each hard-edge component j, let ``centre_j(m, e)`` be the
-    coefficient-weighted centre of the η_j exponents at the leading q-order
-    (see :func:`_eta_center_at_leading_q`).  Then:
+    For each cusp *I*, filter the entries to those where **only cusp I**
+    has nonzero charges (all other cusps at m = 0, e = 0).  From those
+    "pure cusp I" entries, extract the per-cusp Weyl column
+    ``(a_I, b_I)`` using the η-centre method (see
+    :func:`_extract_cusp_ab_from_entries`).
 
-    * **b[j]** from meridian pairs  (m, 0) / (−m, 0)  with m > 0:
-
-          b[j]  =  −[centre_j(+m, 0) − centre_j(−m, 0)] / (2 m)
-
-    * **a[j]** from longitude pairs  (0, e) / (0, −e)  with sum(e) > 0:
-
-          a[j]  =  −[centre_j(0, +e) − centre_j(0, −e)] / (2 · sum(|e|))
-
-    Multiple pairs are used for robustness; consistency is checked across
-    them.  Only pairs from the "positive" side (m_sum > 0 or e_sum > 0) are
-    processed to guarantee a consistent sign convention.
+    The full Weyl shift is then
+    ``shift_j = Σ_I (a_I[j]·e_I + b_I[j]·m_I)``.
 
     Parameters
     ----------
@@ -348,12 +456,189 @@ def compute_ab_vectors(
     -------
     ABVectors or None
         ``None`` if there are not enough conjugate-charge pairs to determine
-        both a and b.  Otherwise returns an ``ABVectors`` instance (check
-        ``is_valid`` for integrality constraints).
+        both a and b for at least cusp 0.  Otherwise returns an ``ABVectors``
+        instance with ``cusp_columns`` populated for multi-cusp manifolds.
     """
     if num_hard == 0:
         return ABVectors(a=[], b=[], num_hard=0)
 
+    if not entries:
+        return None
+
+    r = len(entries[0][0])  # number of cusps
+
+    if r == 1:
+        # Single cusp — use the original scalar algorithm (fast path)
+        return _compute_ab_vectors_scalar(entries, num_hard)
+
+    # ------------------------------------------------------------------
+    # Multi-cusp: extract per-cusp columns
+    # ------------------------------------------------------------------
+    cusp_cols: list[ABVectors | None] = []
+    all_warnings: list[str] = []
+
+    for cusp_idx in range(r):
+        col = _extract_cusp_ab_from_entries(entries, num_hard, cusp_idx, r)
+        cusp_cols.append(col)
+        if col is None:
+            all_warnings.append(
+                f"Cusp {cusp_idx}: could not determine (a, b) — "
+                f"insufficient pure-cusp entries"
+            )
+
+    # If ALL cusps failed, return None
+    if all(c is None for c in cusp_cols):
+        return None
+
+    # Fill missing cusps with zeros
+    columns: list[ABVectors] = []
+    for I, col in enumerate(cusp_cols):
+        if col is not None:
+            columns.append(col)
+        else:
+            columns.append(ABVectors(
+                a=[Fraction(0)] * num_hard,
+                b=[Fraction(0)] * num_hard,
+                num_hard=num_hard,
+                warnings=[f"Cusp {I}: defaulted to a=0, b=0"],
+            ))
+
+    # Merge warnings from all columns
+    for col in columns:
+        for w in col.warnings:
+            all_warnings.append(w)
+
+    # a, b = cusp 0 column (for backward compat / display)
+    return ABVectors(
+        a=list(columns[0].a),
+        b=list(columns[0].b),
+        num_hard=num_hard,
+        num_cusps=r,
+        cusp_columns=columns,
+        warnings=all_warnings,
+    )
+
+
+def _extract_cusp_ab_from_entries(
+    entries: Sequence[tuple[list[int], list[Fraction], RefinedIndexResult]],
+    num_hard: int,
+    cusp_idx: int,
+    num_cusps: int,
+) -> ABVectors | None:
+    """Extract (a, b) for a single cusp from pre-computed entries.
+
+    Filters *entries* to "pure cusp *cusp_idx*" entries (all other cusps
+    at m = 0, e = 0) and runs the η-centre extraction algorithm.
+    """
+    # Build 1-D indexed table: (m_I, e_I) → centre
+    indexed: dict[tuple[int, Fraction], list[Fraction] | None] = {}
+
+    for m_ext, e_ext, result in entries:
+        # Check: all OTHER cusps must be at (0, 0)
+        pure = True
+        for I in range(num_cusps):
+            if I == cusp_idx:
+                continue
+            if m_ext[I] != 0 or e_ext[I] != 0:
+                pure = False
+                break
+        if not pure:
+            continue
+
+        m_i = m_ext[cusp_idx]
+        e_i = Fraction(e_ext[cusp_idx])
+        indexed[(m_i, e_i)] = _eta_center_at_leading_q(result, num_hard)
+
+    if not indexed:
+        return None
+
+    # --- Extract a and b using the centre-based algorithm ---
+    def get_c(m_i: int, e_i: Fraction) -> list[Fraction] | None:
+        return indexed.get((m_i, e_i))
+
+    b_estimates: list[list[Fraction]] = []
+    a_estimates: list[list[Fraction]] = []
+
+    # meridian pairs: e_i = 0, m_i > 0
+    m_vals = sorted(set(m for m, e in indexed if e == 0 and m > 0))
+    for m_i in m_vals:
+        c_pos = get_c(m_i, Fraction(0))
+        c_neg = get_c(-m_i, Fraction(0))
+        if c_pos is not None and c_neg is not None:
+            b_vec = [
+                -(c_pos[j] - c_neg[j]) / (2 * m_i)
+                for j in range(num_hard)
+            ]
+            b_estimates.append(b_vec)
+
+    # longitude pairs: m_i = 0, e_i > 0
+    e_vals = sorted(set(e for m, e in indexed if m == 0 and e > 0))
+    for e_i in e_vals:
+        c_pos = get_c(0, e_i)
+        c_neg = get_c(0, -e_i)
+        if c_pos is not None and c_neg is not None:
+            a_vec = [
+                -(c_pos[j] - c_neg[j]) / (2 * abs(e_i))
+                for j in range(num_hard)
+            ]
+            a_estimates.append(a_vec)
+
+    # Fallback for b: compare to zero-charge centre
+    if not b_estimates:
+        c_zero = get_c(0, Fraction(0))
+        if c_zero is not None:
+            for m_i in m_vals:
+                c_pos = get_c(m_i, Fraction(0))
+                if c_pos is not None:
+                    b_vec = [
+                        -(c_pos[j] - c_zero[j]) / m_i
+                        for j in range(num_hard)
+                    ]
+                    b_estimates.append(b_vec)
+
+    # Consensus
+    warnings: list[str] = []
+
+    def _consensus(
+        estimates: list[list[Fraction]], label: str,
+    ) -> list[Fraction] | None:
+        if not estimates:
+            return None
+        ref = estimates[0]
+        for est in estimates[1:]:
+            for j, (r_j, e_j) in enumerate(zip(ref, est)):
+                if r_j != e_j:
+                    warnings.append(
+                        f"cusp {cusp_idx} {label}[{j}]: inconsistent "
+                        f"estimates {r_j} vs {e_j} (using first)"
+                    )
+        return ref
+
+    b_vec = _consensus(b_estimates, "b")
+    a_vec = _consensus(a_estimates, "a")
+
+    if b_vec is None and a_vec is None:
+        return None
+
+    if b_vec is None:
+        warnings.append(f"cusp {cusp_idx} b: no meridian pairs; defaulting to 0")
+        b_vec = [Fraction(0)] * num_hard
+    if a_vec is None:
+        warnings.append(f"cusp {cusp_idx} a: no longitude pairs; defaulting to 0")
+        a_vec = [Fraction(0)] * num_hard
+
+    return ABVectors(a=a_vec, b=b_vec, num_hard=num_hard, warnings=warnings)
+
+
+def _compute_ab_vectors_scalar(
+    entries: Sequence[tuple[list[int], list[Fraction], RefinedIndexResult]],
+    num_hard: int,
+) -> ABVectors | None:
+    """Original single-cusp algorithm (preserved for 1-cusp fast path).
+
+    Uses ``sum(e)`` and ``sum(m)`` as coupling variables, which is
+    correct when there is only one cusp.
+    """
     # ------------------------------------------------------------------
     # Index entries by (m_ext_tuple, e_ext_tuple) → η centre vector.
     # ------------------------------------------------------------------
@@ -666,13 +951,8 @@ def check_weyl_symmetry(
     shifted_lookup: dict[tuple, RefinedIndexResult] = {}
 
     for m_ext, e_ext, result in entries:
-        m_sum = sum(m_ext)
-        e_sum = sum(e_ext)
-        # shift_x2 = 2·(a·e + b·m) in the doubled-exponent encoding
-        shift_x2 = [
-            int(2 * (ab.a[j] * e_sum + ab.b[j] * m_sum))
-            for j in range(num_hard)
-        ]
+        # Per-cusp shift: 2·Σ_I (a_I[j]·e_I + b_I[j]·m_I)
+        shift_x2 = ab.shift_x2(m_ext, e_ext)
 
         shifted: RefinedIndexResult = {}
         for key, coeff in result.items():
@@ -753,12 +1033,7 @@ def strip_weyl_monomial(
         The Weyl-manifest series ``f = η^{a·e + b·m} · I``.  Stored in
         the same doubled-exponent encoding as *result*.
     """
-    m_sum = sum(m_ext)
-    e_sum = sum(Fraction(v) for v in e_ext)
-    shift_x2 = [
-        int(2 * (ab.a[j] * e_sum + ab.b[j] * m_sum))
-        for j in range(num_hard)
-    ]
+    shift_x2 = ab.shift_x2(m_ext, e_ext)
     # centre[j] = −(a[j]·e + b[j]·m)
     centre = [Fraction(-s, 2) for s in shift_x2]
     stripped: RefinedIndexResult = {}
@@ -901,10 +1176,9 @@ def check_adjoint_projection(
 
         e_val = Fraction(e_ext[cusp_idx])
 
-        # Compute the Weyl shift at m=0: 2·(a[j]·e + b[j]·0) = 2·a[j]·e
+        # Compute the Weyl shift at m=0 using per-cusp model
         if ab is not None and num_hard > 0:
-            e_sum = sum(Fraction(v) for v in e_ext)
-            shift_x2 = [int(2 * ab.a[j] * e_sum) for j in range(num_hard)]
+            shift_x2 = ab.shift_x2(m_ext, e_ext)
         else:
             shift_x2 = [0] * num_hard
 
@@ -1040,20 +1314,23 @@ def check_adjoint_with_w_vector(
     and checks the adjoint projection condition on the combined variable.
 
     The Weyl shift becomes  eta^{a_eff * e + b_eff * m}  where
-    a_eff = W . a  and  b_eff = W . b.
+    a_eff = W . a_I  and  b_eff = W . b_I  (for the cusp *I* being
+    checked).
 
     Algorithm
     ---------
     For each entry at m = 0:
 
-    1. Compute target_x2 = -2 * a_eff * e_sum -- the doubled combined
+    1. Compute target_x2 = -2 * a_eff * e_I -- the doubled combined
        eta-exponent that maps to eta^0 after the Weyl shift.
     2. Sum all q^1 monomials whose projected exponent
        sum(W_j * key[1+j]) == target_x2.
     3. Collect c_e for e in {-2, -1, +1, +2} and apply the Haar x adjoint
        projection: 1/2(c_{-1} + c_{+1} - c_{-2} - c_{+2}) = -1.
     """
-    a_eff = sum(Fraction(w[j]) * ab.a[j] for j in range(num_hard))
+    a_col = ab.a_for_cusp(cusp_idx)
+    b_col = ab.b_for_cusp(cusp_idx)
+    a_eff = sum(Fraction(w[j]) * a_col[j] for j in range(num_hard))
 
     c_e: dict[Fraction, int] = {}
     for m_ext, e_ext, result in entries:
@@ -1068,9 +1345,8 @@ def check_adjoint_with_w_vector(
             continue
 
         e_val = Fraction(e_ext[cusp_idx])
-        e_sum = sum(Fraction(ev) for ev in e_ext)
 
-        target_raw = -2 * a_eff * e_sum
+        target_raw = -2 * a_eff * e_val
         if target_raw.denominator != 1:
             c_e[e_val] = c_e.get(e_val, 0)
             continue
@@ -1122,14 +1398,18 @@ def scan_w_vectors(
     nonzero entry is positive are tested, since v and -v give the same
     adjoint projection (the Haar x adjoint kernel is even in eta).
 
-    For each W-vector, computes a_eff = W . a, b_eff = W . b,
-    checks whether a_eff is an integer, and (unless skip_incompatible is
-    set and a_eff is not integer) runs the adjoint projection check.
+    For each W-vector, computes a_eff = W . a_I, b_eff = W . b_I
+    (for the cusp being checked), checks whether a_eff is an integer,
+    and (unless skip_incompatible is set and a_eff is not integer) runs
+    the adjoint projection check.
     """
     from itertools import product
 
     if num_hard == 0:
         return WScanResult(ab=ab, entries=[], passing=[])
+
+    a_col = ab.a_for_cusp(cusp_idx)
+    b_col = ab.b_for_cusp(cusp_idx)
 
     all_entries: list[WScanEntry] = []
     passing: list[WScanEntry] = []
@@ -1143,8 +1423,8 @@ def scan_w_vectors(
             continue
 
         w = combo
-        a_eff = sum(Fraction(w[j]) * ab.a[j] for j in range(num_hard))
-        b_eff = sum(Fraction(w[j]) * ab.b[j] for j in range(num_hard))
+        a_eff = sum(Fraction(w[j]) * a_col[j] for j in range(num_hard))
+        b_eff = sum(Fraction(w[j]) * b_col[j] for j in range(num_hard))
         a_int = a_eff.denominator == 1
 
         if skip_incompatible and not a_int:
