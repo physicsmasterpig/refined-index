@@ -700,7 +700,10 @@ def save_iref_cache(
     *nz_data* and writes them to a gzipped pickle in *cache_dir*.
 
     Merges with any existing file so that entries from previous sessions
-    (possibly at different qq_orders) are preserved.
+    (possibly at different qq_orders) are preserved.  The entire
+    read-merge-write is serialised with an exclusive ``fcntl`` lock so that
+    multiple worker processes can safely write the same file concurrently
+    (as happens when a single manifold is split into grid chunks).
 
     Parameters
     ----------
@@ -713,6 +716,7 @@ def save_iref_cache(
 
     Returns the path written, or ``None`` if there were no entries.
     """
+    import sys
     from manifold_index.core.refined_dehn_filling import (
         _iref_cache,
         _nz_content_key,
@@ -724,7 +728,6 @@ def save_iref_cache(
     entries: dict[tuple, dict] = {}
     for full_key, value in _iref_cache.items():
         if full_key[0] == nz_key:
-            # Strip nz_key from the stored key → (m_ext, e_ext, qq)
             entries[full_key[1:]] = value
 
     if not entries:
@@ -734,53 +737,71 @@ def save_iref_cache(
     d.mkdir(parents=True, exist_ok=True)
     path = d / _iref_filename(manifold_name, nz_data)
 
-    # Merge with existing file (preserve entries at other qq_orders)
-    old_grid_params: dict | None = None
-    if path.exists():
-        try:
-            with gzip.open(path, "rb") as f:
-                old_data = pickle.load(f)
-            if isinstance(old_data, dict) and old_data.get("nz_hash") == _nz_hash(nz_data):
-                old_entries = old_data.get("entries", {})
-                old_grid_params = old_data.get("grid_params")
-                # Skip write if in-memory entries are a subset of disk
-                # and grid_params doesn't need updating
-                new_gp_wider = grid_params and (
-                    old_grid_params is None
-                    or grid_params.get("m_max", 0) > old_grid_params.get("m_max", 0)
-                    or grid_params.get("e_max", 0) > old_grid_params.get("e_max", 0)
-                )
-                if all(k in old_entries for k in entries) and not new_gp_wider:
-                    return path
-                old_entries.update(entries)
-                entries = old_entries
-        except Exception:
-            pass  # corrupted file — overwrite
+    # Acquire an exclusive lock on a companion .lock file so that concurrent
+    # workers writing the same manifold file do not corrupt the output.
+    lock_path = path.with_suffix(".lock")
+    lock_file = open(lock_path, "w")
+    try:
+        if sys.platform != "win32":
+            import fcntl
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
 
-    # Determine the grid_params to store: keep the wider of old vs new
-    stored_gp: dict | None = None
-    if grid_params and old_grid_params:
-        stored_gp = {
-            "m_max": max(grid_params.get("m_max", 0), old_grid_params.get("m_max", 0)),
-            "e_max": max(grid_params.get("e_max", 0), old_grid_params.get("e_max", 0)),
-            "qq_order": max(grid_params.get("qq_order", 0), old_grid_params.get("qq_order", 0)),
+        # Merge with existing file (preserve entries at other qq_orders)
+        old_grid_params: dict | None = None
+        if path.exists():
+            try:
+                with gzip.open(path, "rb") as f:
+                    old_data = pickle.load(f)
+                if isinstance(old_data, dict) and old_data.get("nz_hash") == _nz_hash(nz_data):
+                    old_entries = old_data.get("entries", {})
+                    old_grid_params = old_data.get("grid_params")
+                    new_gp_wider = grid_params and (
+                        old_grid_params is None
+                        or grid_params.get("m_max", 0) > old_grid_params.get("m_max", 0)
+                        or grid_params.get("e_max", 0) > old_grid_params.get("e_max", 0)
+                    )
+                    if all(k in old_entries for k in entries) and not new_gp_wider:
+                        return path
+                    old_entries.update(entries)
+                    entries = old_entries
+            except Exception:
+                pass  # corrupted file — overwrite
+
+        # Determine the grid_params to store: keep the wider of old vs new
+        stored_gp: dict | None = None
+        if grid_params and old_grid_params:
+            stored_gp = {
+                "m_max": max(grid_params.get("m_max", 0), old_grid_params.get("m_max", 0)),
+                "e_max": max(grid_params.get("e_max", 0), old_grid_params.get("e_max", 0)),
+                "qq_order": max(grid_params.get("qq_order", 0), old_grid_params.get("qq_order", 0)),
+            }
+        else:
+            stored_gp = grid_params or old_grid_params
+
+        payload: dict = {
+            "nz_hash": _nz_hash(nz_data),
+            "manifold_name": manifold_name,
+            "n_tetrahedra": int(nz_data.n),
+            "n_cusps": int(nz_data.r),
+            "num_hard": int(nz_data.num_hard),
+            "entries": entries,
         }
-    else:
-        stored_gp = grid_params or old_grid_params
+        if stored_gp:
+            payload["grid_params"] = stored_gp
 
-    payload: dict = {
-        "nz_hash": _nz_hash(nz_data),
-        "manifold_name": manifold_name,
-        "n_tetrahedra": int(nz_data.n),
-        "n_cusps": int(nz_data.r),
-        "num_hard": int(nz_data.num_hard),
-        "entries": entries,
-    }
-    if stored_gp:
-        payload["grid_params"] = stored_gp
+        # Write atomically: temp file + rename so a crashed writer never
+        # leaves a half-written file visible to readers.
+        tmp_path = path.with_suffix(".tmp")
+        with gzip.open(tmp_path, "wb") as f:
+            pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp_path, path)
 
-    with gzip.open(path, "wb") as f:
-        pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+    finally:
+        if sys.platform != "win32":
+            import fcntl
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+        lock_file.close()
+
     return path
 
 

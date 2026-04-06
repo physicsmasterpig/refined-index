@@ -722,13 +722,50 @@ def _exact_e0_candidates(
         R[j] = _axis_scan_bound(_G_j, q_bound_x2)
 
     # --- Step 2: enumerate bounding box and filter ---
-    ranges = [range(-int(R[j]), int(R[j]) + 1) for j in range(num_easy)]
-    result: list[np.ndarray] = []
-    for e0_tuple in iproduct(*ranges):
-        e0 = np.array(e0_tuple, dtype=int)
-        if F_x2(e0) <= q_bound_x2:
-            result.append(e0)
-    return result
+    # Vectorised over all candidates at once.  For small boxes (≤ _NP_BOX_THRESH
+    # points) the Python loop has lower overhead; for large boxes numpy wins.
+    _NP_BOX_THRESH = 64
+    box_size = 1
+    for j in range(num_easy):
+        box_size *= 2 * int(R[j]) + 1
+
+    if box_size <= _NP_BOX_THRESH:
+        # Small box — Python loop is faster (less numpy call overhead).
+        ranges = [range(-int(R[j]), int(R[j]) + 1) for j in range(num_easy)]
+        result: list[np.ndarray] = []
+        for e0_tuple in iproduct(*ranges):
+            e0 = np.array(e0_tuple, dtype=int)
+            if F_x2(e0) <= q_bound_x2:
+                result.append(e0)
+        return result
+
+    # Large box — build all e0 candidates as a (box_size, num_easy) int64 array,
+    # evaluate F_x2 for the whole batch with numpy, and filter in one pass.
+    ranges_np = [np.arange(-int(R[j]), int(R[j]) + 1, dtype=np.int64)
+                 for j in range(num_easy)]
+    grids = np.meshgrid(*ranges_np, indexing='ij')
+    e0_all = np.stack([g.ravel() for g in grids], axis=1)  # (box_size, num_easy)
+
+    # args_all[k, i] = base_args[k] + easy_cols[k, :] @ e0_all[i]  (k=0..2n-1)
+    args_all = base_args[:, np.newaxis] + easy_cols @ e0_all.T     # (2n, box_size)
+    m_all = args_all[:n]    # (n, box_size)
+    e_all = args_all[n:]    # (n, box_size)
+    me_all = m_all + e_all  # (n, box_size)
+
+    # 2 * total tet degree (same formula as the scalar F_x2 above)
+    half_sums = (
+        np.maximum(m_all, 0) * np.maximum(me_all, 0)
+        + np.maximum(-m_all, 0) * np.maximum(e_all, 0)
+        + np.maximum(-e_all, 0) * np.maximum(-me_all, 0)
+    )
+    deg_x2_all = (half_sums + np.maximum(np.maximum(m_all, -e_all), 0)).sum(axis=0)
+
+    # Phase shift contribution: -2 * (nu_x_easy · e0)
+    phase_shift = (-2 * (nu_x_easy @ e0_all.T)).astype(np.int64)   # (box_size,)
+
+    F_all = deg_x2_all + phase_base_x2 + phase_shift               # (box_size,)
+    valid = e0_all[F_all <= q_bound_x2]                            # (k, num_easy)
+    return [valid[i] for i in range(len(valid))]
 
 
 def has_valid_summation_terms(
