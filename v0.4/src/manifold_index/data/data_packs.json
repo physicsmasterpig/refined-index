@@ -1,5 +1,5 @@
 {
-  "registry_version": 1,
+  "registry_version": 2,
   "base_url": "https://github.com/physicsmasterpig/refined-index/releases/download",
   "packs": [
     {
@@ -12,6 +12,17 @@
       "sha256": "cc81b8ecfdb8573359034df623fc137e0a08f2959467dd398e4de139052f4528",
       "target_subdir": "kernel_cache",
       "category": "kernels"
+    },
+    {
+      "id": "iref_m_series_qq20",
+      "name": "I\u02b3\u1d49\u02b3 m-series qq=20",
+      "description": "Pre-computed I^ref for all 410 census manifolds m003\u2013m412 at qq=20. Grid: m \u2208 [\u221220,20], e \u2208 [\u221220,20] (half-integer steps). Enables near-instant Dehn filling for the full SnapPy m-series census.",
+      "filename": "iref-m-series-qq20.tar.gz",
+      "release_tag": "data-v2",
+      "size_bytes": 88990543,
+      "sha256": "f77e8e6c441d91465fc2ef410189922e549d67ab8279c566c3dc532d9a4a64a0",
+      "target_subdir": "iref_cache",
+      "category": "iref"
     }
   ]
 }
