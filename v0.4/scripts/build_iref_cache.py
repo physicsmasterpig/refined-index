@@ -113,13 +113,20 @@ def _process_manifold(args: tuple[str, int, int, int, bool]) -> dict:
         # m_ext / e_ext have length r (one entry per cusp).
         # Cusp 0 is the filling cusp; all others are fixed at 0.
         # ----------------------------------------------------------------
+        # Build uniform (m, e) grid — no kernels needed.
+        # m is an integer (meridian); e is a half-integer (longitude/2),
+        # so we step e by 1/2 to cover both integer and half-integer values.
+        # m_ext / e_ext have length r (one entry per cusp).
+        # Cusp 0 is the filling cusp; all others are fixed at 0.
+        # ----------------------------------------------------------------
+        e_values = [Fraction(k, 2) for k in range(-2 * e_max, 2 * e_max + 1)]
         entries: list[tuple] = []
         for m_i in range(-m_max, m_max + 1):
-            for e_i in range(-e_max, e_max + 1):
+            for e_i in e_values:
                 m_ext = [0] * r
                 e_ext: list[int | Fraction] = [Fraction(0)] * r
                 m_ext[0] = m_i
-                e_ext[0] = Fraction(e_i)
+                e_ext[0] = e_i
                 entries.append((m_ext, e_ext))
 
         # compute_refined_index_batch builds NZ state ONCE, reuses for all points
@@ -201,7 +208,7 @@ def main() -> None:
     qq_order = args.qq
     m_max = args.m_max
     e_max = args.e_max
-    n_grid = (2 * m_max + 1) * (2 * e_max + 1)
+    n_grid = (2 * m_max + 1) * (4 * e_max + 1)  # e steps by 1/2
 
     print("=" * 62)
     print("  I^ref Cache Builder — parallel, kernel-free")
@@ -210,7 +217,7 @@ def main() -> None:
     print("=" * 62)
     print(f"  Manifolds : {len(names)}  ({names[0]} … {names[-1]})")
     print(f"  qq_order  : {qq_order}")
-    print(f"  Grid      : m ∈ [-{m_max},{m_max}],  e ∈ [-{e_max},{e_max}]  ({n_grid} points)")
+    print(f"  Grid      : m ∈ [-{m_max},{m_max}] (step 1),  e ∈ [-{e_max},{e_max}] (step 1/2)  ({n_grid} points)")
     print(f"  Workers   : {args.workers}")
     print(f"  Skip exist: {args.skip_existing}")
     print()
