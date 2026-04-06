@@ -15,6 +15,9 @@ htmlcov/
 *.so
 data/kernel_cache/
 data/iref_cache/
+cache/
+*.pkl.gz
+*.pkl.lock
 *.aux
 *.fdb_latexmk
 *.fls
