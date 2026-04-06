@@ -5,12 +5,16 @@ scripts/build_nc_cache.py — Search non-closable cycles for census manifolds.
 Parallel across manifolds using multiprocessing.Pool.  Each manifold is
 fully independent so there are no inter-process conflicts.
 
+The cache file is range-agnostic: re-running with a wider P/Q range merges
+new slopes into the existing file without losing previously computed results.
+--skip-existing checks coverage at the slope level, not the file level.
+
 Usage
 -----
   # All m003-m412, qq=20, 8 workers:
   python scripts/build_nc_cache.py --qq 20 --workers 8
 
-  # Skip already-cached manifolds (safe to re-run after interruption):
+  # Skip slopes already cached (entry-level, safe after range extension):
   python scripts/build_nc_cache.py --qq 20 --workers 8 --skip-existing
 
   # Mac 1 of 2 — split census:
@@ -49,15 +53,6 @@ def _parse_manifold_range(spec: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Worker initializer — set cache dir once per worker
-# ---------------------------------------------------------------------------
-
-def _init_worker(cache_dir: str) -> None:
-    if cache_dir:
-        os.environ["MANIFOLD_INDEX_CACHE_DIR"] = cache_dir
-
-
-# ---------------------------------------------------------------------------
 # Per-manifold worker (top-level for pickling)
 # ---------------------------------------------------------------------------
 
@@ -73,8 +68,7 @@ def _process_manifold(args: tuple) -> dict:
         from manifold_index.core.dehn_filling import find_non_closable_cycles
         from manifold_index.core.kernel_cache import (
             save_nc_cycle_cache,
-            _DEFAULT_NC_DIR,
-            _nc_cycle_filename,
+            load_nc_cycle_cache,
         )
 
         p_range = (-p_max, p_max)
@@ -86,12 +80,16 @@ def _process_manifold(args: tuple) -> dict:
         res["n_tet"] = md.num_tetrahedra
         res["n_cusps"] = md.num_cusps
 
+        # Entry-level skip: check if all requested slopes are already covered
         if skip_existing:
-            cache_path = _DEFAULT_NC_DIR / _nc_cycle_filename(
-                name, nz, qq, p_range, q_range,
+            cached = load_nc_cycle_cache(
+                nz, name, qq,
+                p_range=p_range,
+                q_range=q_range,
             )
-            if cache_path.exists():
+            if cached is not None:
                 res["status"] = "skipped"
+                res["n_nc"] = sum(len(r.cycles) for r in cached)
                 res["elapsed"] = time.perf_counter() - t0
                 return res
 
@@ -108,12 +106,7 @@ def _process_manifold(args: tuple) -> dict:
             )
             nc_results.append(nc)
 
-        save_nc_cycle_cache(
-            nz, name, nc_results,
-            q_order_half=qq,
-            p_range=p_range,
-            q_range=q_range,
-        )
+        save_nc_cycle_cache(nz, name, nc_results, q_order_half=qq)
         res["n_nc"] = sum(len(r.cycles) for r in nc_results)
 
     except Exception as e:
@@ -146,7 +139,10 @@ def main() -> None:
     parser.add_argument("--workers", type=int,
                         default=max(1, (os.cpu_count() or 4) - 1),
                         help="Parallel worker processes (default: cpu_count-1).")
-    parser.add_argument("--skip-existing", action="store_true")
+    parser.add_argument("--skip-existing", action="store_true",
+                        help="Skip manifolds whose cache already covers all "
+                             "requested slopes (entry-level, safe after range "
+                             "extension).")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -185,17 +181,15 @@ def main() -> None:
         for name in names
     ]
     cache_dir = os.environ.get("MANIFOLD_INDEX_CACHE_DIR", "")
+    if cache_dir:
+        os.environ["MANIFOLD_INDEX_CACHE_DIR"] = cache_dir
 
     t_global = time.perf_counter()
     n_ok = n_skip = n_fail = 0
     total = len(tasks)
 
     ctx = multiprocessing.get_context("spawn")
-    with ctx.Pool(
-        processes=args.workers,
-        initializer=_init_worker,
-        initargs=(cache_dir,),
-    ) as pool:
+    with ctx.Pool(processes=args.workers) as pool:
         for idx, res in enumerate(pool.imap_unordered(_process_manifold, tasks), 1):
             st = res["status"]
             elapsed = res["elapsed"]

@@ -692,6 +692,7 @@ def save_iref_cache(
     nz_data: Any,
     manifold_name: str = "unknown",
     cache_dir: str | Path | None = None,
+    grid_params: dict | None = None,
 ) -> Path | None:
     """Save I^ref entries for *nz_data* from the in-memory cache to disk.
 
@@ -700,6 +701,15 @@ def save_iref_cache(
 
     Merges with any existing file so that entries from previous sessions
     (possibly at different qq_orders) are preserved.
+
+    Parameters
+    ----------
+    grid_params : dict or None
+        Optional ``{"m_max": int, "e_max": int, "qq_order": int}`` describing
+        the grid that was fully evaluated.  Stored in the file so that
+        ``--skip-existing`` can do an instant file-level skip on re-runs
+        rather than re-evaluating all zero-result points.  If a wider grid
+        is already recorded in the file, the existing record is kept.
 
     Returns the path written, or ``None`` if there were no entries.
     """
@@ -725,21 +735,40 @@ def save_iref_cache(
     path = d / _iref_filename(manifold_name, nz_data)
 
     # Merge with existing file (preserve entries at other qq_orders)
+    old_grid_params: dict | None = None
     if path.exists():
         try:
             with gzip.open(path, "rb") as f:
                 old_data = pickle.load(f)
             if isinstance(old_data, dict) and old_data.get("nz_hash") == _nz_hash(nz_data):
                 old_entries = old_data.get("entries", {})
+                old_grid_params = old_data.get("grid_params")
                 # Skip write if in-memory entries are a subset of disk
-                if all(k in old_entries for k in entries):
+                # and grid_params doesn't need updating
+                new_gp_wider = grid_params and (
+                    old_grid_params is None
+                    or grid_params.get("m_max", 0) > old_grid_params.get("m_max", 0)
+                    or grid_params.get("e_max", 0) > old_grid_params.get("e_max", 0)
+                )
+                if all(k in old_entries for k in entries) and not new_gp_wider:
                     return path
                 old_entries.update(entries)
                 entries = old_entries
         except Exception:
             pass  # corrupted file — overwrite
 
-    payload = {
+    # Determine the grid_params to store: keep the wider of old vs new
+    stored_gp: dict | None = None
+    if grid_params and old_grid_params:
+        stored_gp = {
+            "m_max": max(grid_params.get("m_max", 0), old_grid_params.get("m_max", 0)),
+            "e_max": max(grid_params.get("e_max", 0), old_grid_params.get("e_max", 0)),
+            "qq_order": max(grid_params.get("qq_order", 0), old_grid_params.get("qq_order", 0)),
+        }
+    else:
+        stored_gp = grid_params or old_grid_params
+
+    payload: dict = {
         "nz_hash": _nz_hash(nz_data),
         "manifold_name": manifold_name,
         "n_tetrahedra": int(nz_data.n),
@@ -747,6 +776,8 @@ def save_iref_cache(
         "num_hard": int(nz_data.num_hard),
         "entries": entries,
     }
+    if stored_gp:
+        payload["grid_params"] = stored_gp
 
     with gzip.open(path, "wb") as f:
         pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -858,6 +889,12 @@ def list_iref_caches(
 #
 # Storage: ~/Library/Caches/manifold-index/nc_cycle_cache/
 #          nc_cycle_{name}_{hash16}_qq{qq}.pkl.gz
+#
+# The filename intentionally omits the slope search range.  The file is
+# range-agnostic: it accumulates all slopes ever tested for this manifold
+# at this qq_order and merges incrementally on each save.  The caller
+# supplies its required range to load_nc_cycle_cache, which checks whether
+# those slopes are already covered before returning cached data.
 # ---------------------------------------------------------------------------
 
 _DEFAULT_NC_DIR = _user_cache_dir() / "nc_cycle_cache"
@@ -867,21 +904,11 @@ def _nc_cycle_filename(
     manifold_name: str,
     nz_data: Any,
     q_order_half: int,
-    p_range: tuple[int, int],
-    q_range: tuple[int, int],
 ) -> str:
-    """Canonical filename for an NC-cycle cache file."""
+    """Canonical (range-agnostic) filename for an NC-cycle cache file."""
     h = _nz_hash(nz_data)
     safe = manifold_name.replace("/", "_").replace(" ", "_")
-    plo, phi = p_range
-    qlo, qhi = q_range
-    return (
-        f"nc_cycle_{safe}_{h}"
-        f"_qq{q_order_half}"
-        f"_P{plo}to{phi}"
-        f"_Q{qlo}to{qhi}"
-        f".pkl.gz"
-    )
+    return f"nc_cycle_{safe}_{h}_qq{q_order_half}.pkl.gz"
 
 
 def save_nc_cycle_cache(
@@ -889,55 +916,90 @@ def save_nc_cycle_cache(
     manifold_name: str,
     nc_results: list,
     q_order_half: int,
-    p_range: tuple[int, int] = (-3, 3),
-    q_range: tuple[int, int] = (0, 3),
     cache_dir: str | Path | None = None,
 ) -> Path:
-    """Save non-closable cycle results for a manifold to disk.
+    """Save non-closable cycle results for a manifold, merging with existing data.
 
     Parameters
     ----------
     nz_data : NeumannZagierData
     manifold_name : str
     nc_results : list[NonClosableCycleResult]
-        One entry per cusp (from ``find_non_closable_cycles``).
+        One entry per cusp (from ``find_non_closable_cycles``).  Each entry
+        must have ``slopes_tested``, ``cycles``, and (optionally) ``series_data``
+        populated.
     q_order_half : int
         The ``q_order_half`` value used during the NC search.
-    p_range, q_range : tuple[int, int]
-        (min, max) inclusive bounds used during the slope search.
     cache_dir : Path or None
 
     Returns
     -------
     Path  — path of the written file.
+
+    Notes
+    -----
+    The file is **merged** with any existing cache at the same path.
+    New slopes extend the ``slopes_tested`` set; existing entries are
+    preserved.  This means saves are always cumulative — you can extend the
+    search range and re-save without losing previously computed slopes.
     """
+    d = Path(cache_dir) if cache_dir else _DEFAULT_NC_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / _nc_cycle_filename(manifold_name, nz_data, q_order_half)
+
+    # Load existing file for merging (if present and hash-compatible)
+    old_by_cusp: dict[int, dict] = {}
+    if path.exists():
+        try:
+            with gzip.open(path, "rb") as f:
+                old_payload = pickle.load(f)
+            if (isinstance(old_payload, dict) and
+                    old_payload.get("nz_hash") == _nz_hash(nz_data)):
+                for old_entry in old_payload.get("results", []):
+                    old_by_cusp[old_entry["cusp_idx"]] = old_entry
+        except Exception:
+            pass  # corrupted — overwrite
+
+    merged_results = []
+    for nc in nc_results:
+        old = old_by_cusp.get(nc.cusp_idx, {})
+
+        # slopes_tested: union (old first, then new not already present)
+        old_slopes_set = {tuple(s) for s in old.get("slopes_tested", [])}
+        new_slopes = [tuple(s) for s in nc.slopes_tested]
+        merged_slopes = list(old.get("slopes_tested", [])) + [
+            s for s in new_slopes if s not in old_slopes_set
+        ]
+
+        # cycles: union by (P, Q) key
+        old_cycles_set = {(c["P"], c["Q"]) for c in old.get("cycles", [])}
+        new_cycle_dicts = [
+            {"cusp_idx": c.cusp_idx, "P": c.P, "Q": c.Q}
+            for c in nc.cycles
+        ]
+        merged_cycles = list(old.get("cycles", [])) + [
+            c for c in new_cycle_dicts if (c["P"], c["Q"]) not in old_cycles_set
+        ]
+
+        # series_data: new entries override old for the same slope
+        merged_series: dict = {**old.get("series_data", {}), **dict(nc.series_data)}
+
+        merged_results.append({
+            "cusp_idx": nc.cusp_idx,
+            "slopes_tested": merged_slopes,
+            "cycles": merged_cycles,
+            "series_data": merged_series,
+        })
+
     payload: dict[str, Any] = {
         "manifold_name": manifold_name,
         "nz_hash": _nz_hash(nz_data),
         "n_tetrahedra": int(nz_data.n),
         "n_cusps": int(nz_data.r),
         "q_order_half": q_order_half,
-        "p_range": list(p_range),
-        "q_range": list(q_range),
-        "results": [],
+        "results": merged_results,
     }
 
-    for nc in nc_results:
-        payload["results"].append({
-            "cusp_idx": nc.cusp_idx,
-            "cycles": [
-                {"cusp_idx": c.cusp_idx, "P": c.P, "Q": c.Q}
-                for c in nc.cycles
-            ],
-            "slopes_tested": list(nc.slopes_tested),
-        })
-
-    d = Path(cache_dir) if cache_dir else _DEFAULT_NC_DIR
-    d.mkdir(parents=True, exist_ok=True)
-    fname = _nc_cycle_filename(
-        manifold_name, nz_data, q_order_half, p_range, q_range,
-    )
-    path = d / fname
     with gzip.open(path, "wb") as f:
         pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
     return path
@@ -947,26 +1009,33 @@ def load_nc_cycle_cache(
     nz_data: Any,
     manifold_name: str,
     q_order_half: int,
-    p_range: tuple[int, int] = (-3, 3),
-    q_range: tuple[int, int] = (0, 3),
+    p_range: tuple[int, int] | None = None,
+    q_range: tuple[int, int] | None = None,
     cache_dir: str | Path | None = None,
 ) -> list | None:
     """Load cached non-closable cycle results from disk.
 
+    Parameters
+    ----------
+    p_range, q_range : tuple[int, int] or None
+        If provided, the function checks that every slope in
+        ``_candidate_slopes(p_range, q_range)`` is present in the cached
+        ``slopes_tested``.  Returns ``None`` if any slope is missing
+        (triggering a fresh search for the extended range).
+
     Returns
     -------
-    list[NonClosableCycleResult]  or  None if not found / hash mismatch.
+    list[NonClosableCycleResult]  or  None if not found / hash mismatch /
+    coverage incomplete.
     """
     from manifold_index.core.dehn_filling import (
         NonClosableCycle,
         NonClosableCycleResult,
+        _candidate_slopes,
     )
 
     d = Path(cache_dir) if cache_dir else _DEFAULT_NC_DIR
-    fname = _nc_cycle_filename(
-        manifold_name, nz_data, q_order_half, p_range, q_range,
-    )
-    path = d / fname
+    path = d / _nc_cycle_filename(manifold_name, nz_data, q_order_half)
     if not path.exists():
         return None
 
@@ -981,16 +1050,29 @@ def load_nc_cycle_cache(
     if payload.get("nz_hash") != _nz_hash(nz_data):
         return None
 
+    # Coverage check: verify all requested slopes are already in slopes_tested
+    if p_range is not None and q_range is not None:
+        required = set(_candidate_slopes(
+            range(p_range[0], p_range[1] + 1),
+            range(q_range[0], q_range[1] + 1),
+            canonical_only=False,
+        ))
+        for entry in payload.get("results", []):
+            covered = {tuple(s) for s in entry.get("slopes_tested", [])}
+            if not required.issubset(covered):
+                return None  # cache miss — caller should extend the search
+
     results = []
     for entry in payload.get("results", []):
         nc = NonClosableCycleResult(cusp_idx=entry["cusp_idx"])
         nc.cycles = [
-            NonClosableCycle(
-                cusp_idx=c["cusp_idx"], P=c["P"], Q=c["Q"],
-            )
+            NonClosableCycle(cusp_idx=c["cusp_idx"], P=c["P"], Q=c["Q"])
             for c in entry.get("cycles", [])
         ]
         nc.slopes_tested = [tuple(s) for s in entry.get("slopes_tested", [])]
+        nc.series_data = {
+            tuple(k): v for k, v in entry.get("series_data", {}).items()
+        }
         results.append(nc)
     return results
 
@@ -1001,7 +1083,7 @@ def list_nc_cycle_caches(
     """List all NC-cycle cache files with their metadata.
 
     Returns a list of dicts with keys: ``path``, ``manifold_name``,
-    ``nz_hash``, ``n_cusps``, ``q_order_half``, ``p_range``, ``q_range``,
+    ``nz_hash``, ``n_cusps``, ``q_order_half``, ``n_slopes_tested``,
     ``n_nc_cycles`` (total across all cusps).
     """
     d = Path(cache_dir) if cache_dir else _DEFAULT_NC_DIR
@@ -1017,14 +1099,17 @@ def list_nc_cycle_caches(
                     len(r.get("cycles", []))
                     for r in payload.get("results", [])
                 )
+                n_slopes = sum(
+                    len(r.get("slopes_tested", []))
+                    for r in payload.get("results", [])
+                )
                 result.append({
                     "path": str(path),
                     "manifold_name": payload.get("manifold_name", "?"),
                     "nz_hash": payload.get("nz_hash", "?"),
                     "n_cusps": payload.get("n_cusps", "?"),
                     "q_order_half": payload.get("q_order_half", "?"),
-                    "p_range": payload.get("p_range", "?"),
-                    "q_range": payload.get("q_range", "?"),
+                    "n_slopes_tested": n_slopes,
                     "n_nc_cycles": n_nc,
                 })
         except Exception:

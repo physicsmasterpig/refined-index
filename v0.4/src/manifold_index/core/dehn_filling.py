@@ -48,7 +48,7 @@ import time
 from dataclasses import dataclass, field
 from fractions import Fraction
 from math import gcd
-from typing import Sequence
+from typing import Callable, Sequence
 
 from manifold_index.core.index_3d import (
     Index3DResult,
@@ -686,6 +686,7 @@ class NonClosableCycleResult:
     cusp_idx: int
     cycles: list[NonClosableCycle] = field(default_factory=list)
     slopes_tested: list[tuple[int, int]] = field(default_factory=list)
+    series_data: dict[tuple[int, int], dict] = field(default_factory=dict)
 
 
 def _candidate_slopes(
@@ -744,6 +745,7 @@ def find_non_closable_cycles(
     q_order_half: int = 20,
     use_symmetry: bool = True,
     verbose: bool = False,
+    progress_fn: Callable[[int, int], None] | None = None,
 ) -> NonClosableCycleResult:
     """Search for non-closable cycles at ``cusp_idx`` over a range of slopes.
 
@@ -836,6 +838,7 @@ def find_non_closable_cycles(
         )
         non_closable = filled.is_stably_zero()
         computed[(P, Q)] = non_closable
+        result.series_data[(P, Q)] = dict(filled.series)
 
         if verbose:
             verdict = "NON-CLOSABLE" if non_closable else "closable"
@@ -847,6 +850,9 @@ def find_non_closable_cycles(
                 flush=True,
             )
 
+        if progress_fn is not None:
+            progress_fn(idx + 1, len(compute_slopes))
+
         if non_closable:
             result.cycles.append(NonClosableCycle(cusp_idx=cusp_idx, P=P, Q=Q))
 
@@ -856,6 +862,7 @@ def find_non_closable_cycles(
             neg = (-P, -Q)
             if neg in set(all_slopes) and neg not in computed:
                 computed[neg] = non_closable
+                result.series_data[neg] = result.series_data[(P, Q)]
                 if non_closable:
                     result.cycles.append(
                         NonClosableCycle(cusp_idx=cusp_idx, P=-P, Q=-Q)

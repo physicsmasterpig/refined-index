@@ -244,10 +244,8 @@ class DehnFillingWorker(QThread):
 
     def _run(self) -> None:
         from manifold_index.core.dehn_filling import (
-            NonClosableCycleResult,
             NonClosableCycle,
-            _candidate_slopes,
-            compute_filled_index,
+            find_non_closable_cycles,
             find_rs,
         )
         from manifold_index.core.refined_dehn_filling import (
@@ -275,49 +273,20 @@ class DehnFillingWorker(QThread):
                 f"Step 1/2 — Searching NC cycles at cusp {cusp_idx}…"
             )
 
-            m_other = [0] * (r - 1)
-            e_other = [0] * (r - 1)
-
-            compute_slopes = _candidate_slopes(
-                self._p_range, self._q_range, canonical_only=True,
+            result = find_non_closable_cycles(
+                nz,
+                cusp_idx=cusp_idx,
+                p_range=self._p_range,
+                q_range=self._q_range,
+                q_order_half=q_order_half,
+                use_symmetry=True,
+                progress_fn=lambda done, tot: self.progress.emit(done, tot),
             )
-            all_slopes = _candidate_slopes(
-                self._p_range, self._q_range, canonical_only=False,
-            )
-            total = len(compute_slopes)
-
-            result = NonClosableCycleResult(cusp_idx=cusp_idx)
-            result.slopes_tested = all_slopes[:]
-            computed: dict[tuple[int, int], bool] = {}
-
-            for done_idx, (P, Q) in enumerate(compute_slopes):
-                filled = compute_filled_index(
-                    nz, cusp_idx=cusp_idx, P=P, Q=Q,
-                    m_other=list(m_other), e_other=list(e_other),
-                    q_order_half=q_order_half,
-                )
-                non_closable = filled.is_stably_zero()
-                computed[(P, Q)] = non_closable
-
-                if non_closable:
-                    result.cycles.append(NonClosableCycle(
-                        cusp_idx=cusp_idx, P=P, Q=Q,
-                    ))
-
-                neg = (-P, -Q)
-                if neg in set(all_slopes) and neg not in computed:
-                    computed[neg] = non_closable
-                    if non_closable:
-                        result.cycles.append(NonClosableCycle(
-                            cusp_idx=cusp_idx, P=-P, Q=-Q,
-                        ))
-
-                self.progress.emit(done_idx + 1, total)
-
             result.cycles = _canonicalize_nc_cycles(result.cycles)
             nc_results.append(result)
-            n_nc = len(result.cycles)
-            self.status.emit(f"Cusp {cusp_idx}: {n_nc} NC cycle(s) (deduplicated)")
+            self.status.emit(
+                f"Cusp {cusp_idx}: {len(result.cycles)} NC cycle(s) (deduplicated)"
+            )
 
         self.nc_found.emit(nc_results)
 

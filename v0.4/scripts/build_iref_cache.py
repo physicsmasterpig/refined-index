@@ -16,7 +16,7 @@ Usage
   # All m003-m412, qq=20, m/e grid ±20, 8 workers:
   python scripts/build_iref_cache.py --qq 20 --workers 8
 
-  # Skip already-done (safe to re-run after interruption):
+  # Skip already-done entries (entry-level, safe to extend grid incrementally):
   python scripts/build_iref_cache.py --qq 20 --workers 8 --skip-existing
 
   # Mac 1 of 2 — split census:
@@ -58,19 +58,6 @@ def _parse_manifold_range(spec: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# (No pool initializer needed — each worker is fully self-contained)
-# ---------------------------------------------------------------------------
-
-# Placeholder so old references don't break if the file is imported
-_WORKER_KERNELS: list = []
-
-
-def _init_worker(kernel_specs: list[tuple[int, int, int]], cache_dir: str) -> None:  # noqa: unused
-    """Legacy stub — no longer used.  Workers are fully self-contained."""
-    pass
-
-
-# ---------------------------------------------------------------------------
 # Per-manifold worker (top-level for pickling)
 # ---------------------------------------------------------------------------
 
@@ -88,6 +75,7 @@ def _process_manifold(args: tuple[str, int, int, int, bool]) -> dict:
             _DEFAULT_IREF_DIR,
             _iref_filename,
             save_iref_cache,
+            load_iref_cache,
         )
         from manifold_index.core.refined_dehn_filling import (
             _iref_cache,
@@ -99,41 +87,70 @@ def _process_manifold(args: tuple[str, int, int, int, bool]) -> dict:
         easy = find_easy_edges(md)
         nz = build_neumann_zagier(md, easy)
         res["n_tet"] = md.num_tetrahedra
-        r = nz.r  # number of cusps
+        r = nz.r
 
+        grid_params = {"m_max": m_max, "e_max": e_max, "qq_order": qq_order}
+
+        # Fast file-level skip: if the stored grid_params covers the requested
+        # grid (same or wider m/e range, same qq), every point has already been
+        # evaluated (including zero-result ones that are not stored as entries).
+        # This avoids re-iterating ~3000 zero-result points on re-runs.
         if skip_existing:
             cache_path = _DEFAULT_IREF_DIR / _iref_filename(name, nz)
             if cache_path.exists():
-                res["status"] = "skipped"
-                res["elapsed"] = time.perf_counter() - t0
-                return res
+                try:
+                    with gzip.open(cache_path, "rb") as f:
+                        stored = pickle.load(f)
+                    gp = stored.get("grid_params", {})
+                    if (gp.get("m_max", -1) >= m_max
+                            and gp.get("e_max", -1) >= e_max
+                            and gp.get("qq_order", -1) >= qq_order):
+                        res["status"] = "skipped"
+                        res["n_iref"] = len(stored.get("entries", {}))
+                        res["elapsed"] = time.perf_counter() - t0
+                        return res
+                except Exception:
+                    pass  # corrupted or missing grid_params → fall through
 
-        # ----------------------------------------------------------------
-        # Build uniform (m, e) integer grid — no kernels needed.
-        # m_ext / e_ext have length r (one entry per cusp).
-        # Cusp 0 is the filling cusp; all others are fixed at 0.
-        # ----------------------------------------------------------------
-        # Build uniform (m, e) grid — no kernels needed.
+        # Build uniform (m, e) grid.
         # m is an integer (meridian); e is a half-integer (longitude/2),
-        # so we step e by 1/2 to cover both integer and half-integer values.
+        # stepping by 1/2 to cover both integer and half-integer values.
         # m_ext / e_ext have length r (one entry per cusp).
         # Cusp 0 is the filling cusp; all others are fixed at 0.
-        # ----------------------------------------------------------------
         e_values = [Fraction(k, 2) for k in range(-2 * e_max, 2 * e_max + 1)]
-        entries: list[tuple] = []
+        all_entries: list[tuple] = []
         for m_i in range(-m_max, m_max + 1):
             for e_i in e_values:
                 m_ext = [0] * r
                 e_ext: list[int | Fraction] = [Fraction(0)] * r
                 m_ext[0] = m_i
                 e_ext[0] = e_i
-                entries.append((m_ext, e_ext))
+                all_entries.append((m_ext, e_ext))
+
+        # Entry-level skip: load existing non-zero entries into _iref_cache, then
+        # filter all_entries to only those not yet cached.  Used when grid_params
+        # is absent or the stored grid is narrower than requested (grid extension).
+        nz_key = _nz_content_key(nz)
+        n_existing = 0
+        if skip_existing:
+            n_existing = load_iref_cache(nz, manifold_name=name, qq_filter=qq_order)
+            entries = [
+                (m_ext, e_ext) for m_ext, e_ext in all_entries
+                if (nz_key, tuple(m_ext), tuple(Fraction(e) for e in e_ext), qq_order)
+                   not in _iref_cache
+            ]
+            if not entries:
+                res["status"] = "skipped"
+                res["n_iref"] = n_existing
+                res["elapsed"] = time.perf_counter() - t0
+                return res
+        else:
+            entries = all_entries
 
         # compute_refined_index_batch builds NZ state ONCE, reuses for all points
         results = compute_refined_index_batch(nz, entries, q_order_half=qq_order)
 
-        # Insert into the shared _iref_cache (same key format as _cached_compute_refined_index)
-        nz_key = _nz_content_key(nz)
+        # Insert non-empty results into the shared _iref_cache
         n_new = 0
         for (m_ext, e_ext), result in zip(entries, results):
             if not result:
@@ -148,17 +165,10 @@ def _process_manifold(args: tuple[str, int, int, int, bool]) -> dict:
                 _iref_cache[key] = result
                 n_new += 1
 
-        # Flush to disk
-        if n_new > 0:
-            save_iref_cache(nz, manifold_name=name)
+        # Flush to disk, recording grid_params so future skip-existing runs are instant
+        save_iref_cache(nz, manifold_name=name, grid_params=grid_params)
 
-        # Report entry count from disk file
-        cache_path = _DEFAULT_IREF_DIR / _iref_filename(name, nz)
-        if cache_path.exists():
-            with gzip.open(cache_path, "rb") as f:
-                payload = pickle.load(f)
-            res["n_iref"] = len(payload.get("entries", {}))
-
+        res["n_iref"] = n_existing + n_new
         clear_filling_caches()
 
     except Exception as e:
@@ -192,7 +202,9 @@ def main() -> None:
     parser.add_argument("--workers", type=int,
                         default=max(1, (os.cpu_count() or 4) - 1),
                         help="Parallel worker processes (default: cpu_count-1).")
-    parser.add_argument("--skip-existing", action="store_true")
+    parser.add_argument("--skip-existing", action="store_true",
+                        help="Skip individual (m,e) entries already on disk "
+                             "(entry-level; safe to re-run after grid extension).")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
