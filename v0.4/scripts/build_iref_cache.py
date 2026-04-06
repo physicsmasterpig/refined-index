@@ -78,15 +78,14 @@ def _process_chunk(args: tuple) -> dict:
     """
     name, qq_order, m_max, e_max, skip_existing, chunk_idx, n_chunks, rss_limit_gb = args
 
-    # Enforce a per-worker RSS ceiling so that a runaway allocation causes
-    # a graceful MemoryError rather than an OOM kill of the whole system.
+    # Per-worker RSS guard.
+    # RLIMIT_AS is ignored on macOS for mmap-backed allocations (numpy uses mmap),
+    # so we poll RSS instead: inject a check into the numpy batch evaluator via
+    # a module-level flag that _exact_e0_candidates reads.
+    # We set the limit in the environment so child workers inherit it.
     if rss_limit_gb > 0:
-        try:
-            import resource
-            limit_bytes = int(rss_limit_gb * 1024 ** 3)
-            resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
-        except Exception:
-            pass  # platform doesn't support setrlimit — ignore
+        import os as _os
+        _os.environ["_IREF_RSS_LIMIT_GB"] = str(rss_limit_gb)
 
     res: dict = {"name": name, "chunk": chunk_idx, "n_chunks": n_chunks,
                  "status": "ok", "n_new": 0, "n_existing": 0,
