@@ -1,5 +1,5 @@
 """
-app/window.py — Main window for the v0.4.0 tabbed GUI.
+app/window.py — Main window for the v0.4.1 tabbed GUI.
 
 Tabs:
   1. Calculator — three-panel (Manifold | Dehn Filling | Export)
@@ -44,7 +44,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Refined 3D Index Calculator — v0.4.0")
+        self.setWindowTitle("Refined 3D Index Calculator — v0.4.1")
         self.setMinimumSize(1200, 700)
         self.resize(1500, 850)
 
@@ -256,7 +256,7 @@ class MainWindow(QMainWindow):
 def launch_gui() -> None:
     """Create the QApplication and show the main window."""
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("Refined 3D Index Calculator v0.4.0")
+    app.setApplicationName("Refined 3D Index Calculator v0.4.1")
     app.setOrganizationName("RefinedIndex")
     app.setStyleSheet(APP_STYLESHEET)
 

@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec file for Manifold Index Calculator v0.4.0.
+PyInstaller spec file for Manifold Index Calculator v0.4.1.
 
 Usage:
     pyinstaller ManifoldIndex.spec --noconfirm
@@ -22,7 +22,7 @@ SRC = PROJECT / "src"
 PKG = SRC / "manifold_index"
 
 # ── Version ────────────────────────────────────────────────────────
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.4.1"
 
 # ── collect_all for snappy ecosystem ──────────────────────────────
 _snappy_datas, _snappy_bins, _snappy_hidden = collect_all("snappy")

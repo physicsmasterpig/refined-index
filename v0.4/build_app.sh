@@ -45,7 +45,7 @@ if [[ ! -f "$SPEC" ]]; then
 fi
 
 # ── Build ─────────────────────────────────────────────────────────
-echo "🔨  Building ManifoldIndex.app v0.4.0 …"
+echo "🔨  Building ManifoldIndex.app v0.4.1 …"
 echo "    Spec: $SPEC"
 echo "    Entry: launcher.py → manifold_index.app.main()"
 echo ""
@@ -80,6 +80,6 @@ echo "To test locally:"
 echo "    open $APP"
 echo ""
 echo "To upload to GitHub:"
-echo "    gh release create v0.4.0 dist/ManifoldIndex.zip --title 'v0.4.0' --notes 'v0.4.0 release'"
+echo "    gh release create v0.4.1 dist/ManifoldIndex.zip --title 'v0.4.1' --notes 'v0.4.1 release'"
 echo "  or upload to existing release:"
-echo "    gh release upload v0.4.0 dist/ManifoldIndex.zip --clobber"
+echo "    gh release upload v0.4.1 dist/ManifoldIndex.zip --clobber"
