@@ -73,9 +73,21 @@ def _get_n_tet(name: str) -> int:
 def _process_chunk(args: tuple) -> dict:
     """Compute I^ref for one chunk of the (m, e) grid for a single manifold.
 
-    args = (name, qq_order, m_max, e_max, skip_existing, chunk_idx, n_chunks)
+    args = (name, qq_order, m_max, e_max, skip_existing, chunk_idx, n_chunks,
+            rss_limit_gb)
     """
-    name, qq_order, m_max, e_max, skip_existing, chunk_idx, n_chunks = args
+    name, qq_order, m_max, e_max, skip_existing, chunk_idx, n_chunks, rss_limit_gb = args
+
+    # Enforce a per-worker RSS ceiling so that a runaway allocation causes
+    # a graceful MemoryError rather than an OOM kill of the whole system.
+    if rss_limit_gb > 0:
+        try:
+            import resource
+            limit_bytes = int(rss_limit_gb * 1024 ** 3)
+            resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
+        except Exception:
+            pass  # platform doesn't support setrlimit — ignore
+
     res: dict = {"name": name, "chunk": chunk_idx, "n_chunks": n_chunks,
                  "status": "ok", "n_new": 0, "n_existing": 0,
                  "n_tet": "?", "elapsed": 0.0, "error": ""}
@@ -212,11 +224,18 @@ def main() -> None:
                         help="Manifold range, e.g. 'm003-m412'. Default: all.")
     parser.add_argument("--manifolds", nargs="+", metavar="NAME")
     parser.add_argument("--workers", type=int,
-                        default=max(1, (os.cpu_count() or 4) - 1),
-                        help="Parallel worker processes (default: cpu_count-1).")
+                        default=max(1, (os.cpu_count() or 4) // 2),
+                        help="Parallel worker processes "
+                             "(default: cpu_count//2 — conservative to limit "
+                             "peak RSS; raise if you have ample free RAM).")
     parser.add_argument("--chunk-tet", type=int, default=4,
                         help="Split manifolds with n_tet >= this value into "
                              "multiple grid chunks (default: 4).")
+    parser.add_argument("--mem-per-worker", type=float, default=4.0,
+                        help="RSS ceiling per worker in GB (default: 4.0).  "
+                             "Set 0 to disable.  A worker that exceeds this "
+                             "limit raises MemoryError and is reported as "
+                             "FAILED rather than crashing the system.")
     parser.add_argument("--skip-existing", action="store_true",
                         help="Skip entries already on disk.")
     parser.add_argument("--dry-run", action="store_true")
@@ -245,7 +264,21 @@ def main() -> None:
     print(f"  qq_order  : {qq_order}")
     print(f"  Grid      : m ∈ [-{m_max},{m_max}] (step 1),"
           f"  e ∈ [-{e_max},{e_max}] (step 1/2)  ({n_grid} points)")
-    print(f"  Workers   : {args.workers}")
+    est_rss_gb = args.workers * 0.55  # ~550 MB base + peak per worker
+    try:
+        import subprocess
+        vm = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True
+        )
+        total_gb = int(vm.stdout.strip()) / 1024 ** 3
+        warn = "  ⚠ LOW RAM" if est_rss_gb > total_gb * 0.7 else ""
+    except Exception:
+        total_gb = 0.0
+        warn = ""
+    print(f"  Workers   : {args.workers}"
+          f"  (est. peak RSS ~{est_rss_gb:.0f} GB{warn})")
+    print(f"  RSS limit : {args.mem_per_worker:.1f} GB/worker"
+          f"  (set --mem-per-worker 0 to disable)")
     print(f"  Chunk tet : {args.chunk_tet}+ tet → grid chunks")
     print(f"  Skip exist: {args.skip_existing}")
     print()
@@ -271,7 +304,10 @@ def main() -> None:
             n_ch = 1
         n_chunks_for[name] = n_ch
         for ci in range(n_ch):
-            tasks.append((name, qq_order, m_max, e_max, args.skip_existing, ci, n_ch))
+            tasks.append(
+                (name, qq_order, m_max, e_max, args.skip_existing,
+                 ci, n_ch, args.mem_per_worker)
+            )
 
     cache_dir = os.environ.get("MANIFOLD_INDEX_CACHE_DIR", "")
     if cache_dir:

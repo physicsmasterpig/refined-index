@@ -722,50 +722,77 @@ def _exact_e0_candidates(
         R[j] = _axis_scan_bound(_G_j, q_bound_x2)
 
     # --- Step 2: enumerate bounding box and filter ---
-    # Vectorised over all candidates at once.  For small boxes (≤ _NP_BOX_THRESH
-    # points) the Python loop has lower overhead; for large boxes numpy wins.
+    # Three regimes based on box size:
+    #   ≤ _NP_BOX_THRESH : Python loop (less overhead for tiny boxes)
+    #   ≤ _NP_BOX_BATCH  : single-shot numpy (fast, bounded peak memory ≤ ~30 MB)
+    #   > _NP_BOX_BATCH  : chunked numpy — loop over outermost dimension, evaluate
+    #                       inner dimensions as a batch to cap peak allocation.
+    #
+    # The chunk size is chosen so that inner_size * 2n * 8 bytes ≤ ~30 MB:
+    #   inner_size ≤ 30 MB / (2n * 8) = ~190 k for n=10, ~380 k for n=5.
+    # We use a conservative 200 k rows per numpy batch regardless of n.
     _NP_BOX_THRESH = 64
+    _NP_BOX_BATCH  = 200_000   # single-shot limit (~25 MB peak for n=10 tets)
+
     box_size = 1
     for j in range(num_easy):
         box_size *= 2 * int(R[j]) + 1
 
+    ranges_np = [np.arange(-int(R[j]), int(R[j]) + 1, dtype=np.int64)
+                 for j in range(num_easy)]
+
+    def _eval_batch(e0_batch: np.ndarray) -> list[np.ndarray]:
+        """Evaluate F_x2 for a (B, num_easy) int64 batch and return valid rows."""
+        args_b = base_args[:, np.newaxis] + easy_cols @ e0_batch.T  # (2n, B)
+        m_b = args_b[:n]; e_b = args_b[n:]; me_b = m_b + e_b
+        half_sums = (
+            np.maximum(m_b, 0) * np.maximum(me_b, 0)
+            + np.maximum(-m_b, 0) * np.maximum(e_b, 0)
+            + np.maximum(-e_b, 0) * np.maximum(-me_b, 0)
+        )
+        deg_x2 = (half_sums + np.maximum(np.maximum(m_b, -e_b), 0)).sum(axis=0)
+        phase_shift = (-2 * (nu_x_easy @ e0_batch.T)).astype(np.int64)
+        F_b = deg_x2 + phase_base_x2 + phase_shift
+        valid = e0_batch[F_b <= q_bound_x2]
+        return [valid[i] for i in range(len(valid))]
+
     if box_size <= _NP_BOX_THRESH:
-        # Small box — Python loop is faster (less numpy call overhead).
-        ranges = [range(-int(R[j]), int(R[j]) + 1) for j in range(num_easy)]
+        # Tiny box — Python loop has lower per-call overhead.
         result: list[np.ndarray] = []
-        for e0_tuple in iproduct(*ranges):
-            e0 = np.array(e0_tuple, dtype=int)
+        for e0_tuple in iproduct(*ranges_np):
+            e0 = np.array(e0_tuple, dtype=np.int64)
             if F_x2(e0) <= q_bound_x2:
                 result.append(e0)
         return result
 
-    # Large box — build all e0 candidates as a (box_size, num_easy) int64 array,
-    # evaluate F_x2 for the whole batch with numpy, and filter in one pass.
-    ranges_np = [np.arange(-int(R[j]), int(R[j]) + 1, dtype=np.int64)
-                 for j in range(num_easy)]
-    grids = np.meshgrid(*ranges_np, indexing='ij')
-    e0_all = np.stack([g.ravel() for g in grids], axis=1)  # (box_size, num_easy)
+    if box_size <= _NP_BOX_BATCH:
+        # Medium box — single numpy batch, peak ≤ ~30 MB.
+        grids = np.meshgrid(*ranges_np, indexing='ij')
+        e0_all = np.stack([g.ravel() for g in grids], axis=1)  # (box_size, num_easy)
+        return _eval_batch(e0_all)
 
-    # args_all[k, i] = base_args[k] + easy_cols[k, :] @ e0_all[i]  (k=0..2n-1)
-    args_all = base_args[:, np.newaxis] + easy_cols @ e0_all.T     # (2n, box_size)
-    m_all = args_all[:n]    # (n, box_size)
-    e_all = args_all[n:]    # (n, box_size)
-    me_all = m_all + e_all  # (n, box_size)
+    # Large box — chunk over the outermost (largest) dimension to keep each
+    # batch ≤ _NP_BOX_BATCH rows and peak allocation ≤ ~30 MB.
+    outer_range = ranges_np[0]
+    inner_ranges = ranges_np[1:]
+    inner_grids = np.meshgrid(*inner_ranges, indexing='ij')
+    inner_e0 = np.stack([g.ravel() for g in inner_grids], axis=1)  # (N_inner, num_easy-1)
+    N_inner = len(inner_e0)
 
-    # 2 * total tet degree (same formula as the scalar F_x2 above)
-    half_sums = (
-        np.maximum(m_all, 0) * np.maximum(me_all, 0)
-        + np.maximum(-m_all, 0) * np.maximum(e_all, 0)
-        + np.maximum(-e_all, 0) * np.maximum(-me_all, 0)
-    )
-    deg_x2_all = (half_sums + np.maximum(np.maximum(m_all, -e_all), 0)).sum(axis=0)
+    result = []
+    # Process outer dimension in slices so each batch ≤ _NP_BOX_BATCH rows.
+    outer_chunk = max(1, _NP_BOX_BATCH // N_inner)
+    for start in range(0, len(outer_range), outer_chunk):
+        outer_slice = outer_range[start: start + outer_chunk]  # (C,) int64
+        # Build (C * N_inner, num_easy) batch
+        C = len(outer_slice)
+        e0_batch = np.empty((C * N_inner, num_easy), dtype=np.int64)
+        # Broadcast outer values against inner grid
+        e0_batch[:, 0] = np.repeat(outer_slice, N_inner)
+        e0_batch[:, 1:] = np.tile(inner_e0, (C, 1))
+        result.extend(_eval_batch(e0_batch))
 
-    # Phase shift contribution: -2 * (nu_x_easy · e0)
-    phase_shift = (-2 * (nu_x_easy @ e0_all.T)).astype(np.int64)   # (box_size,)
-
-    F_all = deg_x2_all + phase_base_x2 + phase_shift               # (box_size,)
-    valid = e0_all[F_all <= q_bound_x2]                            # (k, num_easy)
-    return [valid[i] for i in range(len(valid))]
+    return result
 
 
 def has_valid_summation_terms(
