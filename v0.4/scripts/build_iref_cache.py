@@ -221,8 +221,14 @@ def main() -> None:
     parser.add_argument("--e-max", type=int, default=20,
                         help="Grid range: e ∈ [-e_max, e_max] (default: 20).")
     parser.add_argument("--census", metavar="RANGE",
-                        help="Manifold range, e.g. 'm003-m412'. Default: all.")
-    parser.add_argument("--manifolds", nargs="+", metavar="NAME")
+                        help="Manifold range(s), comma-separated, "
+                             "e.g. 'm003-m412' or 's000-s961'.")
+    parser.add_argument("--manifolds", nargs="+", metavar="NAME",
+                        help="Explicit manifold names (any snappy notation: "
+                             "m003, s000, 4_1, 5_1^2, L5a1, …).")
+    parser.add_argument("--knot-file", metavar="FILE",
+                        help="Text file with one manifold name per line "
+                             "(# comments allowed). Any snappy notation works.")
     parser.add_argument("--workers", type=int,
                         default=max(1, (os.cpu_count() or 4) // 2),
                         help="Parallel worker processes "
@@ -241,13 +247,19 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
+    names: list[str] = []
     if args.manifolds:
-        names = args.manifolds
-    elif args.census:
-        names: list[str] = []
+        names.extend(args.manifolds)
+    if args.census:
         for spec in args.census.split(","):
             names.extend(_parse_manifold_range(spec.strip()))
-    else:
+    if args.knot_file:
+        with open(args.knot_file) as fh:
+            for line in fh:
+                line = line.split("#")[0].strip()
+                if line:
+                    names.append(line)
+    if not names:
         names = _default_census_names()
 
     qq_order = args.qq
