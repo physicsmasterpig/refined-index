@@ -160,7 +160,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="ManifoldIndex.app",
-    icon=None,
+    icon="assets/ManifoldIndex.icns",
     bundle_identifier="com.manifold-index.calculator",
     info_plist={
         "CFBundleName": "Manifold Index",
