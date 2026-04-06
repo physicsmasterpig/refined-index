@@ -85,7 +85,7 @@ def _bundled_registry_path() -> Path:
 
 _REMOTE_REGISTRY = (
     "https://raw.githubusercontent.com/physicsmasterpig/refined-index/"
-    "master/src/manifold_index/data/data_packs.json"
+    "master/v0.4/src/manifold_index/data/data_packs.json"
 )
 
 
