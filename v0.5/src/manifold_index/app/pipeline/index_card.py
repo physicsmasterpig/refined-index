@@ -350,11 +350,14 @@ class IndexCard(QWidget):
             q_order_half = s.q_order_half,
             parent       = self,
         )
-        self._weyl_worker.finished.connect(self._on_weyl_finished)
+        gen = self._session_gen
+        self._weyl_worker.finished.connect(lambda p, g=gen: self._on_weyl_finished(p, g))
         self._weyl_worker.error.connect(self._on_weyl_error)
         self._weyl_worker.start()
 
-    def _on_weyl_finished(self, payload: dict) -> None:
+    def _on_weyl_finished(self, payload: dict, gen: int) -> None:
+        if gen != self._session_gen:
+            return   # stale: manifold was reloaded while Weyl check was running
         self._weyl_btn.setEnabled(True)
         ab = payload["ab_vectors"]
         self._session.weyl_result  = ab
@@ -404,7 +407,12 @@ class IndexCard(QWidget):
     def _update_summary(self) -> None:
         n = self._session.index_query_count()
         n_hard = self._session.num_hard()
-        mode = "full refined" if all(self._active_edges()) else "custom η" if n_hard else "3D index"
+        if n_hard > 0 and all(self._active_edges()):
+            mode = "full refined"
+        elif n_hard > 0:
+            mode = "custom η"
+        else:
+            mode = "3D index"
         weyl = "✓" if self._session.weyl_checked else "not run"
         self._card.set_summary(f"{n} quer{'y' if n == 1 else 'ies'}  ·  {mode}  ·  Weyl: {weyl}")
 

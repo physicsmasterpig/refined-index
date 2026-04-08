@@ -801,6 +801,10 @@ def save_iref_cache(
             import fcntl
             fcntl.flock(lock_file, fcntl.LOCK_UN)
         lock_file.close()
+        try:
+            lock_path.unlink(missing_ok=True)
+        except OSError:
+            pass  # best-effort cleanup; stale .lock files are harmless
 
     return path
 

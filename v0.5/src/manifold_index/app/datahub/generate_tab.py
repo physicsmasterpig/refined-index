@@ -438,7 +438,15 @@ class GenerateTab(QWidget):
         self._queue_status.setVisible(True)
 
     def _on_worker_finished(self, task: dict, results: list) -> None:
-        done = sum(1 for _, s in results if not s.startswith("error") and s != "cancelled")
+        # build_kernels returns (P, Q, status) 3-tuples; iref/nc return (key, status) 2-tuples
+        def _status_str(item: tuple) -> str:
+            return item[-1]  # last element is always the status string
+
+        done = sum(
+            1 for item in results
+            if not _status_str(item).startswith("error")
+            and _status_str(item) != "cancelled"
+        )
         task["status"] = "done"
         self._set_row_status(task["_row"], f"done ({done})")
         self._queue_progress.setVisible(False)
@@ -456,6 +464,8 @@ class GenerateTab(QWidget):
         self._queue_status.setVisible(True)
         self._pause_btn.setEnabled(False)
         self._cancel_btn.setEnabled(False)
+        # Re-enable Start for any remaining queued tasks
+        self._start_btn.setEnabled(True)
 
     def _set_row_status(self, row: int, status: str) -> None:
         item = self._queue_table.item(row, 2)

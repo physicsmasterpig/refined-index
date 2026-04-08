@@ -448,8 +448,9 @@ class FillingCard(QWidget):
             parent       = self,
         )
         worker.finished.connect(
-            lambda p, r=row, nv=nc_vm, uP=user_P, uQ=user_Q, g=gen:
-                self._on_fill_finished(p, r, nv, uP, uQ, g)
+            lambda p, r=row, nv=nc_vm, uP=user_P, uQ=user_Q, ci=cusp_idx,
+                   mo=m_other, eo=e_other, g=gen:
+                self._on_fill_finished(p, r, nv, uP, uQ, ci, mo, eo, g)
         )
         worker.error.connect(lambda e, r=row, g=gen: self._on_fill_error(e, r, g))
         self._fill_workers.append(worker)
@@ -457,7 +458,8 @@ class FillingCard(QWidget):
 
     def _on_fill_finished(
         self, payload: dict, row: int,
-        nc_vm: NCCycleViewModel, user_P: int, user_Q: int, gen: int,
+        nc_vm: NCCycleViewModel, user_P: int, user_Q: int,
+        cusp_idx: int, m_other: list, e_other: list, gen: int,
     ) -> None:
         sender = self.sender()
         if sender in self._fill_workers:
@@ -482,15 +484,15 @@ class FillingCard(QWidget):
         self._fill_table.set_row_result(row, series_latex, "computed")
 
         fq = FillQuery(
-            cusp_idx     = nc_vm.cusp_idx,
+            cusp_idx     = cusp_idx,      # the cusp actually used in computation
             nc_P         = nc_vm.P,
             nc_Q         = nc_vm.Q,
             user_P       = user_P,
             user_Q       = user_Q,
             p            = p,
             q            = q,
-            m_other      = [],
-            e_other      = [],
+            m_other      = m_other,       # charges actually passed to worker
+            e_other      = e_other,
             q_order_half = s.q_order_half,
             result       = result,
             weyl_a       = list(s.weyl_result.a) if s.weyl_result else None,
