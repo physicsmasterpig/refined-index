@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
 
         # ── State ─────────────────────────────────────────────
         self._nz_data = None
+        self._q_order_half: int = 10
         self._refined_worker: RefinedIndexWorker | None = None
         self._dehn_worker: DehnFillingWorker | None = None
 
@@ -126,6 +127,7 @@ class MainWindow(QMainWindow):
             return
 
         self._nz_data = nz
+        self._q_order_half = q_order_half
 
         # Show NZ data immediately
         self._panel1.show_nz_data(md, ps, nz)
@@ -156,7 +158,10 @@ class MainWindow(QMainWindow):
 
         # Run Weyl checks
         try:
-            weyl_result = run_weyl_checks(entries, nz.num_hard)
+            weyl_result = run_weyl_checks(
+                entries, nz.num_hard,
+                q_order_half=self._q_order_half,
+            )
         except Exception:
             weyl_result = None
 

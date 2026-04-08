@@ -154,6 +154,47 @@ class ExportPanel(QFrame):
         self._copy_txt_btn.clicked.connect(self._copy_text)
         outer.addWidget(self._copy_txt_btn)
 
+        outer.addSpacing(12)
+
+        # ── Data Pack Export section ──
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setFrameShadow(QFrame.Shadow.Sunken)
+        outer.addWidget(sep2)
+
+        outer.addWidget(_section_label("Data Pack Export"))
+
+        dp_sub = QLabel(
+            "Export the I<sup>ref</sup> cache for the current manifold "
+            "to Mathematica or JSON."
+        )
+        dp_sub.setWordWrap(True)
+        dp_sub.setStyleSheet("font-size: 11px; color: #8b949e;")
+        outer.addWidget(dp_sub)
+
+        outer.addSpacing(4)
+
+        self._export_iref_m_btn = QPushButton("📦  Export Iʳᵉᶠ  →  .m.zip")
+        self._export_iref_m_btn.setObjectName("secondary")
+        self._export_iref_m_btn.setFixedHeight(30)
+        self._export_iref_m_btn.setEnabled(False)
+        self._export_iref_m_btn.clicked.connect(self._export_iref_mathematica)
+        outer.addWidget(self._export_iref_m_btn)
+
+        self._export_iref_json_btn = QPushButton("📦  Export Iʳᵉᶠ  →  .json.zip")
+        self._export_iref_json_btn.setObjectName("secondary")
+        self._export_iref_json_btn.setFixedHeight(30)
+        self._export_iref_json_btn.setEnabled(False)
+        self._export_iref_json_btn.clicked.connect(self._export_iref_json)
+        outer.addWidget(self._export_iref_json_btn)
+
+        self._export_kernel_btn = QPushButton("📦  Export Kernels  →  .zip")
+        self._export_kernel_btn.setObjectName("secondary")
+        self._export_kernel_btn.setFixedHeight(30)
+        self._export_kernel_btn.setEnabled(True)  # kernels don't need manifold data
+        self._export_kernel_btn.clicked.connect(self._export_kernels)
+        outer.addWidget(self._export_kernel_btn)
+
         outer.addSpacing(8)
 
         self._status = QLabel("")
@@ -181,6 +222,8 @@ class ExportPanel(QFrame):
         self._export_btn.setEnabled(True)
         self._copy_tex_btn.setEnabled(True)
         self._copy_txt_btn.setEnabled(True)
+        self._export_iref_m_btn.setEnabled(True)
+        self._export_iref_json_btn.setEnabled(True)
 
     def set_dehn_data(self, results: list) -> None:
         """Store Dehn filling results from Panel 2 for export.
@@ -321,3 +364,123 @@ class ExportPanel(QFrame):
         QApplication.clipboard().setText(text)
         self._status.setText("✓  Plain text copied to clipboard")
         self._status.setStyleSheet("color: #2ea043; font-size: 11px;")
+
+    # ------------------------------------------------------------------
+    # Data-pack export slots
+    # ------------------------------------------------------------------
+
+    def _find_iref_cache_path(self) -> Path | None:
+        """Locate the iref cache .pkl.gz for the current manifold."""
+        from manifold_index.utils.cache_export import find_iref_file
+
+        name = self._manifold_name()
+        if name == "unknown":
+            return None
+        return find_iref_file(name)
+
+    @Slot()
+    def _export_iref_mathematica(self) -> None:
+        if not self._data:
+            return
+        from manifold_index.utils.cache_export import (
+            export_iref_zip,
+            load_iref_file,
+        )
+
+        pkl = self._find_iref_cache_path()
+        if pkl is None:
+            self._status.setText("✗  No I^ref cache found for this manifold")
+            self._status.setStyleSheet("color: #f85149; font-size: 11px;")
+            return
+
+        name = self._manifold_name()
+        default_name = f"iref_{name.replace('/', '_')}.zip"
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save I^ref Mathematica archive",
+            str(Path.home() / "Desktop" / default_name),
+            "Zip Archive (*.zip);;All Files (*)",
+        )
+        if not path:
+            return
+
+        try:
+            data = load_iref_file(pkl)
+            n = export_iref_zip(data, Path(path), fmt="mathematica")
+            self._status.setText(
+                f"✓  Exported {n} entries → {Path(path).name}"
+            )
+            self._status.setStyleSheet("color: #2ea043; font-size: 11px;")
+        except Exception as exc:
+            self._status.setText(f"✗  Export failed: {exc}")
+            self._status.setStyleSheet("color: #f85149; font-size: 11px;")
+
+    @Slot()
+    def _export_iref_json(self) -> None:
+        if not self._data:
+            return
+        from manifold_index.utils.cache_export import (
+            export_iref_zip,
+            load_iref_file,
+        )
+
+        pkl = self._find_iref_cache_path()
+        if pkl is None:
+            self._status.setText("✗  No I^ref cache found for this manifold")
+            self._status.setStyleSheet("color: #f85149; font-size: 11px;")
+            return
+
+        name = self._manifold_name()
+        default_name = f"iref_{name.replace('/', '_')}_json.zip"
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save I^ref JSON archive",
+            str(Path.home() / "Desktop" / default_name),
+            "Zip Archive (*.zip);;All Files (*)",
+        )
+        if not path:
+            return
+
+        try:
+            data = load_iref_file(pkl)
+            n = export_iref_zip(data, Path(path), fmt="json")
+            self._status.setText(
+                f"✓  Exported {n} entries → {Path(path).name}"
+            )
+            self._status.setStyleSheet("color: #2ea043; font-size: 11px;")
+        except Exception as exc:
+            self._status.setText(f"✗  Export failed: {exc}")
+            self._status.setStyleSheet("color: #f85149; font-size: 11px;")
+
+    @Slot()
+    def _export_kernels(self) -> None:
+        from manifold_index.utils.cache_export import (
+            export_kernels_zip,
+            list_kernel_files,
+        )
+
+        files = list_kernel_files()
+        if not files:
+            self._status.setText("✗  No kernel cache files found")
+            self._status.setStyleSheet("color: #f85149; font-size: 11px;")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save kernel archive",
+            str(Path.home() / "Desktop" / "kernels.zip"),
+            "Zip Archive (*.zip);;All Files (*)",
+        )
+        if not path:
+            return
+
+        try:
+            exported, errors = export_kernels_zip(files, Path(path))
+            msg = f"✓  Exported {exported} kernel(s) → {Path(path).name}"
+            if errors:
+                msg += f"  ({errors} failed)"
+            self._status.setText(msg)
+            self._status.setStyleSheet("color: #2ea043; font-size: 11px;")
+        except Exception as exc:
+            self._status.setText(f"✗  Export failed: {exc}")
+            self._status.setStyleSheet("color: #f85149; font-size: 11px;")

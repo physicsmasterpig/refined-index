@@ -310,10 +310,14 @@ class FillingPanel(QFrame):
         """Called when all filling computations are complete (step 2).
 
         *results* is either ``list[TransformedFillResult]`` (single-cusp
-        filling) or ``list[MultiCuspFillResult]`` (all cusps filled
-        simultaneously).
+        filling), ``list[MultiCuspFillResult]`` (all cusps filled
+        simultaneously), or ``list[UnrefinedFillResult]`` (fallback when
+        no NC cycles are found).
         """
-        from manifold_index.app.workers import MultiCuspFillResult
+        from manifold_index.app.workers import (
+            MultiCuspFillResult,
+            UnrefinedFillResult,
+        )
 
         self._transformed_results = results
 
@@ -322,11 +326,30 @@ class FillingPanel(QFrame):
             len(results) > 0
             and isinstance(results[0], MultiCuspFillResult)
         )
+        is_unrefined = (
+            len(results) > 0
+            and isinstance(results[0], UnrefinedFillResult)
+        )
 
         # Nmax = q_order_half / 2 → show that many q-terms
         nmax = self._q_order_half // 2
 
-        if is_multi:
+        if is_unrefined:
+            html = format_panel2_html(
+                nc_results=self._nc_results,
+                unrefined_results=results,
+                nz=self._nz_data,
+                weyl=self._weyl_result,
+                max_q_terms=nmax,
+            )
+            total_evals = sum(len(ur.fill_results) for ur in results)
+            self._progress.setRange(0, 1)
+            self._progress.setValue(1)
+            self._status.setText(
+                f"✓  0 NC cycle(s) · "
+                f"{total_evals} unrefined filling evaluation(s)"
+            )
+        elif is_multi:
             html = format_panel2_html(
                 nc_results=self._nc_results,
                 multi_cusp_results=results,
