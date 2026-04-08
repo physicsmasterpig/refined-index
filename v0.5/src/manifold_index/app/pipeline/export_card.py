@@ -242,6 +242,7 @@ class ExportCard(QWidget):
     def _copy_to_clipboard(self, fmt: str) -> None:
         import tempfile
         s = self._session
+        tmp: str | None = None
         try:
             with tempfile.NamedTemporaryFile(
                 suffix=".tex" if fmt == "latex" else ".m",
@@ -253,13 +254,15 @@ class ExportCard(QWidget):
             else:
                 ExportService.write_mathematica(s, tmp, True)
             text = Path(tmp).read_text(encoding="utf-8")
-            Path(tmp).unlink(missing_ok=True)
 
             from PySide6.QtWidgets import QApplication
             QApplication.clipboard().setText(text)
             self._show_copied_feedback()
         except Exception as exc:
             self._show_feedback(f"Copy failed: {exc}", ms=3000)
+        finally:
+            if tmp is not None:
+                Path(tmp).unlink(missing_ok=True)
 
     def _show_copied_feedback(self) -> None:
         self._show_feedback("Copied.", ms=1500)

@@ -17,6 +17,7 @@ Layout
 
 from __future__ import annotations
 
+import logging
 from fractions import Fraction
 
 from PySide6.QtCore import Signal
@@ -60,6 +61,7 @@ class FillingCard(QWidget):
         self._nc_workers: list[NCSearchWorker] = []
         self._fill_workers: list[FillWorker] = []
         self._nc_cycle_vms: list[NCCycleViewModel] = []
+        self._session_gen: int = 0   # incremented on each unlock(); guards stale signals
 
         self._card = CollapsibleCard(3, "Dehn Filling", parent=self)
         self._card.set_status(CardStatus.LOCKED)
@@ -167,6 +169,7 @@ class FillingCard(QWidget):
 
     def unlock(self, session: Session) -> None:
         self._session = session
+        self._session_gen += 1
         self._card.set_status(CardStatus.READY)
         self._card.expand()
         self._rebuild_cusp_inputs()
@@ -175,6 +178,10 @@ class FillingCard(QWidget):
         )
 
     def lock(self) -> None:
+        # Disconnect and abandon any running workers so their stale signals
+        # cannot corrupt the next session's state.
+        self._abandon_nc_workers()
+        self._abandon_fill_workers()
         self._card.set_status(CardStatus.LOCKED)
         self._card.collapse()
         self._fill_table.clear_rows()
@@ -191,6 +198,31 @@ class FillingCard(QWidget):
             self._fill_btn.setEnabled(True)
         for fq in session.fill_queries:
             self._show_fill_query(fq)
+
+    # ------------------------------------------------------------------
+    # Internal — worker lifecycle helpers
+    # ------------------------------------------------------------------
+
+    def _abandon_nc_workers(self) -> None:
+        """Disconnect signals from all NC workers and let them finish silently."""
+        for w in self._nc_workers:
+            try:
+                w.finished.disconnect()
+                w.error.disconnect()
+                w.status.disconnect()
+            except RuntimeError:
+                pass  # already disconnected
+        self._nc_workers.clear()
+
+    def _abandon_fill_workers(self) -> None:
+        """Disconnect signals from all fill workers and let them finish silently."""
+        for w in self._fill_workers:
+            try:
+                w.finished.disconnect()
+                w.error.disconnect()
+            except RuntimeError:
+                pass
+        self._fill_workers.clear()
 
     # ------------------------------------------------------------------
     # Internal — NC cycle search
@@ -235,6 +267,7 @@ class FillingCard(QWidget):
         self._card.set_status(CardStatus.RUNNING)
         self._nc_cycle_vms.clear()
 
+        gen = self._session_gen          # capture generation at launch time
         for i in range(n_cusps):
             worker = NCSearchWorker(
                 nz_data       = s.nz_data,
@@ -247,12 +280,23 @@ class FillingCard(QWidget):
                 parent        = self,
             )
             worker.status.connect(self._nc_status.setText)
-            worker.finished.connect(lambda p, ci=i: self._on_nc_finished(p, ci))
-            worker.error.connect(lambda e, ci=i: self._on_nc_error(e, ci))
+            worker.finished.connect(
+                lambda p, ci=i, g=gen: self._on_nc_finished(p, ci, g)
+            )
+            worker.error.connect(
+                lambda e, ci=i, g=gen: self._on_nc_error(e, ci, g)
+            )
             self._nc_workers.append(worker)
             worker.start()
 
-    def _on_nc_finished(self, payload: dict, cusp_idx: int) -> None:
+    def _on_nc_finished(self, payload: dict, cusp_idx: int, gen: int) -> None:
+        if gen != self._session_gen:
+            return   # stale: a new manifold was loaded since this worker launched
+        # Remove the completed worker from the tracking list
+        sender = self.sender()
+        if sender in self._nc_workers:
+            self._nc_workers.remove(sender)
+
         cycles = payload["cycles"]
         s = self._session
 
@@ -299,9 +343,18 @@ class FillingCard(QWidget):
             self._update_summary()
             self.session_updated.emit(s)
 
-    def _on_nc_error(self, msg: str, cusp_idx: int) -> None:
-        self._nc_search_btn.setEnabled(True)
-        self._nc_status.setVisible(False)
+    def _on_nc_error(self, msg: str, cusp_idx: int, gen: int) -> None:
+        if gen != self._session_gen:
+            return
+        sender = self.sender()
+        if sender in self._nc_workers:
+            self._nc_workers.remove(sender)
+        # Only re-enable controls if no other NC workers are still running
+        if not any(w.isRunning() for w in self._nc_workers):
+            self._nc_search_btn.setEnabled(True)
+            self._nc_status.setVisible(False)
+            self._nc_workers.clear()
+        logging.warning("NCSearchWorker cusp %d error: %s", cusp_idx, msg)
         self._card.set_status(CardStatus.ERROR)
 
     def _render_nc_table(self) -> None:
@@ -379,6 +432,7 @@ class FillingCard(QWidget):
         )
         self._fill_table.set_row_computing(row)
 
+        gen = self._session_gen          # capture for stale-signal guard
         worker = FillWorker(
             nz_data      = s.nz_data,
             cusp_idx     = cusp_idx,
@@ -394,17 +448,24 @@ class FillingCard(QWidget):
             parent       = self,
         )
         worker.finished.connect(
-            lambda p, r=row, nv=nc_vm, uP=user_P, uQ=user_Q:
-                self._on_fill_finished(p, r, nv, uP, uQ)
+            lambda p, r=row, nv=nc_vm, uP=user_P, uQ=user_Q, g=gen:
+                self._on_fill_finished(p, r, nv, uP, uQ, g)
         )
-        worker.error.connect(lambda e, r=row: self._on_fill_error(e, r))
+        worker.error.connect(lambda e, r=row, g=gen: self._on_fill_error(e, r, g))
         self._fill_workers.append(worker)
         worker.start()
 
     def _on_fill_finished(
         self, payload: dict, row: int,
-        nc_vm: NCCycleViewModel, user_P: int, user_Q: int,
+        nc_vm: NCCycleViewModel, user_P: int, user_Q: int, gen: int,
     ) -> None:
+        sender = self.sender()
+        if sender in self._fill_workers:
+            self._fill_workers.remove(sender)
+
+        if gen != self._session_gen:
+            return   # stale result — manifold was reloaded
+
         self._fill_btn.setEnabled(True)
         self._fill_status.setVisible(False)
 
@@ -445,10 +506,16 @@ class FillingCard(QWidget):
         self._update_summary()
         self.session_updated.emit(s)
 
-    def _on_fill_error(self, msg: str, row: int) -> None:
+    def _on_fill_error(self, msg: str, row: int, gen: int) -> None:
+        sender = self.sender()
+        if sender in self._fill_workers:
+            self._fill_workers.remove(sender)
+        if gen != self._session_gen:
+            return
         self._fill_btn.setEnabled(True)
         self._fill_status.setVisible(False)
         self._fill_table.set_row_result(row, f"Error: {msg}", "—")
+        logging.warning("FillWorker error: %s", msg)
         self._card.set_status(CardStatus.ERROR)
 
     def _show_fill_query(self, fq: FillQuery) -> None:

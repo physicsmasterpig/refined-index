@@ -10,6 +10,7 @@ WeylWorker run after Grid to extract A/B vectors.
 
 from __future__ import annotations
 
+import logging
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
@@ -48,6 +49,7 @@ class IndexCard(QWidget):
         self._session   = session
         self._workers: list[IndexWorker] = []
         self._weyl_worker: WeylWorker | None = None
+        self._session_gen: int = 0   # incremented on unlock(); guards stale signals
 
         self._card = CollapsibleCard(2, "Refined Index", parent=self)
         self._card.set_status(CardStatus.LOCKED)
@@ -158,6 +160,7 @@ class IndexCard(QWidget):
     def unlock(self, session: Session) -> None:
         """Called by PipelineView when Card ① succeeds."""
         self._session = session
+        self._session_gen += 1
         self._card.set_status(CardStatus.READY)
         self._card.expand()
         self._rebuild_edge_toggles()
@@ -165,6 +168,22 @@ class IndexCard(QWidget):
 
     def lock(self) -> None:
         """Called by PipelineView when session is invalidated."""
+        # Disconnect signals from all in-flight workers so stale results
+        # cannot corrupt the next session's state.
+        for w in self._workers:
+            try:
+                w.finished.disconnect()
+                w.error.disconnect()
+            except RuntimeError:
+                pass
+        self._workers.clear()
+        if self._weyl_worker is not None:
+            try:
+                self._weyl_worker.finished.disconnect()
+                self._weyl_worker.error.disconnect()
+            except RuntimeError:
+                pass
+            self._weyl_worker = None
         self._card.set_status(CardStatus.LOCKED)
         self._card.collapse()
         self._results_table.clear_rows()
@@ -251,12 +270,20 @@ class IndexCard(QWidget):
             use_cache     = use_cache,
             parent        = self,
         )
-        worker.finished.connect(lambda p, r=row: self._on_index_finished(p, r))
-        worker.error.connect(lambda e, r=row: self._on_index_error(e, r))
+        gen = self._session_gen          # capture for stale-signal guard
+        worker.finished.connect(lambda p, r=row, g=gen: self._on_index_finished(p, r, g))
+        worker.error.connect(lambda e, r=row, g=gen: self._on_index_error(e, r, g))
         self._workers.append(worker)
         worker.start()
 
-    def _on_index_finished(self, payload: dict, row: int) -> None:
+    def _on_index_finished(self, payload: dict, row: int, gen: int) -> None:
+        sender = self.sender()
+        if sender in self._workers:
+            self._workers.remove(sender)
+
+        if gen != self._session_gen:
+            return   # stale: manifold was reloaded since this worker launched
+
         self._compute_btn.setEnabled(True)
         self._status_label.setVisible(False)
 
@@ -292,10 +319,16 @@ class IndexCard(QWidget):
         self._update_summary()
         self.session_updated.emit(s)
 
-    def _on_index_error(self, msg: str, row: int) -> None:
+    def _on_index_error(self, msg: str, row: int, gen: int) -> None:
+        sender = self.sender()
+        if sender in self._workers:
+            self._workers.remove(sender)
+        if gen != self._session_gen:
+            return
         self._compute_btn.setEnabled(True)
         self._status_label.setVisible(False)
         self._results_table.set_row_result(row, f"Error: {msg}", "—")
+        logging.warning("IndexWorker error: %s", msg)
         self._card.set_status(CardStatus.ERROR)
 
     def _on_weyl_clicked(self) -> None:
