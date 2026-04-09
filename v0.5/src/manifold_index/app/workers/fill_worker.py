@@ -18,6 +18,7 @@ Finished payload::
 
 from __future__ import annotations
 
+import time
 from fractions import Fraction
 from typing import Any
 
@@ -67,6 +68,8 @@ class FillWorker(QThread):
         self._manifold_name   = manifold_name
 
     def run(self) -> None:
+        # Lower this thread's priority so the main (UI) thread stays responsive.
+        self.setPriority(QThread.Priority.LowPriority)
         try:
             self.status.emit(
                 f"Computing filled index (NC=({self._nc_P},{self._nc_Q}), "
@@ -74,7 +77,9 @@ class FillWorker(QThread):
             )
 
             def _prog(done: int, total: int) -> None:
-                self.msleep(1)   # yield CPU + release GIL so macOS Cocoa loop stays live
+                # time.sleep() releases the Python GIL so the main thread can
+                # process Qt/Cocoa events between kernel-term iterations.
+                time.sleep(0.005)
                 self.progress.emit(done, total)
 
             p, q, result = FillingService.compute_filled_index(

@@ -17,6 +17,7 @@ can show a running count of tested slopes.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from PySide6.QtCore import QThread, Signal
@@ -55,6 +56,9 @@ class NCSearchWorker(QThread):
         self._total        = 0
 
     def run(self) -> None:
+        # Lower this thread's priority so macOS gives the main (UI) thread
+        # more CPU time and the event loop stays responsive.
+        self.setPriority(QThread.Priority.LowPriority)
         try:
             # Try cache first
             if self._use_cache and self._name:
@@ -86,7 +90,10 @@ class NCSearchWorker(QThread):
             )
 
             def _prog(done: int, total: int) -> None:
-                self.msleep(1)   # yield CPU + release GIL so macOS Cocoa loop stays live
+                # time.sleep() is guaranteed to release the Python GIL so the
+                # main thread can process Qt/Cocoa events between slopes.
+                # msleep() is a C++ call that may NOT release the GIL.
+                time.sleep(0.005)
                 self.progress.emit(done, total)
 
             nc_result = FillingService.find_nc_cycles(

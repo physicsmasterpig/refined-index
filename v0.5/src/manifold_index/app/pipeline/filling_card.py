@@ -478,7 +478,15 @@ class FillingCard(QWidget):
             self._show_fill_query(fq)
 
     def trigger_find_nc(self) -> None:
-        """Public: programmatically trigger NC cycle search (used by Run All)."""
+        """Public: programmatically trigger NC cycle search (used by Run All).
+
+        Always tries the disk cache first so Run All is as fast as a manual
+        run where the user has already ticked "Use cache".
+        """
+        # Temporarily force the cache checkbox on so _on_find_nc_clicked
+        # picks it up — it will be restored to the session-driven value the
+        # next time unlock() is called.
+        self._cache_chk.setChecked(True)
         self._on_find_nc_clicked()
 
     def trigger_stop_nc(self) -> None:
