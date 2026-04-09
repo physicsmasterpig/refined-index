@@ -1,4 +1,4 @@
-name: Deploy GitHub Pages (v0.3/docs)
+name: Deploy GitHub Pages (v0.5 downloads)
 
 on:
   push:
@@ -25,12 +25,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # If v0.3/docs is already a built static site (index.html inside),
-      # just upload it as the Pages artifact:
+      # Deploy the docs/ directory which contains index.html with
+      # download links for v0.4.2 and v0.5.0
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: v0.3/docs
+          path: docs
 
       - name: Deploy to GitHub Pages
         id: deployment

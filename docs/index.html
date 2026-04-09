@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manifold Index Calculator</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79c0ff;
+      --green: #3fb950;
+      --warning: #d29922;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem;
+    }
+
+    /* Header */
+    header { text-align: center; margin-bottom: 3rem; }
+    header h1 {
+      font-size: 2.2rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.02em;
+    }
+    header p.tagline {
+      color: var(--muted);
+      font-size: 1.1rem;
+    }
+
+    /* Version selector */
+    .version-selector {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 2rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1rem;
+    }
+    .version-btn {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .version-btn:hover {
+      border-color: var(--accent);
+      background: rgba(88, 166, 255, 0.1);
+    }
+    .version-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    /* Download card */
+    .download-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+    .download-card.hidden {
+      display: none;
+    }
+    .download-card .version {
+      display: inline-block;
+      background: rgba(56, 139, 253, 0.15);
+      color: var(--accent);
+      padding: 0.2rem 0.7rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+    .download-card .version.latest {
+      background: rgba(63, 185, 80, 0.15);
+      color: var(--green);
+    }
+    .download-card .platform {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+    }
+    .btn {
+      display: inline-block;
+      background: var(--green);
+      color: #fff;
+      text-decoration: none;
+      padding: 0.75rem 2rem;
+      border-radius: 8px;
+      font-size: 1.05rem;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .download-card .note {
+      margin-top: 1rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .download-card .changes {
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      text-align: left;
+    }
+    .download-card .changes h4 {
+      font-size: 0.9rem;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+    .download-card .changes ul {
+      list-style: none;
+      padding: 0;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .download-card .changes ul li {
+      margin-bottom: 0.3rem;
+      padding-left: 1rem;
+      position: relative;
+    }
+    .download-card .changes ul li::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+    }
+
+    /* Features */
+    .features {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+    }
+    @media (max-width: 500px) { .features { grid-template-columns: 1fr; } }
+    .feature {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.2rem;
+    }
+    .feature h3 {
+      font-size: 0.95rem;
+      margin-bottom: 0.3rem;
+    }
+    .feature p {
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    /* Sections */
+    section { margin-bottom: 2.5rem; }
+    section h2 {
+      font-size: 1.3rem;
+      margin-bottom: 0.8rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid var(--border);
+    }
+    section p, section li {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    section ul {
+      list-style: none;
+      padding: 0;
+    }
+    section ul li::before {
+      content: "→ ";
+      color: var(--accent);
+    }
+    section ul li { margin-bottom: 0.3rem; }
+    code {
+      background: rgba(110,118,129,0.15);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.88em;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <header>
+      <h1>Manifold Index Calculator</h1>
+      <p class="tagline">3D index, refined index, Dehn filling &amp; non-closable cycles for hyperbolic 3-manifolds</p>
+    </header>
+
+    <!-- ── Version selector ──────────────────────────────── -->
+    <div class="version-selector">
+      <button class="version-btn active" onclick="showVersion('v0.5')">
+        v0.5.0 (Latest)
+      </button>
+      <button class="version-btn" onclick="showVersion('v0.4')">
+        v0.4.2
+      </button>
+    </div>
+
+    <!-- ── v0.5.0 Download ──────────────────────────────── -->
+    <div class="download-card" id="v0.5">
+      <div class="version latest">v0.5.0 · Latest</div>
+      <div class="platform">macOS&ensp;·&ensp;Apple&nbsp;Silicon (arm64)&ensp;·&ensp;macOS 11+</div>
+      <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.0/ManifoldIndex.zip">
+        ⬇ Download .app
+      </a>
+      <p class="note">
+        The app is not notarized — see <strong>Installation</strong> below for the one-time macOS setup.
+      </p>
+      <div class="changes">
+        <h4>What's New in v0.5.0</h4>
+        <ul>
+          <li>Yield CPU and release GIL in progress callbacks for macOS compatibility</li>
+          <li>Comprehensive error analysis and fixes in data handling</li>
+          <li>Enhanced worker management and session state handling</li>
+          <li>Critical null check improvements in card formatters</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── v0.4.2 Download ──────────────────────────────── -->
+    <div class="download-card hidden" id="v0.4">
+      <div class="version">v0.4.2</div>
+      <div class="platform">macOS&ensp;·&ensp;Apple&nbsp;Silicon (arm64)&ensp;·&ensp;macOS 11+</div>
+      <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.4.2/ManifoldIndex.zip">
+        ⬇ Download .app
+      </a>
+      <p class="note">
+        The app is not notarized — see <strong>Installation</strong> below for the one-time macOS setup.
+      </p>
+      <div class="changes">
+        <h4>Key Fixes in v0.4.2</h4>
+        <ul>
+          <li><strong>Critical fix:</strong> half-integer e summation in Dehn filling</li>
+          <li>Multi-cusp Weyl symmetry fix with per-cusp column handling</li>
+          <li>Weyl convention text corrected: f(m,e) = f(−m,−e)</li>
+          <li>Removed stale I<sup>ref</sup> data pack (pending recomputation)</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── Features ────────────────────────────────────── -->
+    <div class="features">
+      <div class="feature">
+        <h3>3D Index</h3>
+        <p>Compute I(m, e) q-series for any cusped manifold in the SnapPy census.</p>
+      </div>
+      <div class="feature">
+        <h3>Refined Index</h3>
+        <p>Two-variable (q, t) refinement with automatic basis selection.</p>
+      </div>
+      <div class="feature">
+        <h3>Dehn Filling</h3>
+        <p>Fill cusps with (P, Q) slopes and compute the filled index.</p>
+      </div>
+      <div class="feature">
+        <h3>Non-closable Cycles</h3>
+        <p>Search for slopes whose filled index vanishes identically.</p>
+      </div>
+      <div class="feature">
+        <h3>Data Packs</h3>
+        <p>Download pre-computed kernels and census indices to skip expensive computations.</p>
+      </div>
+    </div>
+
+    <!-- ── Installation ────────────────────────────────── -->
+    <section>
+      <h2>Installation</h2>
+      <p>The app is ad-hoc signed but <em>not</em> notarized with Apple, so macOS will
+         block it on first launch. Use <strong>one</strong> of these methods:</p>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">Method 1 — Terminal (recommended)</h3>
+      <p>Open <strong>Terminal</strong> and run:</p>
+      <p><code>xattr -cr ~/Downloads/ManifoldIndex.app</code></p>
+      <p>Then double-click the app normally.</p>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">Method 2 — System Settings</h3>
+      <ul>
+        <li>Double-click the app (it will be blocked)</li>
+        <li>Open <strong>System Settings → Privacy &amp; Security</strong></li>
+        <li>Scroll down — click <strong>"Open Anyway"</strong> next to the ManifoldIndex message</li>
+        <li>Click <strong>Open</strong> in the confirmation dialog</li>
+      </ul>
+      <p style="margin-top:0.6rem;">This is only needed once. Subsequent launches work normally.</p>
+    </section>
+
+    <!-- ── Requirements ────────────────────────────────── -->
+    <section>
+      <h2>Requirements</h2>
+      <ul>
+        <li>macOS 11 (Big Sur) or later</li>
+        <li>Apple Silicon Mac (M1 / M2 / M3 / M4)</li>
+        <li>No Python installation needed — everything is bundled</li>
+      </ul>
+    </section>
+
+    <!-- ── Getting Started ─────────────────────────────── -->
+    <section>
+      <h2>Getting Started</h2>
+      <ul>
+        <li>Download and unzip <code>ManifoldIndex.zip</code></li>
+        <li>Move <code>ManifoldIndex.app</code> to Applications (or anywhere you like)</li>
+        <li>Clear the quarantine flag (see <strong>Installation</strong> above)</li>
+        <li>Launch the app — enter a manifold name (e.g. <code>m004</code>) and click <strong>Run</strong></li>
+      </ul>
+    </section>
+
+    <!-- ── Building from source ────────────────────────── -->
+    <section>
+      <h2>Build from Source</h2>
+      <p>Requires Python ≥ 3.10 and the packages listed in <code>pyproject.toml</code>.</p>
+      <ul>
+        <li><code>pip install -e ".[dev]"</code></li>
+        <li><code>manifold-index</code>&ensp;to launch the GUI</li>
+        <li><code>pytest tests/</code>&ensp;to run the test suite</li>
+      </ul>
+    </section>
+
+    <!-- ── Changelog ────────────────────────────────── -->
+    <section>
+      <h2>Changelog</h2>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.5.0</h3>
+      <ul>
+        <li><strong>Performance:</strong> Yield CPU and release GIL in progress callbacks for improved macOS compatibility and responsiveness</li>
+        <li><strong>Error handling:</strong> Comprehensive error analysis and fixes in data handling and worker management</li>
+        <li><strong>Stability:</strong> Enhanced session management with stale signal guards in export and filling cards</li>
+        <li><strong>Defensive coding:</strong> Added null checks in filling card formatter calls</li>
+        <li>76+ tests pass</li>
+      </ul>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.4.2</h3>
+      <ul>
+        <li><strong>Critical fix</strong>: half-integer e summation in Dehn filling — <code>valid_half_integer_patterns</code> now enumerates all δ patterns instead of pre-filtering by internal columns only. The previous filter missed δ patterns that become valid when cusp charges (m, e) introduce cancelling half-integer contributions via g⁻¹. Affected most manifolds with odd SnapPy longitude coefficients (m003, m006, m007, m009, m015, m125, …).</li>
+        <li>Multi-cusp Weyl symmetry fix: <code>ABVectors</code> extended with per-cusp <code>cusp_columns</code>, <code>shift_x2()</code> method, and per-cusp accessors. Fixes garbage Weyl vectors for multi-cusp manifolds (e.g. m125).</li>
+        <li>Weyl convention text corrected: f(m,e) = f(−m,−e) (boundary charge flip), not f(η) = f(η⁻¹).</li>
+        <li>Removed stale I<sup>ref</sup> data pack (computed before the half-integer fix; will be recomputed).</li>
+        <li>76 tests pass.</li>
+      </ul>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.4.0</h3>
+      <ul>
+        <li>Complete rewrite of computation core with cleaner architecture</li>
+        <li>IS chain intermediate steps use full (½)ℤ² lattice — fixes missing odd-m entries for all ℓ≥3 slopes</li>
+        <li>Pre-computed kernels-qq50 data pack fully recomputed (75 slopes, all correct)</li>
+        <li>Improved kernel builder: explicit pause/resume via <code>bin/</code> scripts</li>
+        <li>All tests passing</li>
+      </ul>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.3.9</h3>
+      <ul>
+        <li>IS chain intermediate steps use full (½)Z² lattice instead of K-support</li>
+        <li>Window title and application name version strings now consistent</li>
+        <li>Added <code>COMPREHENSIVE_GUIDE.md</code> — full technical reference for workflow, algorithms, and data structures</li>
+      </ul>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.3.6</h3>
+      <ul>
+        <li>Boundary curve convention: display charges as eα − (m/2)β</li>
+        <li>Weyl symmetry check: correct f(m,e) = f(−m,−e) pair comparison</li>
+        <li>New <strong>📦 Data Packs</strong> tab — download pre-computed kernels and census I<sup>ref</sup></li>
+        <li>Data pack infrastructure: registry, download with SHA-256 verification, install/uninstall</li>
+        <li>Batch generation script for building data packs (<code>scripts/generate_data_packs.py</code>)</li>
+        <li>65 tests pass</li>
+      </ul>
+    </section>
+
+    <!-- ── Footer ──────────────────────────────────── -->
+    <footer>
+      <p>
+        Licensed under <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html">GPLv2+</a>
+        &ensp;·&ensp;
+        <a href="https://github.com/physicsmasterpig/refined-index">Source on GitHub</a>
+      </p>
+    </footer>
+
+  </div>
+
+  <script>
+    function showVersion(version) {
+      // Hide all cards
+      document.getElementById('v0.4').classList.add('hidden');
+      document.getElementById('v0.5').classList.add('hidden');
+
+      // Remove active state from all buttons
+      document.querySelectorAll('.version-btn').forEach(btn => {
+        btn.classList.remove('active');
+      });
+
+      // Show selected card
+      document.getElementById(version).classList.remove('hidden');
+
+      // Mark button as active
+      event.target.classList.add('active');
+    }
+  </script>
+</body>
+</html>
