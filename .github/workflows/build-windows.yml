@@ -1,0 +1,98 @@
+name: Build Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags (v0.5.0, v0.4.2, etc.)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ['3.11']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          # Determine which v0.x directory to build
+          if [[ "$VERSION" == v0.5* ]]; then
+            echo "build_dir=v0.5" >> $GITHUB_OUTPUT
+          elif [[ "$VERSION" == v0.4* ]]; then
+            echo "build_dir=v0.4" >> $GITHUB_OUTPUT
+          else
+            echo "build_dir=v0.5" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install dependencies
+        shell: bash
+        working-directory: ${{ steps.version.outputs.build_dir }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        shell: bash
+        working-directory: ${{ steps.version.outputs.build_dir }}
+        run: |
+          echo "Building Refined Index Calculator ${{ steps.version.outputs.version }}..."
+          pyinstaller ManifoldIndex.spec --noconfirm
+
+      - name: Create distributable zip
+        shell: pwsh
+        working-directory: ${{ steps.version.outputs.build_dir }}
+        run: |
+          # Verify build was successful
+          if (-not (Test-Path "dist/ManifoldIndex")) {
+            Write-Error "Build failed - dist/ManifoldIndex not found"
+            exit 1
+          }
+
+          # Create zip
+          $zipPath = "dist/ManifoldIndex-windows.zip"
+          Compress-Archive -Path "dist/ManifoldIndex" -DestinationPath $zipPath -Force
+          Write-Output "Created: $zipPath"
+
+          # Get size
+          $size = (Get-Item $zipPath).Length / 1MB
+          Write-Output "Size: $([Math]::Round($size, 2)) MB"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            ${{ steps.version.outputs.build_dir }}/dist/ManifoldIndex-windows.zip
+          body: |
+            **Windows Build for ${{ steps.version.outputs.version }}**
+
+            This is the Windows 11/10 executable build.
+
+            **Installation:**
+            1. Download `ManifoldIndex-windows.zip`
+            2. Extract to a folder
+            3. Run `ManifoldIndex.exe`
+
+            **Note:** Windows Defender may warn about the unsigned executable. Click "More info" → "Run anyway".
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

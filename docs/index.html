@@ -43,31 +43,41 @@
       font-size: 1.1rem;
     }
 
-    /* Version selector */
-    .version-selector {
-      display: flex;
-      gap: 1rem;
+    /* Selectors */
+    .selector-group {
       margin-bottom: 2rem;
-      border-bottom: 1px solid var(--border);
       padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
     }
-    .version-btn {
+    .selector-label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    .selector-buttons {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .selector-btn {
       flex: 1;
-      padding: 0.75rem 1rem;
+      padding: 0.6rem 1rem;
       border: 1px solid var(--border);
       background: var(--surface);
       color: var(--text);
       border-radius: 6px;
       cursor: pointer;
-      font-size: 0.95rem;
+      font-size: 0.9rem;
       font-weight: 500;
       transition: all 0.2s;
     }
-    .version-btn:hover {
+    .selector-btn:hover {
       border-color: var(--accent);
       background: rgba(88, 166, 255, 0.1);
     }
-    .version-btn.active {
+    .selector-btn.active {
       background: var(--accent);
       border-color: var(--accent);
       color: #fff;
@@ -221,18 +231,35 @@
       <p class="tagline">3D index, refined index, Dehn filling &amp; non-closable cycles for hyperbolic 3-manifolds</p>
     </header>
 
-    <!-- ── Version selector ──────────────────────────────── -->
-    <div class="version-selector">
-      <button class="version-btn active" onclick="showVersion('v0.5')">
-        v0.5.0 (Latest)
-      </button>
-      <button class="version-btn" onclick="showVersion('v0.4')">
-        v0.4.2
-      </button>
+    <!-- ── Version & Platform Selectors ──────────────────── -->
+    <div class="selector-group">
+      <div style="margin-bottom: 1rem;">
+        <div class="selector-label">Version</div>
+        <div class="selector-buttons">
+          <button class="selector-btn active" onclick="selectVersion('v0.5')">
+            v0.5.0 (Latest)
+          </button>
+          <button class="selector-btn" onclick="selectVersion('v0.4')">
+            v0.4.2
+          </button>
+        </div>
+      </div>
+      <div>
+        <div class="selector-label">Platform</div>
+        <div class="selector-buttons">
+          <button class="selector-btn active" onclick="selectPlatform('macos')">
+            🍎 macOS
+          </button>
+          <button class="selector-btn" onclick="selectPlatform('windows')">
+            🪟 Windows 11/10
+          </button>
+        </div>
+      </div>
     </div>
 
-    <!-- ── v0.5.0 Download ──────────────────────────────── -->
-    <div class="download-card" id="v0.5">
+    <!-- ── Download Cards ──────────────────────────────── -->
+    <!-- macOS v0.5.0 -->
+    <div class="download-card" id="card-v0.5-macos">
       <div class="version latest">v0.5.0 · Latest</div>
       <div class="platform">macOS&ensp;·&ensp;Apple&nbsp;Silicon (arm64)&ensp;·&ensp;macOS 11+</div>
       <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.0/ManifoldIndex.zip">
@@ -252,8 +279,29 @@
       </div>
     </div>
 
-    <!-- ── v0.4.2 Download ──────────────────────────────── -->
-    <div class="download-card hidden" id="v0.4">
+    <!-- Windows v0.5.0 -->
+    <div class="download-card hidden" id="card-v0.5-windows">
+      <div class="version latest">v0.5.0 · Latest</div>
+      <div class="platform">Windows 11/10 · x64</div>
+      <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.0/ManifoldIndex-windows.zip">
+        ⬇ Download .exe
+      </a>
+      <p class="note">
+        Windows Defender may warn about the unsigned executable. Click <strong>More info</strong> → <strong>Run anyway</strong>.
+      </p>
+      <div class="changes">
+        <h4>What's New in v0.5.0</h4>
+        <ul>
+          <li>Yield CPU and release GIL in progress callbacks for macOS compatibility</li>
+          <li>Comprehensive error analysis and fixes in data handling</li>
+          <li>Enhanced worker management and session state handling</li>
+          <li>Critical null check improvements in card formatters</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- macOS v0.4.2 -->
+    <div class="download-card hidden" id="card-v0.4-macos">
       <div class="version">v0.4.2</div>
       <div class="platform">macOS&ensp;·&ensp;Apple&nbsp;Silicon (arm64)&ensp;·&ensp;macOS 11+</div>
       <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.4.2/ManifoldIndex.zip">
@@ -261,6 +309,27 @@
       </a>
       <p class="note">
         The app is not notarized — see <strong>Installation</strong> below for the one-time macOS setup.
+      </p>
+      <div class="changes">
+        <h4>Key Fixes in v0.4.2</h4>
+        <ul>
+          <li><strong>Critical fix:</strong> half-integer e summation in Dehn filling</li>
+          <li>Multi-cusp Weyl symmetry fix with per-cusp column handling</li>
+          <li>Weyl convention text corrected: f(m,e) = f(−m,−e)</li>
+          <li>Removed stale I<sup>ref</sup> data pack (pending recomputation)</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Windows v0.4.2 -->
+    <div class="download-card hidden" id="card-v0.4-windows">
+      <div class="version">v0.4.2</div>
+      <div class="platform">Windows 11/10 · x64</div>
+      <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.4.2/ManifoldIndex-windows.zip">
+        ⬇ Download .exe
+      </a>
+      <p class="note">
+        Windows Defender may warn about the unsigned executable. Click <strong>More info</strong> → <strong>Run anyway</strong>.
       </p>
       <div class="changes">
         <h4>Key Fixes in v0.4.2</h4>
@@ -300,15 +369,17 @@
     <!-- ── Installation ────────────────────────────────── -->
     <section>
       <h2>Installation</h2>
+
+      <h3 style="font-size:1rem; margin-top:0;">macOS</h3>
       <p>The app is ad-hoc signed but <em>not</em> notarized with Apple, so macOS will
          block it on first launch. Use <strong>one</strong> of these methods:</p>
 
-      <h3 style="font-size:0.95rem; margin-top:1rem;">Method 1 — Terminal (recommended)</h3>
+      <h4 style="font-size:0.95rem; margin-top:0.8rem;">Method 1 — Terminal (recommended)</h4>
       <p>Open <strong>Terminal</strong> and run:</p>
       <p><code>xattr -cr ~/Downloads/ManifoldIndex.app</code></p>
       <p>Then double-click the app normally.</p>
 
-      <h3 style="font-size:0.95rem; margin-top:1rem;">Method 2 — System Settings</h3>
+      <h4 style="font-size:0.95rem; margin-top:0.8rem;">Method 2 — System Settings</h4>
       <ul>
         <li>Double-click the app (it will be blocked)</li>
         <li>Open <strong>System Settings → Privacy &amp; Security</strong></li>
@@ -316,14 +387,33 @@
         <li>Click <strong>Open</strong> in the confirmation dialog</li>
       </ul>
       <p style="margin-top:0.6rem;">This is only needed once. Subsequent launches work normally.</p>
+
+      <h3 style="font-size:1rem; margin-top:1.5rem;">Windows</h3>
+      <p>Extract the zip and run <code>ManifoldIndex.exe</code>. Windows Defender may show a warning — this is normal for unsigned executables:</p>
+
+      <h4 style="font-size:0.95rem; margin-top:0.8rem;">If blocked by Windows Defender</h4>
+      <ul>
+        <li>Click <strong>"More info"</strong> in the warning dialog</li>
+        <li>Click <strong>"Run anyway"</strong></li>
+      </ul>
+      <p style="margin-top:0.6rem;">This is only needed on first launch. The app will run normally afterward.</p>
     </section>
 
     <!-- ── Requirements ────────────────────────────────── -->
     <section>
       <h2>Requirements</h2>
+
+      <h3 style="font-size:0.95rem;">macOS</h3>
       <ul>
         <li>macOS 11 (Big Sur) or later</li>
         <li>Apple Silicon Mac (M1 / M2 / M3 / M4)</li>
+        <li>No Python installation needed — everything is bundled</li>
+      </ul>
+
+      <h3 style="font-size:0.95rem; margin-top:1rem;">Windows</h3>
+      <ul>
+        <li>Windows 10 or later (Windows 11 recommended)</li>
+        <li>x64 processor</li>
         <li>No Python installation needed — everything is bundled</li>
       </ul>
     </section>
@@ -411,22 +501,57 @@
   </div>
 
   <script>
-    function showVersion(version) {
-      // Hide all cards
-      document.getElementById('v0.4').classList.add('hidden');
-      document.getElementById('v0.5').classList.add('hidden');
+    let currentVersion = 'v0.5';
+    let currentPlatform = 'macos';
 
-      // Remove active state from all buttons
-      document.querySelectorAll('.version-btn').forEach(btn => {
-        btn.classList.remove('active');
+    function selectVersion(version) {
+      currentVersion = version;
+      updateDisplay();
+      // Mark button as active
+      document.querySelectorAll('.selector-btn').forEach(btn => {
+        if (btn.textContent.includes(version === 'v0.5' ? 'v0.5.0' : 'v0.4.2')) {
+          btn.classList.add('active');
+        }
+      });
+    }
+
+    function selectPlatform(platform) {
+      currentPlatform = platform;
+      updateDisplay();
+      // Mark button as active
+      document.querySelectorAll('.selector-btn').forEach(btn => {
+        const btnText = btn.textContent.trim();
+        if ((platform === 'macos' && btnText === '🍎 macOS') ||
+            (platform === 'windows' && btnText === '🪟 Windows 11/10')) {
+          btn.classList.add('active');
+        }
+      });
+    }
+
+    function updateDisplay() {
+      // Hide all cards
+      ['v0.4', 'v0.5'].forEach(v => {
+        ['macos', 'windows'].forEach(p => {
+          document.getElementById(`card-${v}-${p}`).classList.add('hidden');
+        });
       });
 
       // Show selected card
-      document.getElementById(version).classList.remove('hidden');
-
-      // Mark button as active
-      event.target.classList.add('active');
+      document.getElementById(`card-${currentVersion}-${currentPlatform}`).classList.remove('hidden');
     }
+
+    // Initialize button active states correctly
+    document.addEventListener('DOMContentLoaded', function() {
+      document.querySelectorAll('.selector-btn').forEach(btn => {
+        const btnText = btn.textContent.trim();
+        if ((currentVersion === 'v0.5' && btnText === 'v0.5.0 (Latest)') ||
+            (currentVersion === 'v0.4' && btnText === 'v0.4.2') ||
+            (currentPlatform === 'macos' && btnText === '🍎 macOS') ||
+            (currentPlatform === 'windows' && btnText === '🪟 Windows 11/10')) {
+          btn.classList.add('active');
+        }
+      });
+    });
   </script>
 </body>
 </html>
