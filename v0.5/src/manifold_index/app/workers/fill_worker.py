@@ -48,6 +48,7 @@ class FillWorker(QThread):
         weyl_a: list[Fraction] | None = None,
         weyl_b: list[Fraction] | None = None,
         auto_precompute: bool = True,
+        manifold_name: str = "unknown",
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -63,17 +64,10 @@ class FillWorker(QThread):
         self._weyl_a          = weyl_a
         self._weyl_b          = weyl_b
         self._auto_precompute = auto_precompute
+        self._manifold_name   = manifold_name
 
     def run(self) -> None:
         try:
-            import sys
-            print(
-                f"[FillWorker] nc=({self._nc_P},{self._nc_Q})  "
-                f"user=({self._user_P},{self._user_Q})  "
-                f"cusp={self._cusp_idx}  "
-                f"q_order_half={self._q_order_half}",
-                flush=True, file=sys.stderr,
-            )
             self.status.emit(
                 f"Computing filled index (NC=({self._nc_P},{self._nc_Q}), "
                 f"slope=({self._user_P},{self._user_Q}))…"
@@ -96,18 +90,8 @@ class FillWorker(QThread):
                 weyl_b         = self._weyl_b,
                 auto_precompute= self._auto_precompute,
                 progress_fn    = _prog,
+                manifold_name  = self._manifold_name,
             )
-            print(
-                f"[FillWorker] → p={p}, q={q}  "
-                f"series_empty={result.is_zero}  "
-                f"n_terms={len(result.series)}  "
-                f"hj_ks={result.hj_ks}  "
-                f"n_kernel_terms={result.n_kernel_terms}",
-                flush=True, file=sys.stderr,
-            )
-            if result.series:
-                first5 = list(result.series.items())[:5]
-                print(f"[FillWorker] series sample: {first5}", flush=True, file=sys.stderr)
             self.finished.emit(
                 {
                     "cusp_idx": self._cusp_idx,

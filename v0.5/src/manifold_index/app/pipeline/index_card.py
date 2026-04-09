@@ -256,6 +256,14 @@ class IndexCard(QWidget):
     def refresh(self, session: Session) -> None:
         self._session = session
 
+    def trigger_compute(self) -> None:
+        """Public: programmatically trigger a Compute (used by Run All)."""
+        self._on_compute_clicked()
+
+    def trigger_stop(self) -> None:
+        """Public: programmatically trigger the Stop button (used by Run All)."""
+        self._on_stop_clicked()
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

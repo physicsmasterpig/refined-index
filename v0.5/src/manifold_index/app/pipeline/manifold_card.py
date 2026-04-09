@@ -146,6 +146,10 @@ class ManifoldCard(QWidget):
             self._nmax_spin.setValue(session.q_order_half // 2)
             self._render_loaded(session)
 
+    def trigger_load(self) -> None:
+        """Public: programmatically trigger a Load (used by Run All)."""
+        self._on_load_clicked()
+
     # ------------------------------------------------------------------
     # Autocomplete
     # ------------------------------------------------------------------

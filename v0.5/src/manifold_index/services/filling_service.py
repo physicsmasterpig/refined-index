@@ -138,6 +138,7 @@ class FillingService:
         weyl_b: list[Fraction] | None,
         auto_precompute: bool = True,
         progress_fn: Callable | None = None,
+        manifold_name: str = "unknown",
     ) -> tuple[int, int, Any]:
         """Apply basis change and compute the filled refined index.
 
@@ -157,6 +158,7 @@ class FillingService:
         weyl_a, weyl_b : Weyl vectors (None → no Weyl shift)
         auto_precompute : bool — automatically build kernel if not cached
         progress_fn : optional progress callback
+        manifold_name : str — used to name the I^ref disk-cache file
 
         Returns
         -------
@@ -206,8 +208,14 @@ class FillingService:
             weyl_a=weyl_a,
             weyl_b=weyl_b,
             auto_precompute=auto_precompute,
-            verbose=True,
         )
+
+        # Persist newly computed I^ref entries to the disk cache so they are
+        # reloaded automatically in future sessions.
+        try:
+            _kc_mod.save_iref_cache(nz_nc, manifold_name=manifold_name)
+        except Exception:
+            pass  # best-effort — never let a cache write break the result
 
         return p, q, result
 

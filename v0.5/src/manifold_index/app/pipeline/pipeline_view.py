@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QHBoxLayout, QLabel, QProgressBar, QPushButton,
     QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
@@ -57,6 +58,8 @@ class PipelineView(QWidget):
     ) -> None:
         super().__init__(parent)
         self._session = session or Session()
+        self._full_run: bool = False   # True while Run All is in progress
+        self._run_all_stage: int = 0   # 1=loading, 2=indexing, 3=nc search
 
         # ── Layout ────────────────────────────────────────────────────
         root_layout = QVBoxLayout(self)
@@ -70,6 +73,41 @@ class PipelineView(QWidget):
         )
         self._stepper.step_clicked.connect(self._on_step_clicked)
         root_layout.addWidget(self._stepper)
+
+        # ── Run All bar (between stepper and scroll) ──────────────────
+        run_bar = QWidget()
+        run_bar.setProperty("class", "run-all-bar")
+        rb = QHBoxLayout(run_bar)
+        rb.setContentsMargins(16, 6, 16, 6)
+        rb.setSpacing(10)
+
+        self._run_all_btn = QPushButton("▶  Run All")
+        self._run_all_btn.setProperty("class", "primary")
+        self._run_all_btn.setToolTip(
+            "Load manifold → compute index → search NC cycles automatically"
+        )
+        self._run_all_btn.clicked.connect(self._on_run_all_clicked)
+        rb.addWidget(self._run_all_btn)
+
+        self._run_all_stop_btn = QPushButton("■  Stop")
+        self._run_all_stop_btn.setProperty("class", "secondary")
+        self._run_all_stop_btn.setToolTip("Stop the Run All pipeline")
+        self._run_all_stop_btn.setVisible(False)
+        self._run_all_stop_btn.clicked.connect(self._on_run_all_stop_clicked)
+        rb.addWidget(self._run_all_stop_btn)
+
+        self._run_all_bar = QProgressBar()
+        self._run_all_bar.setRange(0, 0)          # indeterminate / pulsing
+        self._run_all_bar.setFixedHeight(12)
+        self._run_all_bar.setTextVisible(False)
+        self._run_all_bar.setVisible(False)
+        rb.addWidget(self._run_all_bar, 2)        # stretch=2
+
+        self._run_all_lbl = QLabel("")
+        self._run_all_lbl.setProperty("class", "muted")
+        self._run_all_lbl.setVisible(False)
+        rb.addWidget(self._run_all_lbl, 1)        # stretch=1
+        root_layout.addWidget(run_bar)
 
         # Scroll area
         scroll = QScrollArea()
@@ -152,8 +190,19 @@ class PipelineView(QWidget):
             self._export_card.unlock(session)
         self._sync_stepper()
         self.session_changed.emit(session)
+        # ── Run All auto-proceed ──────────────────────────────────────
+        if self._full_run:
+            self._run_all_stage = 2
+            self._run_all_lbl.setText("2/3 — computing index…")
+            self._index_card.trigger_compute()
 
     def _on_load_failed(self) -> None:
+        self._full_run = False
+        self._run_all_stage = 0
+        self._run_all_lbl.setText("⚠ Load failed")
+        self._run_all_btn.setEnabled(True)
+        self._run_all_stop_btn.setVisible(False)
+        self._run_all_bar.setVisible(False)
         self._index_card.lock()
         self._filling_card.lock()
         self._export_card.lock()
@@ -172,6 +221,11 @@ class PipelineView(QWidget):
             self._export_card.unlock(session)
         self._sync_stepper()
         self.session_changed.emit(session)
+        # ── Run All auto-proceed ──────────────────────────────────────
+        if self._full_run and session.index_queries:
+            self._run_all_stage = 3
+            self._run_all_lbl.setText("3/3 — searching NC cycles…")
+            self._filling_card.trigger_find_nc()
 
     # ------------------------------------------------------------------
     # Slot: Card ③ finished
@@ -183,6 +237,22 @@ class PipelineView(QWidget):
             self._export_card.unlock(session)
         self._sync_stepper()
         self.session_changed.emit(session)
+        # ── Run All completion check ──────────────────────────────────
+        if self._full_run and session.nc_cycles:
+            self._full_run = False
+            self._run_all_stage = 0
+            self._run_all_btn.setEnabled(True)
+            self._run_all_stop_btn.setVisible(False)
+            self._run_all_bar.setVisible(False)
+            any_nc = any(len(ncs.cycles) > 0 for ncs in session.nc_cycles)
+            if any_nc:
+                self._run_all_lbl.setText(
+                    "✓ Done — NC cycles found, choose a slope and click Compute Filling"
+                )
+            else:
+                self._run_all_lbl.setText(
+                    "⚠ No NC cycles found — try the Manual basis cycle option"
+                )
 
     # ------------------------------------------------------------------
     # Slot: Card ④ exported
@@ -192,6 +262,38 @@ class PipelineView(QWidget):
         self._session = session
         self._sync_stepper()
         self.session_changed.emit(session)
+
+    # ------------------------------------------------------------------
+    # Run All
+    # ------------------------------------------------------------------
+
+    def _on_run_all_clicked(self) -> None:
+        """Kick off the full pipeline: Load → Index → NC search."""
+        self._full_run = True
+        self._run_all_stage = 1
+        self._run_all_btn.setEnabled(False)
+        self._run_all_stop_btn.setVisible(True)
+        self._run_all_bar.setVisible(True)
+        self._run_all_lbl.setText("1/3 — loading manifold…")
+        self._run_all_lbl.setVisible(True)
+        self._manifold_card.trigger_load()
+
+    def _on_run_all_stop_clicked(self) -> None:
+        """Stop the Run All chain and any active card operation."""
+        if not self._full_run:
+            return
+        stage = self._run_all_stage
+        self._full_run = False
+        self._run_all_stage = 0
+        self._run_all_btn.setEnabled(True)
+        self._run_all_stop_btn.setVisible(False)
+        self._run_all_bar.setVisible(False)
+        self._run_all_lbl.setText("Stopped")
+        # Interrupt whichever card is currently running
+        if stage == 3:
+            self._filling_card.trigger_stop_nc()
+        elif stage == 2:
+            self._index_card.trigger_stop()
 
     # ------------------------------------------------------------------
     # Stepper
