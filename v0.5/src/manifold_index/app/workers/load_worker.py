@@ -18,6 +18,8 @@ BLUEPRINT §13 Phase 6: "run() calls exactly one service method, ≤ 20 lines".
 
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import QThread, Signal
 
 from manifold_index.services.compute_service import ComputeService
@@ -31,23 +33,32 @@ class LoadWorker(QThread):
     finished = Signal(object)     # dict payload on success
     error    = Signal(str)        # error message on failure
 
-    def __init__(self, name: str, parent=None) -> None:
+    def __init__(
+        self,
+        name: str,
+        manifold_data: Any = None,
+        easy_result: Any = None,
+        nz_data: Any = None,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self._name = name
+        self._manifold_data = manifold_data
+        self._easy_result = easy_result
+        self._nz_data = nz_data
 
     def run(self) -> None:
         try:
-            self.status.emit(f"Loading {self._name}…")
-            manifold_data, easy_result, nz_data = ComputeService.load_manifold(
-                self._name
-            )
+            # NOTE: load_manifold accesses SnapPy's SQLite database, which is
+            # thread-local. We load it in the main thread and pass it to the worker.
+            # This worker only probes the local cache (which is thread-safe).
             self.status.emit("Probing cache…")
-            cache_info = ComputeService.probe_cache(self._name, nz_data)
+            cache_info = ComputeService.probe_cache(self._name, self._nz_data)
             self.finished.emit(
                 {
-                    "manifold_data": manifold_data,
-                    "easy_result":   easy_result,
-                    "nz_data":       nz_data,
+                    "manifold_data": self._manifold_data,
+                    "easy_result":   self._easy_result,
+                    "nz_data":       self._nz_data,
                     "cache_info":    cache_info,
                 }
             )

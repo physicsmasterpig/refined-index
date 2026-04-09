@@ -236,11 +236,25 @@ class ManifoldCard(QWidget):
         self._status_label.setVisible(True)
         self._math_view.set_loading(True)
 
-        self._worker = LoadWorker(name, parent=self)
-        self._worker.status.connect(self._on_status)
-        self._worker.finished.connect(self._on_finished)
-        self._worker.error.connect(self._on_error)
-        self._worker.start()
+        # Load manifold in main thread (SnapPy SQLite is thread-local)
+        try:
+            from manifold_index.services.compute_service import ComputeService
+            manifold_data, easy_result, nz_data = ComputeService.load_manifold(name)
+
+            # Start worker to probe cache (thread-safe operation)
+            self._worker = LoadWorker(
+                name,
+                manifold_data=manifold_data,
+                easy_result=easy_result,
+                nz_data=nz_data,
+                parent=self
+            )
+            self._worker.status.connect(self._on_status)
+            self._worker.finished.connect(self._on_finished)
+            self._worker.error.connect(self._on_error)
+            self._worker.start()
+        except Exception as exc:
+            self._on_error(str(exc))
 
     def _on_status(self, msg: str) -> None:
         self._status_label.setText(msg)
