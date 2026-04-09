@@ -3,502 +3,727 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Manifold Index Calculator</title>
+  <title>Refined Index Calculator — Hyperbolic 3-Manifold Research Tool</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    :root {
-      --bg: #0d1117;
-      --surface: #161b22;
-      --border: #30363d;
-      --text: #e6edf3;
-      --muted: #8b949e;
-      --accent: #58a6ff;
-      --accent-hover: #79c0ff;
-      --green: #3fb950;
-      --warning: #d29922;
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
     }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #fafbfc;
+      color: #1a1a1a;
       line-height: 1.6;
-      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
+
+    /* ── Layout ─────────────────────────────────────────────────────── */
     .container {
-      max-width: 720px;
+      max-width: 1200px;
       margin: 0 auto;
-      padding: 3rem 1.5rem;
+      padding: 0 2rem;
     }
 
-    /* Header */
-    header { text-align: center; margin-bottom: 3rem; }
-    header h1 {
-      font-size: 2.2rem;
-      font-weight: 700;
-      margin-bottom: 0.5rem;
+    /* ── Header ─────────────────────────────────────────────────────── */
+    header {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 1.5rem 0;
+      position: sticky;
+      top: 0;
+      background: #fafbfc;
+      z-index: 100;
+    }
+
+    header .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      font-size: 1rem;
+      font-weight: 600;
       letter-spacing: -0.02em;
-    }
-    header p.tagline {
-      color: var(--muted);
-      font-size: 1.1rem;
+      color: #1a1a1a;
     }
 
-    /* Selectors */
-    .selector-group {
-      margin-bottom: 2rem;
-      padding-bottom: 1rem;
-      border-bottom: 1px solid var(--border);
+    .header-links {
+      display: flex;
+      gap: 2rem;
+      font-size: 0.9rem;
     }
+
+    .header-links a {
+      color: #666;
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .header-links a:hover {
+      color: #1a1a1a;
+    }
+
+    /* ── Hero ────────────────────────────────────────────────────────── */
+    .hero {
+      padding: 5rem 0;
+      text-align: center;
+    }
+
+    .hero h1 {
+      font-size: 3.5rem;
+      font-weight: 700;
+      line-height: 1.1;
+      margin-bottom: 1rem;
+      letter-spacing: -0.03em;
+      color: #0a0a0a;
+    }
+
+    .hero p {
+      font-size: 1.25rem;
+      color: #666;
+      margin-bottom: 2rem;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+      font-weight: 300;
+    }
+
+    .hero-meta {
+      display: flex;
+      gap: 2rem;
+      justify-content: center;
+      margin-bottom: 3rem;
+      font-size: 0.9rem;
+    }
+
+    .meta-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: #999;
+    }
+
+    /* ── CTA Buttons ─────────────────────────────────────────────────── */
+    .cta-buttons {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      margin-bottom: 3rem;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 0.75rem 2rem;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.2s;
+      border: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .btn-primary {
+      background: #1a1a1a;
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #333;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      border: 1px solid #e5e7eb;
+      color: #1a1a1a;
+      background: #fff;
+    }
+
+    .btn-secondary:hover {
+      border-color: #1a1a1a;
+      background: #f5f5f5;
+    }
+
+    /* ── Download Section ────────────────────────────────────────────── */
+    .download-section {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 3rem;
+      margin: 4rem 0;
+    }
+
+    .download-header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .download-header h2 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .download-header p {
+      color: #666;
+    }
+
+    /* ── Selectors ──────────────────────────────────────────────────── */
+    .selector-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      margin-bottom: 2.5rem;
+    }
+
+    @media (max-width: 640px) {
+      .selector-group {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .selector {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
     .selector-label {
       font-size: 0.85rem;
-      color: var(--muted);
-      margin-bottom: 0.5rem;
+      font-weight: 600;
+      color: #1a1a1a;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      font-weight: 600;
     }
+
     .selector-buttons {
       display: flex;
       gap: 0.5rem;
     }
+
     .selector-btn {
       flex: 1;
       padding: 0.6rem 1rem;
-      border: 1px solid var(--border);
-      background: var(--surface);
-      color: var(--text);
+      border: 1px solid #e5e7eb;
+      background: #fff;
+      color: #1a1a1a;
       border-radius: 6px;
       cursor: pointer;
       font-size: 0.9rem;
       font-weight: 500;
       transition: all 0.2s;
     }
+
     .selector-btn:hover {
-      border-color: var(--accent);
-      background: rgba(88, 166, 255, 0.1);
-    }
-    .selector-btn.active {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
+      border-color: #1a1a1a;
+      background: #f5f5f5;
     }
 
-    /* Download card */
+    .selector-btn.active {
+      background: #1a1a1a;
+      color: #fff;
+      border-color: #1a1a1a;
+    }
+
+    /* ── Download Card ──────────────────────────────────────────────── */
     .download-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
+      background: #f5f5f5;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
       padding: 2rem;
       text-align: center;
-      margin-bottom: 2.5rem;
-    }
-    .download-card.hidden {
       display: none;
     }
-    .download-card .version {
+
+    .download-card.active {
+      display: block;
+      animation: fadeIn 0.2s ease-in;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .version-badge {
       display: inline-block;
-      background: rgba(56, 139, 253, 0.15);
-      color: var(--accent);
-      padding: 0.2rem 0.7rem;
+      background: #1a1a1a;
+      color: #fff;
+      padding: 0.3rem 0.8rem;
       border-radius: 20px;
-      font-size: 0.85rem;
+      font-size: 0.75rem;
       font-weight: 600;
-      margin-bottom: 1rem;
+      letter-spacing: 0.05em;
+      margin-bottom: 1.5rem;
     }
-    .download-card .version.latest {
-      background: rgba(63, 185, 80, 0.15);
-      color: var(--green);
+
+    .version-badge.latest {
+      background: #059669;
     }
-    .download-card .platform {
-      color: var(--muted);
+
+    .platform-info {
+      color: #666;
       font-size: 0.9rem;
       margin-bottom: 1.5rem;
     }
-    .btn {
+
+    .download-btn {
       display: inline-block;
-      background: var(--green);
+      background: #1a1a1a;
       color: #fff;
+      padding: 0.85rem 2.5rem;
+      border-radius: 6px;
       text-decoration: none;
-      padding: 0.75rem 2rem;
-      border-radius: 8px;
-      font-size: 1.05rem;
-      font-weight: 600;
-      transition: opacity 0.15s;
+      font-weight: 500;
+      transition: all 0.2s;
+      margin-bottom: 1rem;
     }
-    .btn:hover { opacity: 0.85; }
-    .download-card .note {
+
+    .download-btn:hover {
+      background: #333;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    .system-note {
+      font-size: 0.85rem;
+      color: #666;
       margin-top: 1rem;
-      font-size: 0.8rem;
-      color: var(--muted);
+      padding: 0.75rem;
+      background: #fff;
+      border-radius: 4px;
     }
-    .download-card .changes {
-      margin-top: 1.5rem;
-      padding-top: 1.5rem;
-      border-top: 1px solid var(--border);
-      text-align: left;
+
+    /* ── Features Grid ──────────────────────────────────────────────── */
+    .features {
+      margin: 5rem 0;
     }
-    .download-card .changes h4 {
-      font-size: 0.9rem;
-      color: var(--accent);
+
+    .features-header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    .features-header h2 {
+      font-size: 2rem;
       margin-bottom: 0.5rem;
     }
-    .download-card .changes ul {
-      list-style: none;
-      padding: 0;
-      font-size: 0.8rem;
-      color: var(--muted);
-    }
-    .download-card .changes ul li {
-      margin-bottom: 0.3rem;
-      padding-left: 1rem;
-      position: relative;
-    }
-    .download-card .changes ul li::before {
-      content: "•";
-      position: absolute;
-      left: 0;
-      color: var(--accent);
+
+    .features-header p {
+      color: #666;
     }
 
-    /* Features */
-    .features {
+    .features-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
-      margin-bottom: 2.5rem;
-    }
-    @media (max-width: 500px) { .features { grid-template-columns: 1fr; } }
-    .feature {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1.2rem;
-    }
-    .feature h3 {
-      font-size: 0.95rem;
-      margin-bottom: 0.3rem;
-    }
-    .feature p {
-      font-size: 0.85rem;
-      color: var(--muted);
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 2rem;
     }
 
-    /* Sections */
-    section { margin-bottom: 2.5rem; }
+    .feature-card {
+      padding: 2rem;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+
+    .feature-card:hover {
+      border-color: #1a1a1a;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+
+    .feature-icon {
+      font-size: 1.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .feature-card h3 {
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .feature-card p {
+      font-size: 0.9rem;
+      color: #666;
+      line-height: 1.5;
+    }
+
+    /* ── Sections ────────────────────────────────────────────────────── */
+    section {
+      margin: 4rem 0;
+      padding: 3rem 0;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    section:first-of-type {
+      border-top: none;
+      padding-top: 0;
+    }
+
     section h2 {
-      font-size: 1.3rem;
-      margin-bottom: 0.8rem;
-      padding-bottom: 0.4rem;
-      border-bottom: 1px solid var(--border);
+      font-size: 2rem;
+      margin-bottom: 1.5rem;
+      letter-spacing: -0.02em;
     }
-    section p, section li {
-      color: var(--muted);
-      font-size: 0.95rem;
+
+    section h3 {
+      font-size: 1.1rem;
+      margin-top: 1.5rem;
+      margin-bottom: 0.75rem;
+      font-weight: 600;
     }
+
+    section p {
+      color: #666;
+      margin-bottom: 1rem;
+      line-height: 1.8;
+    }
+
     section ul {
       list-style: none;
       padding: 0;
     }
-    section ul li::before {
-      content: "→ ";
-      color: var(--accent);
-    }
-    section ul li { margin-bottom: 0.3rem; }
-    code {
-      background: rgba(110,118,129,0.15);
-      padding: 0.15rem 0.4rem;
-      border-radius: 4px;
-      font-size: 0.88em;
-    }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { color: var(--accent-hover); text-decoration: underline; }
 
-    /* Footer */
+    section ul li {
+      color: #666;
+      margin-bottom: 0.75rem;
+      padding-left: 1.5rem;
+      position: relative;
+    }
+
+    section ul li::before {
+      content: "→";
+      position: absolute;
+      left: 0;
+      color: #1a1a1a;
+      font-weight: 600;
+    }
+
+    code {
+      background: #f5f5f5;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85em;
+      color: #1a1a1a;
+    }
+
+    .code-block {
+      background: #f5f5f5;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 1rem;
+      margin: 1rem 0;
+      overflow-x: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9rem;
+    }
+
+    /* ── Footer ─────────────────────────────────────────────────────── */
     footer {
-      text-align: center;
-      padding-top: 1.5rem;
-      border-top: 1px solid var(--border);
-      color: var(--muted);
-      font-size: 0.82rem;
+      background: #f5f5f5;
+      border-top: 1px solid #e5e7eb;
+      padding: 3rem 0;
+      margin-top: 5rem;
+    }
+
+    footer .container {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr;
+      gap: 2rem;
+      margin-bottom: 2rem;
+    }
+
+    @media (max-width: 768px) {
+      footer .container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    footer h4 {
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
+
+    footer ul {
+      list-style: none;
+    }
+
+    footer a {
+      color: #666;
+      text-decoration: none;
+      font-size: 0.9rem;
+      line-height: 1.8;
+      transition: color 0.2s;
+    }
+
+    footer a:hover {
+      color: #1a1a1a;
+    }
+
+    .footer-bottom {
+      padding-top: 2rem;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.85rem;
+      color: #999;
+    }
+
+    @media (max-width: 640px) {
+      .footer-bottom {
+        flex-direction: column;
+        gap: 1rem;
+        text-align: center;
+      }
+
+      .hero h1 {
+        font-size: 2.5rem;
+      }
+
+      .hero p {
+        font-size: 1rem;
+      }
+
+      section h2 {
+        font-size: 1.5rem;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="container">
 
-    <header>
-      <h1>Manifold Index Calculator</h1>
-      <p class="tagline">3D index, refined index, Dehn filling &amp; non-closable cycles for hyperbolic 3-manifolds</p>
-    </header>
+  <!-- ── Header ──────────────────────────────────────────────────────── -->
+  <header>
+    <div class="container">
+      <div class="logo">Refined Index</div>
+      <div class="header-links">
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/physicsmasterpig/refined-index" target="_blank">GitHub</a>
+      </div>
+    </div>
+  </header>
 
-    <!-- ── Version & Platform Selectors ──────────────────── -->
-    <div class="selector-group">
-      <div style="margin-bottom: 1rem;">
-        <div class="selector-label">Version</div>
-        <div class="selector-buttons">
-          <button class="selector-btn active" onclick="selectVersion('v0.5')">
-            v0.5.0 (Latest)
-          </button>
-          <button class="selector-btn" onclick="selectVersion('v0.4')">
-            v0.4.2
-          </button>
+  <main class="container">
+    <!-- ── Hero ────────────────────────────────────────────────────────── -->
+    <section class="hero">
+      <h1>Refined Index Calculator</h1>
+      <p>Research tool for computing 3D index, refined index, Dehn filling, and non-closable cycles in hyperbolic 3-manifolds</p>
+
+      <div class="hero-meta">
+        <div class="meta-item">
+          <span>📊</span> SnapPy Census
+        </div>
+        <div class="meta-item">
+          <span>⚙️</span> Cross-platform
+        </div>
+        <div class="meta-item">
+          <span>🔓</span> Open Source
         </div>
       </div>
-      <div>
-        <div class="selector-label">Platform</div>
-        <div class="selector-buttons">
-          <button class="selector-btn active" onclick="selectPlatform('macos')">
-            🍎 macOS
-          </button>
-          <button class="selector-btn" onclick="selectPlatform('windows')">
-            🪟 Windows 11/10
-          </button>
+
+      <div class="cta-buttons">
+        <a href="#download" class="btn btn-primary">↓ Download</a>
+        <a href="https://github.com/physicsmasterpig/refined-index" class="btn btn-secondary" target="_blank">View Source</a>
+      </div>
+    </section>
+
+    <!-- ── Download Section ──────────────────────────────────────────── -->
+    <div class="download-section" id="download">
+      <div class="download-header">
+        <h2>Download</h2>
+        <p>Select your version and platform</p>
+      </div>
+
+      <div class="selector-group">
+        <div class="selector">
+          <label class="selector-label">Version</label>
+          <div class="selector-buttons">
+            <button class="selector-btn active" onclick="selectVersion('v0.5')">v0.5.0</button>
+            <button class="selector-btn" onclick="selectVersion('v0.4')">v0.4.2</button>
+          </div>
+        </div>
+
+        <div class="selector">
+          <label class="selector-label">Platform</label>
+          <div class="selector-buttons">
+            <button class="selector-btn active" onclick="selectPlatform('macos')">macOS</button>
+            <button class="selector-btn" onclick="selectPlatform('windows')">Windows</button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- ── Download Cards ──────────────────────────────── -->
-    <!-- macOS v0.5.0 -->
-    <div class="download-card" id="card-v0.5-macos">
-      <div class="version latest">v0.5.0 · Latest</div>
-      <div class="platform">macOS&ensp;·&ensp;Apple&nbsp;Silicon (arm64)&ensp;·&ensp;macOS 11+</div>
-      <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.0/ManifoldIndex.zip">
-        ⬇ Download .app
-      </a>
-      <p class="note">
-        The app is not notarized — see <strong>Installation</strong> below for the one-time macOS setup.
-      </p>
-      <div class="changes">
-        <h4>What's New in v0.5.0</h4>
-        <ul>
-          <li>Yield CPU and release GIL in progress callbacks for macOS compatibility</li>
-          <li>Comprehensive error analysis and fixes in data handling</li>
-          <li>Enhanced worker management and session state handling</li>
-          <li>Critical null check improvements in card formatters</li>
-        </ul>
+      <!-- macOS v0.5.0 -->
+      <div class="download-card active" id="card-v0.5-macos">
+        <span class="version-badge latest">Latest</span>
+        <h3>v0.5.0 for macOS</h3>
+        <div class="platform-info">Apple Silicon (arm64) · macOS 11+</div>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.0/ManifoldIndex.zip" class="download-btn">Download (295 MB)</a>
+        <div class="system-note">Ad-hoc signed. Clear quarantine with: <code>xattr -cr ~/Downloads/ManifoldIndex.app</code></div>
       </div>
-    </div>
 
-    <!-- Windows v0.5.0 -->
-    <div class="download-card hidden" id="card-v0.5-windows">
-      <div class="version latest">v0.5.0 · Latest</div>
-      <div class="platform">Windows 11/10 · x64</div>
-      <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.0/ManifoldIndex-windows.zip">
-        ⬇ Download .exe
-      </a>
-      <p class="note">
-        Windows Defender may warn about the unsigned executable. Click <strong>More info</strong> → <strong>Run anyway</strong>.
-      </p>
-      <div class="changes">
-        <h4>What's New in v0.5.0</h4>
-        <ul>
-          <li>Yield CPU and release GIL in progress callbacks for macOS compatibility</li>
-          <li>Comprehensive error analysis and fixes in data handling</li>
-          <li>Enhanced worker management and session state handling</li>
-          <li>Critical null check improvements in card formatters</li>
-        </ul>
+      <!-- Windows v0.5.0 -->
+      <div class="download-card" id="card-v0.5-windows">
+        <span class="version-badge latest">Latest</span>
+        <h3>v0.5.0 for Windows</h3>
+        <div class="platform-info">Windows 10+ · x64</div>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.0/ManifoldIndex-windows.zip" class="download-btn">Download</a>
+        <div class="system-note">Unsigned. Click "More info" → "Run anyway" if Windows Defender warns.</div>
+      </div>
+
+      <!-- macOS v0.4.2 -->
+      <div class="download-card" id="card-v0.4-macos">
+        <span class="version-badge">v0.4.2</span>
+        <h3>v0.4.2 for macOS</h3>
+        <div class="platform-info">Apple Silicon (arm64) · macOS 11+</div>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.4.2/ManifoldIndex.zip" class="download-btn">Download (288 MB)</a>
+        <div class="system-note">Ad-hoc signed. Clear quarantine with: <code>xattr -cr ~/Downloads/ManifoldIndex.app</code></div>
+      </div>
+
+      <!-- Windows v0.4.2 -->
+      <div class="download-card" id="card-v0.4-windows">
+        <span class="version-badge">v0.4.2</span>
+        <h3>v0.4.2 for Windows</h3>
+        <div class="platform-info">Windows 10+ · x64</div>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.4.2/ManifoldIndex-windows.zip" class="download-btn">Download</a>
+        <div class="system-note">Unsigned. Click "More info" → "Run anyway" if Windows Defender warns.</div>
       </div>
     </div>
 
-    <!-- macOS v0.4.2 -->
-    <div class="download-card hidden" id="card-v0.4-macos">
-      <div class="version">v0.4.2</div>
-      <div class="platform">macOS&ensp;·&ensp;Apple&nbsp;Silicon (arm64)&ensp;·&ensp;macOS 11+</div>
-      <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.4.2/ManifoldIndex.zip">
-        ⬇ Download .app
-      </a>
-      <p class="note">
-        The app is not notarized — see <strong>Installation</strong> below for the one-time macOS setup.
-      </p>
-      <div class="changes">
-        <h4>Key Fixes in v0.4.2</h4>
-        <ul>
-          <li><strong>Critical fix:</strong> half-integer e summation in Dehn filling</li>
-          <li>Multi-cusp Weyl symmetry fix with per-cusp column handling</li>
-          <li>Weyl convention text corrected: f(m,e) = f(−m,−e)</li>
-          <li>Removed stale I<sup>ref</sup> data pack (pending recomputation)</li>
-        </ul>
+    <!-- ── Features ────────────────────────────────────────────────────── -->
+    <section class="features" id="features">
+      <div class="features-header">
+        <h2>Capabilities</h2>
+        <p>Comprehensive tools for hyperbolic 3-manifold research</p>
       </div>
-    </div>
 
-    <!-- Windows v0.4.2 -->
-    <div class="download-card hidden" id="card-v0.4-windows">
-      <div class="version">v0.4.2</div>
-      <div class="platform">Windows 11/10 · x64</div>
-      <a class="btn" href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.4.2/ManifoldIndex-windows.zip">
-        ⬇ Download .exe
-      </a>
-      <p class="note">
-        Windows Defender may warn about the unsigned executable. Click <strong>More info</strong> → <strong>Run anyway</strong>.
-      </p>
-      <div class="changes">
-        <h4>Key Fixes in v0.4.2</h4>
-        <ul>
-          <li><strong>Critical fix:</strong> half-integer e summation in Dehn filling</li>
-          <li>Multi-cusp Weyl symmetry fix with per-cusp column handling</li>
-          <li>Weyl convention text corrected: f(m,e) = f(−m,−e)</li>
-          <li>Removed stale I<sup>ref</sup> data pack (pending recomputation)</li>
-        </ul>
-      </div>
-    </div>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">📐</div>
+          <h3>3D Index</h3>
+          <p>Compute I(m, e) q-series for any cusped manifold in the SnapPy census.</p>
+        </div>
 
-    <!-- ── Features ────────────────────────────────────── -->
-    <div class="features">
-      <div class="feature">
-        <h3>3D Index</h3>
-        <p>Compute I(m, e) q-series for any cusped manifold in the SnapPy census.</p>
-      </div>
-      <div class="feature">
-        <h3>Refined Index</h3>
-        <p>Two-variable (q, t) refinement with automatic basis selection.</p>
-      </div>
-      <div class="feature">
-        <h3>Dehn Filling</h3>
-        <p>Fill cusps with (P, Q) slopes and compute the filled index.</p>
-      </div>
-      <div class="feature">
-        <h3>Non-closable Cycles</h3>
-        <p>Search for slopes whose filled index vanishes identically.</p>
-      </div>
-      <div class="feature">
-        <h3>Data Packs</h3>
-        <p>Download pre-computed kernels and census indices to skip expensive computations.</p>
-      </div>
-    </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔄</div>
+          <h3>Refined Index</h3>
+          <p>Two-variable (q, t) refinement with automatic basis selection.</p>
+        </div>
 
-    <!-- ── Installation ────────────────────────────────── -->
-    <section>
+        <div class="feature-card">
+          <div class="feature-icon">🎯</div>
+          <h3>Dehn Filling</h3>
+          <p>Fill cusps with (P, Q) slopes and compute the filled index.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🔍</div>
+          <h3>Non-closable Cycles</h3>
+          <p>Search for slopes whose filled index vanishes identically.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">📦</div>
+          <h3>Data Packs</h3>
+          <p>Pre-computed kernels and indices to skip expensive computations.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🚀</div>
+          <h3>Cross-Platform</h3>
+          <p>Native apps for macOS and Windows. No dependencies required.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Installation ────────────────────────────────────────────────– -->
+    <section id="install">
       <h2>Installation</h2>
 
-      <h3 style="font-size:1rem; margin-top:0;">macOS</h3>
-      <p>The app is ad-hoc signed but <em>not</em> notarized with Apple, so macOS will
-         block it on first launch. Use <strong>one</strong> of these methods:</p>
+      <h3>macOS</h3>
+      <p>Extract the zip and move <code>ManifoldIndex.app</code> to Applications. On first launch, macOS will block it. Clear the quarantine flag:</p>
+      <div class="code-block">xattr -cr ~/Downloads/ManifoldIndex.app</div>
+      <p>Then launch normally. This is only required once.</p>
 
-      <h4 style="font-size:0.95rem; margin-top:0.8rem;">Method 1 — Terminal (recommended)</h4>
-      <p>Open <strong>Terminal</strong> and run:</p>
-      <p><code>xattr -cr ~/Downloads/ManifoldIndex.app</code></p>
-      <p>Then double-click the app normally.</p>
+      <h3>Windows</h3>
+      <p>Extract <code>ManifoldIndex-windows.zip</code> and run <code>ManifoldIndex.exe</code>. If Windows Defender warns, click <strong>More info</strong> → <strong>Run anyway</strong>.</p>
 
-      <h4 style="font-size:0.95rem; margin-top:0.8rem;">Method 2 — System Settings</h4>
-      <ul>
-        <li>Double-click the app (it will be blocked)</li>
-        <li>Open <strong>System Settings → Privacy &amp; Security</strong></li>
-        <li>Scroll down — click <strong>"Open Anyway"</strong> next to the ManifoldIndex message</li>
-        <li>Click <strong>Open</strong> in the confirmation dialog</li>
-      </ul>
-      <p style="margin-top:0.6rem;">This is only needed once. Subsequent launches work normally.</p>
-
-      <h3 style="font-size:1rem; margin-top:1.5rem;">Windows</h3>
-      <p>Extract the zip and run <code>ManifoldIndex.exe</code>. Windows Defender may show a warning — this is normal for unsigned executables:</p>
-
-      <h4 style="font-size:0.95rem; margin-top:0.8rem;">If blocked by Windows Defender</h4>
-      <ul>
-        <li>Click <strong>"More info"</strong> in the warning dialog</li>
-        <li>Click <strong>"Run anyway"</strong></li>
-      </ul>
-      <p style="margin-top:0.6rem;">This is only needed on first launch. The app will run normally afterward.</p>
+      <h3>From Source</h3>
+      <p>Requires Python ≥ 3.10 and dependencies in <code>pyproject.toml</code>.</p>
+      <div class="code-block">pip install -e ".[dev]"<br>manifold-index  # Launch GUI<br>pytest tests/  # Run tests</div>
     </section>
 
-    <!-- ── Requirements ────────────────────────────────── -->
-    <section>
-      <h2>Requirements</h2>
-
-      <h3 style="font-size:0.95rem;">macOS</h3>
-      <ul>
-        <li>macOS 11 (Big Sur) or later</li>
-        <li>Apple Silicon Mac (M1 / M2 / M3 / M4)</li>
-        <li>No Python installation needed — everything is bundled</li>
-      </ul>
-
-      <h3 style="font-size:0.95rem; margin-top:1rem;">Windows</h3>
-      <ul>
-        <li>Windows 10 or later (Windows 11 recommended)</li>
-        <li>x64 processor</li>
-        <li>No Python installation needed — everything is bundled</li>
-      </ul>
-    </section>
-
-    <!-- ── Getting Started ─────────────────────────────── -->
-    <section>
-      <h2>Getting Started</h2>
-      <ul>
-        <li>Download and unzip <code>ManifoldIndex.zip</code></li>
-        <li>Move <code>ManifoldIndex.app</code> to Applications (or anywhere you like)</li>
-        <li>Clear the quarantine flag (see <strong>Installation</strong> above)</li>
-        <li>Launch the app — enter a manifold name (e.g. <code>m004</code>) and click <strong>Run</strong></li>
-      </ul>
-    </section>
-
-    <!-- ── Building from source ────────────────────────── -->
-    <section>
-      <h2>Build from Source</h2>
-      <p>Requires Python ≥ 3.10 and the packages listed in <code>pyproject.toml</code>.</p>
-      <ul>
-        <li><code>pip install -e ".[dev]"</code></li>
-        <li><code>manifold-index</code>&ensp;to launch the GUI</li>
-        <li><code>pytest tests/</code>&ensp;to run the test suite</li>
-      </ul>
-    </section>
-
-    <!-- ── Changelog ────────────────────────────────── -->
+    <!-- ── Changelog ────────────────────────────────────────────────────– -->
     <section>
       <h2>Changelog</h2>
 
-      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.5.0</h3>
+      <h3>v0.5.0</h3>
       <ul>
-        <li><strong>Performance:</strong> Yield CPU and release GIL in progress callbacks for improved macOS compatibility and responsiveness</li>
-        <li><strong>Error handling:</strong> Comprehensive error analysis and fixes in data handling and worker management</li>
-        <li><strong>Stability:</strong> Enhanced session management with stale signal guards in export and filling cards</li>
-        <li><strong>Defensive coding:</strong> Added null checks in filling card formatter calls</li>
-        <li>76+ tests pass</li>
+        <li><strong>Performance:</strong> Yield CPU and release GIL in progress callbacks for macOS responsiveness</li>
+        <li><strong>Stability:</strong> Comprehensive error analysis in data handling and worker management</li>
+        <li><strong>Robustness:</strong> Enhanced session state handling with stale signal guards</li>
+        <li>76+ tests passing</li>
       </ul>
 
-      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.4.2</h3>
+      <h3>v0.4.2</h3>
       <ul>
-        <li><strong>Critical fix</strong>: half-integer e summation in Dehn filling — <code>valid_half_integer_patterns</code> now enumerates all δ patterns instead of pre-filtering by internal columns only. The previous filter missed δ patterns that become valid when cusp charges (m, e) introduce cancelling half-integer contributions via g⁻¹. Affected most manifolds with odd SnapPy longitude coefficients (m003, m006, m007, m009, m015, m125, …).</li>
-        <li>Multi-cusp Weyl symmetry fix: <code>ABVectors</code> extended with per-cusp <code>cusp_columns</code>, <code>shift_x2()</code> method, and per-cusp accessors. Fixes garbage Weyl vectors for multi-cusp manifolds (e.g. m125).</li>
-        <li>Weyl convention text corrected: f(m,e) = f(−m,−e) (boundary charge flip), not f(η) = f(η⁻¹).</li>
-        <li>Removed stale I<sup>ref</sup> data pack (computed before the half-integer fix; will be recomputed).</li>
-        <li>76 tests pass.</li>
+        <li><strong>Critical:</strong> Fixed half-integer e summation in Dehn filling</li>
+        <li>Multi-cusp Weyl symmetry corrections for accurate manifold analysis</li>
+        <li>Corrected Weyl convention: f(m,e) = f(−m,−e)</li>
+        <li>Stale data pack removal for data integrity</li>
       </ul>
 
-      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.4.0</h3>
+      <h3>v0.4.0</h3>
       <ul>
-        <li>Complete rewrite of computation core with cleaner architecture</li>
-        <li>IS chain intermediate steps use full (½)ℤ² lattice — fixes missing odd-m entries for all ℓ≥3 slopes</li>
-        <li>Pre-computed kernels-qq50 data pack fully recomputed (75 slopes, all correct)</li>
-        <li>Improved kernel builder: explicit pause/resume via <code>bin/</code> scripts</li>
-        <li>All tests passing</li>
-      </ul>
-
-      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.3.9</h3>
-      <ul>
-        <li>IS chain intermediate steps use full (½)Z² lattice instead of K-support</li>
-        <li>Window title and application name version strings now consistent</li>
-        <li>Added <code>COMPREHENSIVE_GUIDE.md</code> — full technical reference for workflow, algorithms, and data structures</li>
-      </ul>
-
-      <h3 style="font-size:0.95rem; margin-top:1rem;">v0.3.6</h3>
-      <ul>
-        <li>Boundary curve convention: display charges as eα − (m/2)β</li>
-        <li>Weyl symmetry check: correct f(m,e) = f(−m,−e) pair comparison</li>
-        <li>New <strong>📦 Data Packs</strong> tab — download pre-computed kernels and census I<sup>ref</sup></li>
-        <li>Data pack infrastructure: registry, download with SHA-256 verification, install/uninstall</li>
-        <li>Batch generation script for building data packs (<code>scripts/generate_data_packs.py</code>)</li>
-        <li>65 tests pass</li>
+        <li>Complete computation core rewrite with cleaner architecture</li>
+        <li>Full (½)ℤ² lattice support for IS chains</li>
+        <li>Pre-computed kernels-qq50 data pack fully recomputed</li>
       </ul>
     </section>
 
-    <!-- ── Footer ──────────────────────────────────── -->
-    <footer>
-      <p>
-        Licensed under <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html">GPLv2+</a>
-        &ensp;·&ensp;
-        <a href="https://github.com/physicsmasterpig/refined-index">Source on GitHub</a>
-      </p>
-    </footer>
+  </main>
 
-  </div>
+  <!-- ── Footer ──────────────────────────────────────────────────────── -->
+  <footer>
+    <div class="container">
+      <div>
+        <h4>Refined Index</h4>
+        <p>A research tool for hyperbolic 3-manifold topology, built for the mathematics community.</p>
+      </div>
+      <div>
+        <h4>Resources</h4>
+        <ul>
+          <li><a href="https://github.com/physicsmasterpig/refined-index" target="_blank">GitHub</a></li>
+          <li><a href="https://github.com/physicsmasterpig/refined-index/issues" target="_blank">Issues</a></li>
+          <li><a href="https://github.com/physicsmasterpig/refined-index/releases" target="_blank">Releases</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>License</h4>
+        <ul>
+          <li><a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html" target="_blank">GPLv2+</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="container">
+      <div class="footer-bottom">
+        <span>&copy; 2024 Refined Index Contributors</span>
+        <span>Research-grade mathematics software</span>
+      </div>
+    </div>
+  </footer>
 
   <script>
     let currentVersion = 'v0.5';
@@ -507,51 +732,58 @@
     function selectVersion(version) {
       currentVersion = version;
       updateDisplay();
-      // Mark button as active
-      document.querySelectorAll('.selector-btn').forEach(btn => {
-        if (btn.textContent.includes(version === 'v0.5' ? 'v0.5.0' : 'v0.4.2')) {
-          btn.classList.add('active');
-        }
-      });
+      updateButtons('version', version);
     }
 
     function selectPlatform(platform) {
       currentPlatform = platform;
       updateDisplay();
-      // Mark button as active
-      document.querySelectorAll('.selector-btn').forEach(btn => {
-        const btnText = btn.textContent.trim();
-        if ((platform === 'macos' && btnText === '🍎 macOS') ||
-            (platform === 'windows' && btnText === '🪟 Windows 11/10')) {
-          btn.classList.add('active');
-        }
-      });
+      updateButtons('platform', platform);
     }
 
     function updateDisplay() {
       // Hide all cards
       ['v0.4', 'v0.5'].forEach(v => {
         ['macos', 'windows'].forEach(p => {
-          document.getElementById(`card-${v}-${p}`).classList.add('hidden');
+          const card = document.getElementById(`card-${v}-${p}`);
+          if (card) card.classList.remove('active');
         });
       });
 
       // Show selected card
-      document.getElementById(`card-${currentVersion}-${currentPlatform}`).classList.remove('hidden');
+      const card = document.getElementById(`card-${currentVersion}-${currentPlatform}`);
+      if (card) card.classList.add('active');
     }
 
-    // Initialize button active states correctly
-    document.addEventListener('DOMContentLoaded', function() {
-      document.querySelectorAll('.selector-btn').forEach(btn => {
-        const btnText = btn.textContent.trim();
-        if ((currentVersion === 'v0.5' && btnText === 'v0.5.0 (Latest)') ||
-            (currentVersion === 'v0.4' && btnText === 'v0.4.2') ||
-            (currentPlatform === 'macos' && btnText === '🍎 macOS') ||
-            (currentPlatform === 'windows' && btnText === '🪟 Windows 11/10')) {
+    function updateButtons(type, value) {
+      const buttons = document.querySelectorAll('.selector-btn');
+      buttons.forEach(btn => {
+        const text = btn.textContent.trim();
+        let isActive = false;
+
+        if (type === 'version') {
+          isActive = (value === 'v0.5' && text === 'v0.5.0') ||
+                     (value === 'v0.4' && text === 'v0.4.2');
+        } else if (type === 'platform') {
+          isActive = (value === 'macos' && text === 'macOS') ||
+                     (value === 'windows' && text === 'Windows');
+        }
+
+        if (isActive) {
           btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
         }
       });
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+      updateDisplay();
+      updateButtons('version', 'v0.5');
+      updateButtons('platform', 'macos');
     });
   </script>
+
 </body>
 </html>
