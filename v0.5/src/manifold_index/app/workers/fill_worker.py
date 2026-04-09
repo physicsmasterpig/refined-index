@@ -74,6 +74,7 @@ class FillWorker(QThread):
             )
 
             def _prog(done: int, total: int) -> None:
+                self.msleep(1)   # yield CPU + release GIL so macOS Cocoa loop stays live
                 self.progress.emit(done, total)
 
             p, q, result = FillingService.compute_filled_index(

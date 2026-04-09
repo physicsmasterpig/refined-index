@@ -86,6 +86,7 @@ class NCSearchWorker(QThread):
             )
 
             def _prog(done: int, total: int) -> None:
+                self.msleep(1)   # yield CPU + release GIL so macOS Cocoa loop stays live
                 self.progress.emit(done, total)
 
             nc_result = FillingService.find_nc_cycles(
