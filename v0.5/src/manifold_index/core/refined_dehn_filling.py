@@ -1992,6 +1992,13 @@ def compute_filled_refined_index(
                 continue
             n_terms += 1
 
+            if verbose:
+                print(
+                    f"[refined_filling] ℓ=1 hit: (m,e)=({m_t},{e_t})  "
+                    f"c={c_val}  phase={phase_t}  "
+                    f"iref_entries={len(refined)}"
+                )
+
             # Apply Weyl shift η^{b·m_I + a·e_I} before filling
             if weyl_a is not None and weyl_b is not None:
                 refined = _apply_weyl_shift(
@@ -2010,6 +2017,11 @@ def compute_filled_refined_index(
             contribution = _apply_k1_factor_multi(
                 multi, c_val, phase_t, mult, qq_order
             )
+            if verbose:
+                print(
+                    f"[refined_filling]   multi_entries={len(multi)}  "
+                    f"contrib_entries={len(contribution)}  mult={mult}"
+                )
             total_series = _multi_add(total_series, contribution)
 
         if verbose:

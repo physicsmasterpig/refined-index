@@ -199,7 +199,14 @@ QCheckBox, QRadioButton {{
     color: {TEXT_PRIMARY};
     background: transparent;
 }}
-QCheckBox::indicator, QRadioButton::indicator {{
+QCheckBox::indicator {{
+    width: 14px;
+    height: 14px;
+    border: 1px solid {BORDER_STRONG};
+    border-radius: 2px;
+    background-color: {SURFACE};
+}}
+QRadioButton::indicator {{
     width: 14px;
     height: 14px;
     border: 1px solid {BORDER_STRONG};
@@ -209,10 +216,25 @@ QCheckBox::indicator, QRadioButton::indicator {{
 QCheckBox::indicator:checked {{
     background-color: {ACCENT};
     border-color: {ACCENT};
+    image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpolyline points='1,5 4,8 9,2' stroke='white' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}}
+QRadioButton::indicator:checked {{
+    background-color: {ACCENT};
+    border-color: {ACCENT};
+    image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpolyline points='1,5 4,8 9,2' stroke='white' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }}
 QCheckBox::indicator:hover,
 QRadioButton::indicator:hover {{
     border-color: {ACCENT};
+}}
+QCheckBox:disabled,
+QRadioButton:disabled {{
+    color: {TEXT_MUTED};
+}}
+QCheckBox::indicator:disabled,
+QRadioButton::indicator:disabled {{
+    background-color: {SURFACE_ALT};
+    border-color: {BORDER};
 }}
 
 /* ================================================================
@@ -265,6 +287,20 @@ QHeaderView::section {{
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
+}}
+
+/* ================================================================
+   Progress bar
+   ================================================================ */
+QProgressBar {{
+    background-color: {SURFACE_ALT};
+    border: 1px solid {BORDER};
+    border-radius: 3px;
+    height: 8px;
+}}
+QProgressBar::chunk {{
+    background-color: {ACCENT};
+    border-radius: 3px;
 }}
 
 /* ================================================================

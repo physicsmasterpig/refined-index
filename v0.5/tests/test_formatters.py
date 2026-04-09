@@ -443,11 +443,12 @@ class TestFormatSlopeLatex:
         assert format_slope_latex(0, 0) == "0"
 
     def test_alpha(self):
-        assert r"\alpha" in format_slope_latex(1, 0)
+        # Default basis is now (γ, δ) = (meridian, longitude)
+        assert r"\gamma" in format_slope_latex(1, 0)
 
     def test_neg_beta(self):
         result = format_slope_latex(0, -1)
-        assert "-" in result and r"\beta" in result
+        assert "-" in result and r"\delta" in result
 
     def test_alpha_plus_beta(self):
         result = format_slope_latex(1, 1)
@@ -509,29 +510,48 @@ class TestFormatNcCycleTableHtml:
         assert "<table" in result and "</table>" in result
 
     def test_slope_in_table(self):
-        nc = build_nc_cycle_vm(0, 1, 0, slope_latex=r"$\alpha$")
+        nc = build_nc_cycle_vm(0, 1, 0, slope_latex=r"\alpha")
         result = format_nc_cycle_table_html([nc])
         assert r"$\alpha$" in result
 
     def test_cusp_index_shown(self):
-        nc = build_nc_cycle_vm(2, 1, 0)
-        result = format_nc_cycle_table_html([nc])
-        assert "2" in result
+        # Cusp column removed (table is now per-cusp); verify two cycles produce two rows
+        nc1 = build_nc_cycle_vm(0, 1, 0)
+        nc2 = build_nc_cycle_vm(0, -1, 0)
+        result = format_nc_cycle_table_html([nc1, nc2])
+        assert "<td>2</td>" in result  # row number 2 present
 
     def test_compatible_checkmark(self):
-        nc = build_nc_cycle_vm(0, 1, 0, weyl_compatible=True)
+        # Both Weyl and adjoint must pass for "Dehn filling compatible" ✓
+        nc = build_nc_cycle_vm(0, 1, 0, weyl_compatible=True, adjoint_proj_pass=True)
         result = format_nc_cycle_table_html([nc])
         assert "✓" in result
 
-    def test_incompatible_cross(self):
+    def test_incompatible_cross_weyl(self):
         nc = build_nc_cycle_vm(0, 1, 0, weyl_compatible=False)
         result = format_nc_cycle_table_html([nc])
         assert "✗" in result
 
+    def test_incompatible_cross_adjoint(self):
+        nc = build_nc_cycle_vm(0, 1, 0, weyl_compatible=True, adjoint_proj_pass=False)
+        result = format_nc_cycle_table_html([nc])
+        assert "✗" in result
+
     def test_unknown_compatibility_dash(self):
+        # Neither known to fail, but at least one unknown → dash
         nc = build_nc_cycle_vm(0, 1, 0, weyl_compatible=None)
         result = format_nc_cycle_table_html([nc])
         assert "—" in result
+
+    def test_weyl_pass_adjoint_unknown_dash(self):
+        nc = build_nc_cycle_vm(0, 1, 0, weyl_compatible=True, adjoint_proj_pass=None)
+        result = format_nc_cycle_table_html([nc])
+        assert "—" in result
+
+    def test_column_header_dehn_filling_compatible(self):
+        nc = build_nc_cycle_vm(0, 1, 0)
+        result = format_nc_cycle_table_html([nc])
+        assert "Dehn filling compatible" in result
 
 
 # ---------------------------------------------------------------------------

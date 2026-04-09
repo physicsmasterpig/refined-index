@@ -42,9 +42,10 @@ def _frac_to_latex(v) -> str:
 
 
 def format_slope_latex(P: int, Q: int,
-                       a: str = r"\alpha", b: str = r"\beta") -> str:
-    r"""Format $P\,\alpha + Q\,\beta$ with correct sign handling.
+                       a: str = r"\gamma", b: str = r"\delta") -> str:
+    r"""Format $P\,\gamma + Q\,\delta$ with correct sign handling.
 
+    The default basis is (γ, δ) = (meridian, longitude) for Dehn filling.
     Returns a bare LaTeX string (no surrounding ``$``).
     """
     if P == 0 and Q == 0:
@@ -235,6 +236,9 @@ def format_filled_series_latex(
 def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
     """Return an HTML ``<table class="nc">`` listing non-closable cycles.
 
+    The "Dehn filling compatible" column is True iff both Weyl symmetry
+    adjustability and the q¹ adjoint su(2) projection pass.
+
     Parameters
     ----------
     nc_cycles : list[NCCycleViewModel]
@@ -247,23 +251,26 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
         '<table class="nc">\n'
         "<tr>"
         "<th>#</th>"
-        "<th>Cusp</th>"
         "<th>Slope $\\gamma$</th>"
-        "<th>Weyl compatible</th>"
+        "<th>Dehn filling compatible</th>"
         "<th>Source</th>"
         "</tr>\n"
     )
     rows = ""
     for i, nc in enumerate(nc_cycles, 1):
-        compat = (
-            "—" if nc.weyl_compatible is None
-            else ("✓" if nc.weyl_compatible else "✗")
-        )
+        # Dehn filling compatible = Weyl symmetry AND q¹ adjoint projection
+        w = nc.weyl_compatible
+        a = nc.adjoint_proj_pass
+        if w is False or a is False:
+            compat = "✗"
+        elif w is True and a is True:
+            compat = "✓"
+        else:
+            compat = "—"
         rows += (
             f"<tr>"
             f"<td>{i}</td>"
-            f"<td>{nc.cusp_idx}</td>"
-            f"<td>{nc.slope_latex}</td>"
+            f"<td>${nc.slope_latex}$</td>"
             f"<td>{compat}</td>"
             f"<td>{nc.source}</td>"
             f"</tr>\n"

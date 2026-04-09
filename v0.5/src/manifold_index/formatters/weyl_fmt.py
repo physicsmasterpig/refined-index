@@ -60,7 +60,31 @@ def format_weyl_html(vm: WeylViewModel) -> str:
         r"&nbsp; Weyl: $f(m,e) = f(-m,-e)$</p>"
     )
 
-    if vm.a_vectors and vm.b_vectors:
+    if vm.cusp_a_matrix is not None and vm.cusp_b_matrix is not None:
+        # Multi-cusp: a_j and b_j are vectors with one component per cusp.
+        lines.append(
+            "<p>Per-cusp Weyl vectors "
+            r"($a_j = (a_j^{(0)}, a_j^{(1)}, \ldots)$, same for $b_j$):</p>"
+        )
+        for j, (a_row, b_row) in enumerate(zip(vm.cusp_a_matrix, vm.cusp_b_matrix)):
+            a_parts = ", ".join(_frac_to_latex(v) for v in a_row)
+            b_parts = ", ".join(_frac_to_latex(v) for v in b_row)
+            lines.append(
+                f"<p>$a_{{{j}}} = ({a_parts}), \\quad b_{{{j}}} = ({b_parts})$</p>"
+            )
+        if vm.is_fully_compatible:
+            lines.append(
+                '<p class="success">'
+                r"✓ &nbsp; $a \in \mathbb{Z}^r$, $b \in (\mathbb{Z}/2)^r$"
+                " — Dehn filling compatible</p>"
+            )
+        else:
+            lines.append(
+                '<p class="warn">'
+                r"⚠ &nbsp; Some edges not half-integer compatible"
+                " — filling may need η zeroing</p>"
+            )
+    elif vm.a_vectors and vm.b_vectors:
         for j, (a, b) in enumerate(zip(vm.a_vectors, vm.b_vectors)):
             a_str = _frac_to_latex(Fraction(a).limit_denominator(1000))
             b_str = _frac_to_latex(Fraction(b).limit_denominator(1000))

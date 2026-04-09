@@ -263,19 +263,21 @@ class TestRunWeylCheck:
         ]
 
     def test_returns_ab_or_none(self, weyl_entries):
-        result = ComputeService.run_weyl_check(weyl_entries, num_hard=1, q_order_half=12)
-        assert result is None or (hasattr(result, "a") and hasattr(result, "b"))
+        ab, adj_pass, adj_value = ComputeService.run_weyl_check(weyl_entries, num_hard=1, q_order_half=12)
+        assert ab is None or (hasattr(ab, "a") and hasattr(ab, "b"))
+        assert adj_pass is None or isinstance(adj_pass, bool)
+        assert adj_value is None or isinstance(adj_value, int)
 
     def test_ab_has_correct_length(self, weyl_entries):
-        result = ComputeService.run_weyl_check(weyl_entries, num_hard=1, q_order_half=12)
-        if result is not None:
-            assert len(result.a) == 1  # num_hard = 1
-            assert len(result.b) == 1
+        ab, _adj, _adjv = ComputeService.run_weyl_check(weyl_entries, num_hard=1, q_order_half=12)
+        if ab is not None:
+            assert len(ab.a) == 1  # num_hard = 1
+            assert len(ab.b) == 1
 
     def test_ab_values_are_rational(self, weyl_entries):
-        result = ComputeService.run_weyl_check(weyl_entries, num_hard=1, q_order_half=12)
-        if result is not None:
-            for av in result.a:
+        ab, _adj, _adjv = ComputeService.run_weyl_check(weyl_entries, num_hard=1, q_order_half=12)
+        if ab is not None:
+            for av in ab.a:
                 Fraction(av)   # must be rational
-            for bv in result.b:
+            for bv in ab.b:
                 Fraction(bv)

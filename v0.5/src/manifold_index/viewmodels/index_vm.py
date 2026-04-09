@@ -106,6 +106,10 @@ class WeylViewModel:
     adjoint_passed: bool | None
     warnings: list[str]
     advisories: list[Advisory] = field(default_factory=list)
+    # Multi-cusp: cusp_a_matrix[j][I] = a-component for edge j, cusp I.
+    # None for single-cusp manifolds.
+    cusp_a_matrix: list[list] | None = None
+    cusp_b_matrix: list[list] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +212,14 @@ def build_weyl_vm(
     a_vecs = list(ab_result.a)
     b_vecs = list(ab_result.b)
 
+    # Multi-cusp: build per-edge vectors from cusp_columns if available.
+    cusp_a: list[list] | None = None
+    cusp_b: list[list] | None = None
+    if getattr(ab_result, "cusp_columns", None) is not None:
+        n_edges = len(a_vecs)
+        cusp_a = [[col.a[j] for col in ab_result.cusp_columns] for j in range(n_edges)]
+        cusp_b = [[col.b[j] for col in ab_result.cusp_columns] for j in range(n_edges)]
+
     # Edge compatibility: b_j should be a half-integer (denominator 1 or 2)
     edge_compat: list[bool] = []
     incompat_edges: list[int] = []
@@ -234,6 +246,8 @@ def build_weyl_vm(
         adjoint_passed=adjoint_passed,
         warnings=[],
         advisories=advisories,
+        cusp_a_matrix=cusp_a,
+        cusp_b_matrix=cusp_b,
     )
 
 

@@ -136,6 +136,7 @@ class Session:
 
     # ── Weyl bridge (②→③) ─────────────────────────────────────────────
     weyl_result: Any = None          # ABVectors | None  (not serialised)
+    weyl_adjoint_pass: "bool | None" = None  # q¹ adjoint projection pass (not serialised)
     weyl_checked: bool = False
 
     # ── Card ③ results ────────────────────────────────────────────────
@@ -204,6 +205,7 @@ class Session:
             self.active_edges = []
             self.index_queries = []
             self.weyl_result = None
+            self.weyl_adjoint_pass = None
             self.weyl_checked = False
             self.nc_cycles = []
             self.fill_queries = []
@@ -213,6 +215,7 @@ class Session:
         elif stage <= PipelineStage.INDEXED:
             self.index_queries = []
             self.weyl_result = None
+            self.weyl_adjoint_pass = None
             self.weyl_checked = False
             self.nc_cycles = []
             self.fill_queries = []

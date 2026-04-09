@@ -159,6 +159,24 @@ class ComputeService:
             return None
 
     @staticmethod
+    def enumerate_iref_cache(
+        name: str,
+        nz_data: Any,
+        q_order_half: int,
+    ) -> list[tuple[list, list, Any]]:
+        """Return every cached I^ref entry for *name* as (m_ext, e_ext, result).
+
+        Reads the cache file directly without touching the in-memory cache.
+        Returns an empty list if no cache file is found or on any error.
+        """
+        try:
+            return _kc_mod.enumerate_iref_entries(
+                nz_data, manifold_name=name, qq_filter=q_order_half,
+            )
+        except Exception:
+            return []
+
+    @staticmethod
     def project_refined_index(
         result: Any,
         active_edges: list[bool],
@@ -214,6 +232,11 @@ class ComputeService:
         result = _wc_mod.run_weyl_checks(
             entries, num_hard, cusp_idx=cusp_idx, q_order_half=q_order_half,
         )
-        if result.ab is not None and result.ab_valid:
-            return result.ab
-        return None
+        ab = result.ab if (result.ab is not None and result.ab_valid) else None
+        adjoint_pass: "bool | None" = (
+            result.adjoint.is_pass if result.adjoint is not None else None
+        )
+        adjoint_value: "int | None" = (
+            result.adjoint.projected_value if result.adjoint is not None else None
+        )
+        return ab, adjoint_pass, adjoint_value

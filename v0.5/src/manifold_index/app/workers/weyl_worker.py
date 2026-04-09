@@ -44,13 +44,17 @@ class WeylWorker(QThread):
     def run(self) -> None:
         try:
             self.status.emit("Running Weyl symmetry check…")
-            ab_vectors = ComputeService.run_weyl_check(
+            ab_vectors, adjoint_is_pass, adjoint_value = ComputeService.run_weyl_check(
                 self._entries,
                 self._num_hard,
                 self._q_order_half,
                 self._cusp_idx,
             )
-            self.finished.emit({"ab_vectors": ab_vectors})
+            self.finished.emit({
+                "ab_vectors": ab_vectors,
+                "adjoint_is_pass": adjoint_is_pass,
+                "adjoint_value": adjoint_value,
+            })
         except Exception as exc:
             self.error.emit(str(exc))
 

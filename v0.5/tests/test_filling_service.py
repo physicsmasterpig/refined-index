@@ -247,11 +247,13 @@ class TestComputeFilledIndex:
     def test_basis_change_for_slope_3_1(self, filled_3_1):
         """
         Basis change from (α,β) to NC basis (1,0):
-          find_rs(1,0) = (R=0, S=-1)
-          p = S*3 - 0*1 = -3,  q = -0*3 + 1*1 = 1
+          find_rs(1,0) → R=0, S=-1  (satisfies R·0 − 1·S = 1)
+          Matrix [[nc_P,nc_Q],[-R,-S]] = [[1,0],[0,1]] = Identity
+          p = R·user_Q − S·user_P = 0·1 − (−1)·3 = 3
+          q = nc_P·user_Q − nc_Q·user_P = 1·1 − 0·3 = 1
         """
         p, q, _ = filled_3_1
-        assert p == -3
+        assert p == 3
         assert q == 1
 
     def test_result_has_constant_term(self, filled_3_1):
@@ -272,3 +274,27 @@ class TestComputeFilledIndex:
         p1, q1, r1 = FillingService.compute_filled_index(**kwargs)
         p2, q2, r2 = FillingService.compute_filled_index(**kwargs)
         assert p1 == p2 and q1 == q2 and r1.series == r2.series
+
+    def test_formatter_receives_correct_fields(self, filled_3_1):
+        """Regression: format_filled_series_latex must be called with
+        result.series (dict), not the FilledRefinedResult dataclass.
+
+        Previously the UI called format_filled_series_latex(result, ...) which
+        raised AttributeError (no .items()) and fell back to str(result),
+        making the table show 'FilledRefinedResult(P=..., series={}, ...)'.
+        """
+        from manifold_index.formatters.filling_fmt import format_filled_series_latex
+        _, _, result = filled_3_1
+        # Calling with result.series (the dict) must not raise and must not
+        # return a repr-string of the dataclass.
+        latex = format_filled_series_latex(
+            result.series,
+            result.num_hard,
+            result.has_cusp_eta,
+            result.num_cusp_eta,
+        )
+        assert "FilledRefinedResult" not in latex, (
+            "Formatter was passed the dataclass instead of result.series"
+        )
+        assert latex.startswith("$"), f"Expected $...$, got: {latex!r}"
+

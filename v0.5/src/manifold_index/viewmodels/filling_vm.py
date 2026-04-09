@@ -38,12 +38,15 @@ class NCCycleViewModel:
     cusp_idx : int
         Which cusp this cycle belongs to.
     P, Q : int
-        Slope in the (α, β) basis.
+        Slope in the (γ, δ) basis (meridian = γ, longitude = δ).
     slope_latex : str
-        KaTeX-ready slope string, e.g. ``r"$\alpha$"`` for (1,0).
+        KaTeX-ready slope string, e.g. ``r"$\gamma$"`` for (1,0).
     weyl_compatible : bool | None
-        Whether the slope is compatible with the Weyl vectors.
+        Whether the slope is compatible with the Weyl symmetry vectors.
         ``None`` if Weyl check has not been run.
+    adjoint_proj_pass : bool | None
+        Whether the q¹ adjoint su(2) projection equals −1.
+        ``None`` if the adjoint check has not been run.
     source : str
         ``"computed"`` or ``"cache"``.
     """
@@ -52,6 +55,7 @@ class NCCycleViewModel:
     Q: int
     slope_latex: str
     weyl_compatible: "bool | None"
+    adjoint_proj_pass: "bool | None"
     source: str
 
 
@@ -139,6 +143,7 @@ def build_nc_cycle_vm(
     P: int,
     Q: int,
     weyl_compatible: "bool | None" = None,
+    adjoint_proj_pass: "bool | None" = None,
     source: str = "computed",
     *,
     slope_latex: str = "",
@@ -149,7 +154,7 @@ def build_nc_cycle_vm(
     Provide a placeholder here when formatters are not yet available.
     """
     if not slope_latex:
-        # Minimal fallback: P α + Q β notation in plain ascii
+        # Minimal fallback: P γ + Q δ notation in plain LaTeX
         slope_latex = _simple_slope_latex(P, Q)
 
     return NCCycleViewModel(
@@ -158,6 +163,7 @@ def build_nc_cycle_vm(
         Q=Q,
         slope_latex=slope_latex,
         weyl_compatible=weyl_compatible,
+        adjoint_proj_pass=adjoint_proj_pass,
         source=source,
     )
 
@@ -239,13 +245,13 @@ def build_filling_vm(
 # ---------------------------------------------------------------------------
 
 def _simple_slope_latex(P: int, Q: int) -> str:
-    """Minimal KaTeX slope string for fallback use (no Phase 4 formatters)."""
+    """Minimal KaTeX slope string for fallback use (meridian=γ, longitude=δ)."""
     if Q == 0:
-        return rf"${P}\alpha$" if P != 1 else r"$\alpha$"
+        return rf"${P}\gamma$" if P != 1 else r"$\gamma$"
     if P == 0:
-        return rf"${Q}\beta$" if Q != 1 else r"$\beta$"
+        return rf"${Q}\delta$" if Q != 1 else r"$\delta$"
     q_str = str(Q) if Q != 1 else ""
-    return rf"${P}\alpha + {q_str}\beta$"
+    return rf"${P}\gamma + {q_str}\delta$"
 
 
 def _vec_latex(vec: list) -> str:

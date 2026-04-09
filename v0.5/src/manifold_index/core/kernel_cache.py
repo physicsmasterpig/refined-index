@@ -875,6 +875,72 @@ def load_iref_cache(
     return loaded
 
 
+def enumerate_iref_entries(
+    nz_data: Any,
+    manifold_name: str,
+    qq_filter: int | None = None,
+    cache_dir: str | Path | None = None,
+) -> list[tuple[list, list, Any]]:
+    """Read every cached I^ref entry for *manifold_name* from disk.
+
+    Does **not** load anything into the in-memory cache.
+
+    Parameters
+    ----------
+    nz_data : NeumannZagierData
+        Used to locate the file and verify the NZ hash.
+    manifold_name : str
+        Must match the name used at save time.
+    qq_filter : int or None
+        If given, only return entries whose q_order_half matches.
+    cache_dir : path or None
+        Override cache directory.
+
+    Returns
+    -------
+    list of ``(m_ext, e_ext, result)`` where:
+        - ``m_ext``  is ``list[int]``
+        - ``e_ext``  is ``list[Fraction]``
+        - ``result`` is the ``RefinedIndexResult`` (``dict``)
+
+    Returns an empty list if no matching cache file is found.
+    """
+    from fractions import Fraction as _Fraction
+
+    d = Path(cache_dir) if cache_dir else _DEFAULT_IREF_DIR
+    path = d / _iref_filename(manifold_name, nz_data)
+
+    if not path.exists():
+        return []
+
+    try:
+        with gzip.open(path, "rb") as f:
+            payload = pickle.load(f)
+    except Exception:
+        return []
+
+    if not isinstance(payload, dict):
+        return []
+    if payload.get("nz_hash") != _nz_hash(nz_data):
+        return []
+
+    entries = payload.get("entries", {})
+    out: list[tuple[list, list, Any]] = []
+    for short_key, value in entries.items():
+        # short_key = (m_ext_tuple, e_ext_tuple, q_order_half)
+        if len(short_key) < 3:
+            continue
+        m_ext_tuple, e_ext_tuple, qq = short_key
+        if qq_filter is not None and qq != qq_filter:
+            continue
+        out.append((
+            list(m_ext_tuple),
+            [_Fraction(e) for e in e_ext_tuple],
+            value,
+        ))
+    return out
+
+
 def list_iref_caches(
     cache_dir: str | Path | None = None,
 ) -> list[dict[str, Any]]:

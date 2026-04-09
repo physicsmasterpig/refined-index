@@ -165,25 +165,32 @@ class FillingService:
         FilledRefinedResult = ``dict[tuple[int, ...], int]``.
         """
         # ── Basis change: (α,β) → (γ,δ) using NC cycle (nc_P, nc_Q) ──
-        # The NC basis change applies apply_cusp_basis_change(nz, cusp, nc_P, nc_Q)
-        # which makes γ = nc_P·α + nc_Q·β the new position variable.
-        # In the new basis the user slope (user_P, user_Q) becomes (p, q)
-        # via the inverse of the SL(2,Z) matrix [[nc_P, nc_Q], [R, S]]
-        # where nc_P·S - nc_Q·R = 1:
-        #   [p, q] = [[S, -nc_Q], [-R, nc_P]] @ [user_P, user_Q]
+        # find_rs(P, Q) returns (R, S) with R·Q − P·S = 1.
+        # We apply the SL(2,ℤ) basis change with matrix [[nc_P, nc_Q], [-R, -S]]:
+        #
+        #   new_μ   = nc_P·μ + nc_Q·λ          (new meridian  = NC cycle)
+        #   new_λ   =  -R·μ  −  S·λ            (new longitude, Bézout conjugate)
+        #
+        # In the NZ (position, momentum) = (M, L/2) convention this becomes:
+        #   new_pos = nc_P·old_pos + 2·nc_Q·old_mom
+        #   new_mom = (−R/2)·old_pos + (−S)·old_mom
+        #
+        # Inverting: old_pos = −S·new_pos − 2·nc_Q·new_mom
+        #            old_mom = (R/2)·new_pos + nc_P·new_mom
+        #
+        # Substituting into user_P·old_pos + 2·user_Q·old_mom = c gives the
+        # user slope in the new basis:
+        #   p = R·user_Q − S·user_P
+        #   q = nc_P·user_Q − nc_Q·user_P
 
-        # Find R, S: nc_P·S - nc_Q·R = 1
-        R, S = _df_mod.find_rs(nc_P, nc_Q)
-        p = S * user_P - nc_Q * user_Q
-        q = -R * user_P + nc_P * user_Q
+        R, S = _df_mod.find_rs(nc_P, nc_Q)   # R·nc_Q − nc_P·S = 1
+        p = R * user_Q - S * user_P
+        q = nc_P * user_Q - nc_Q * user_P
 
-        # Apply the basis change to nz_data (only if nc_P is odd)
-        if nc_P % 2 != 0:
-            nz_nc = _nz_mod.apply_cusp_basis_change(nz_data, cusp_idx, nc_P, nc_Q)
-        else:
-            # Even nc_P: basis change not strictly required; evaluate at (p, q) directly
-            nz_nc = nz_data
-            p, q = user_P, user_Q
+        # apply_general_cusp_basis_change works for any parity of nc_P.
+        nz_nc = _nz_mod.apply_general_cusp_basis_change(
+            nz_data, cusp_idx, a=nc_P, b=nc_Q, c=-R, d=-S
+        )
 
         # ── Compute filled refined index ──────────────────────────────
         # After the basis change, the filling slope is (p, 1) in the NZ kernel
@@ -199,6 +206,7 @@ class FillingService:
             weyl_a=weyl_a,
             weyl_b=weyl_b,
             auto_precompute=auto_precompute,
+            verbose=True,
         )
 
         return p, q, result
