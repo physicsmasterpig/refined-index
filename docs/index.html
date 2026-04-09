@@ -549,17 +549,17 @@
       <div class="selector-group">
         <div class="selector">
           <label class="selector-label">Version</label>
-          <div class="selector-buttons">
-            <button class="selector-btn active" onclick="selectVersion('v0.5')">v0.5.0</button>
-            <button class="selector-btn" onclick="selectVersion('v0.4')">v0.4.2</button>
+          <div class="selector-buttons version-selector">
+            <button class="selector-btn active" data-value="v0.5" onclick="selectVersion('v0.5')">v0.5.0</button>
+            <button class="selector-btn" data-value="v0.4" onclick="selectVersion('v0.4')">v0.4.2</button>
           </div>
         </div>
 
         <div class="selector">
           <label class="selector-label">Platform</label>
-          <div class="selector-buttons">
-            <button class="selector-btn active" onclick="selectPlatform('macos')">macOS</button>
-            <button class="selector-btn" onclick="selectPlatform('windows')">Windows</button>
+          <div class="selector-buttons platform-selector">
+            <button class="selector-btn active" data-value="macos" onclick="selectPlatform('macos')">macOS</button>
+            <button class="selector-btn" data-value="windows" onclick="selectPlatform('windows')">Windows</button>
           </div>
         </div>
       </div>
@@ -732,13 +732,13 @@
     function selectVersion(version) {
       currentVersion = version;
       updateDisplay();
-      updateButtons('version', version);
+      updateVersionButtons();
     }
 
     function selectPlatform(platform) {
       currentPlatform = platform;
       updateDisplay();
-      updateButtons('platform', platform);
+      updatePlatformButtons();
     }
 
     function updateDisplay() {
@@ -755,21 +755,19 @@
       if (card) card.classList.add('active');
     }
 
-    function updateButtons(type, value) {
-      const buttons = document.querySelectorAll('.selector-btn');
-      buttons.forEach(btn => {
-        const text = btn.textContent.trim();
-        let isActive = false;
-
-        if (type === 'version') {
-          isActive = (value === 'v0.5' && text === 'v0.5.0') ||
-                     (value === 'v0.4' && text === 'v0.4.2');
-        } else if (type === 'platform') {
-          isActive = (value === 'macos' && text === 'macOS') ||
-                     (value === 'windows' && text === 'Windows');
+    function updateVersionButtons() {
+      document.querySelectorAll('.version-selector .selector-btn').forEach(btn => {
+        if (btn.dataset.value === currentVersion) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
         }
+      });
+    }
 
-        if (isActive) {
+    function updatePlatformButtons() {
+      document.querySelectorAll('.platform-selector .selector-btn').forEach(btn => {
+        if (btn.dataset.value === currentPlatform) {
           btn.classList.add('active');
         } else {
           btn.classList.remove('active');
@@ -780,8 +778,8 @@
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
       updateDisplay();
-      updateButtons('version', 'v0.5');
-      updateButtons('platform', 'macos');
+      updateVersionButtons();
+      updatePlatformButtons();
     });
   </script>
 
