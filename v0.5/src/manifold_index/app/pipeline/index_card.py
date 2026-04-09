@@ -61,6 +61,7 @@ class IndexCard(QWidget):
         super().__init__(parent)
         self._session   = session
         self._workers: list[IndexWorker] = []
+        self._pending_grid: list[tuple[list, list, int]] = []  # (m_ext, e_ext, row) queue for serialised grid
         self._session_gen: int = 0
         self._grid_total: int = 0
         self._grid_done: int  = 0
@@ -243,6 +244,7 @@ class IndexCard(QWidget):
             except RuntimeError:
                 pass
         self._workers.clear()
+        self._pending_grid.clear()   # discard any unstarted grid items
         self._card.set_status(CardStatus.LOCKED)
         self._card.collapse()
         self._results_table.clear_rows()
@@ -437,28 +439,27 @@ class IndexCard(QWidget):
             self._card.set_status(CardStatus.RUNNING)
 
             gen = self._session_gen
+            # Pre-create all table rows so the user sees placeholders immediately,
+            # then queue (m_ext, e_ext, row) for serialised execution — only one
+            # IndexWorker runs at a time to avoid GIL contention and shared-state
+            # fights that make the computation slower and the UI freeze.
+            self._pending_grid.clear()
+            first_item: tuple | None = None
             for m_ext, e_ext in grid_points:
                 m_disp = m_ext[0] if r_int == 1 else _fmt_charges(m_ext)
                 e_disp = str(e_ext[0]) if r_int == 1 else _fmt_charges(e_ext)
                 row = self._results_table.add_row(m_disp, e_disp, "", "—")
                 self._results_table.set_row_computing(row)
-                worker = IndexWorker(
-                    nz_data       = s.nz_data,
-                    m_ext         = m_ext,
-                    e_ext         = e_ext,
-                    q_order_half  = s.q_order_half,
-                    manifold_name = s.manifold_name,
-                    use_cache     = False,
-                    parent        = self,
-                )
-                worker.finished.connect(
-                    lambda p, r=row, g=gen, w=worker: self._on_index_finished(p, r, g, w)
-                )
-                worker.error.connect(
-                    lambda e, r=row, g=gen, w=worker: self._on_index_error(e, r, g, w)
-                )
-                self._workers.append(worker)
-                worker.start()
+                if first_item is None:
+                    first_item = (m_ext, e_ext, row, gen)
+                else:
+                    self._pending_grid.append((m_ext, e_ext, row, gen))
+
+            # Kick off only the first worker; _on_index_finished/_on_index_error
+            # will drain _pending_grid one entry at a time.
+            if first_item is not None:
+                m0, e0, row0, g0 = first_item
+                self._start_grid_worker(s, m0, e0, row0, g0)
             return
 
         # ── Query (single point) ──────────────────────────────────────
@@ -507,12 +508,42 @@ class IndexCard(QWidget):
         self._workers.append(worker)
         worker.start()
 
+    def _start_grid_worker(self, s: object, m_ext: list, e_ext: list, row: int, gen: int) -> None:
+        """Spawn exactly one IndexWorker for a grid point and track it."""
+        worker = IndexWorker(
+            nz_data       = s.nz_data,
+            m_ext         = m_ext,
+            e_ext         = e_ext,
+            q_order_half  = s.q_order_half,
+            manifold_name = s.manifold_name,
+            use_cache     = False,
+            parent        = self,
+        )
+        worker.finished.connect(
+            lambda p, r=row, g=gen, w=worker: self._on_index_finished(p, r, g, w)
+        )
+        worker.error.connect(
+            lambda e, r=row, g=gen, w=worker: self._on_index_error(e, r, g, w)
+        )
+        self._workers.append(worker)
+        worker.start()
+
+    def _drain_pending_grid(self) -> None:
+        """Start the next queued grid worker, if any remain."""
+        if self._pending_grid and self._session_gen == self._session_gen:
+            s = self._session
+            m_ext, e_ext, row, gen = self._pending_grid.pop(0)
+            if gen == self._session_gen:
+                self._start_grid_worker(s, m_ext, e_ext, row, gen)
+
     def _on_index_finished(self, payload: dict, row: int, gen: int, worker: object) -> None:
         if worker in self._workers:
             self._workers.remove(worker)
 
         if gen != self._session_gen:
-            return   # stale: manifold was reloaded since this worker launched
+            # Stale: manifold was reloaded; clear any pending queue too
+            self._pending_grid.clear()
+            return
 
         # Update progress bar for grid runs
         if self._grid_total > 0:
@@ -522,8 +553,16 @@ class IndexCard(QWidget):
                 f"Computing grid: {self._grid_done} / {self._grid_total}"
             )
 
-        # Only re-enable controls when all workers have finished
-        if not self._workers:
+        # Start the next queued grid worker (serialised execution).
+        # Do this before the "all workers finished?" check so the new worker
+        # is in self._workers before we test for emptiness.
+        if self._pending_grid:
+            self._drain_pending_grid()
+
+        # Only re-enable controls when all workers have finished and
+        # the pending queue is also empty.
+        all_done = not self._workers and not self._pending_grid
+        if all_done:
             self._compute_btn.setEnabled(True)
             self._status_label.setVisible(False)
             self._progress_bar.setVisible(False)
@@ -565,7 +604,8 @@ class IndexCard(QWidget):
         if self._grid_total == 0:
             self._rebuild_sorted_table()
 
-        if not self._workers:
+        all_done = not self._workers and not self._pending_grid
+        if all_done:
             self._card.set_status(CardStatus.DONE)
             self._stop_btn.setEnabled(False)
             self._update_summary()
@@ -575,6 +615,7 @@ class IndexCard(QWidget):
         if worker in self._workers:
             self._workers.remove(worker)
         if gen != self._session_gen:
+            self._pending_grid.clear()
             return
         if self._grid_total > 0:
             self._grid_done += 1
@@ -582,13 +623,17 @@ class IndexCard(QWidget):
             self._status_label.setText(
                 f"Computing grid: {self._grid_done} / {self._grid_total}"
             )
-        if not self._workers:
+        # Even on error, drain to the next pending grid item so the rest complete.
+        if self._pending_grid:
+            self._drain_pending_grid()
+        all_done = not self._workers and not self._pending_grid
+        if all_done:
             self._compute_btn.setEnabled(True)
             self._status_label.setVisible(False)
             self._progress_bar.setVisible(False)
         self._results_table.set_row_result(row, f"Error: {msg}", "—")
         logging.warning("IndexWorker error: %s", msg)
-        if not self._workers:
+        if all_done:
             self._card.set_status(CardStatus.ERROR)
             self._update_summary()
 
@@ -662,7 +707,7 @@ class IndexCard(QWidget):
             self._status_label.setVisible(False)
 
     def _on_stop_clicked(self) -> None:
-        """Abandon all running index/grid workers."""
+        """Abandon all running index/grid workers and clear the pending queue."""
         for w in self._workers:
             try:
                 w.finished.disconnect()
@@ -670,6 +715,7 @@ class IndexCard(QWidget):
             except RuntimeError:
                 pass
         self._workers.clear()
+        self._pending_grid.clear()   # discard any unstarted grid items
         self._grid_total = 0
         self._grid_done  = 0
         self._compute_btn.setEnabled(True)

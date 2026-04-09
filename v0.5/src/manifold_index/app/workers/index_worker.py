@@ -14,6 +14,7 @@ Finished payload::
 
 from __future__ import annotations
 
+import time
 from fractions import Fraction
 from typing import Any
 
@@ -49,6 +50,8 @@ class IndexWorker(QThread):
         self._use_cache    = use_cache
 
     def run(self) -> None:
+        # Lower priority so the main (UI/Cocoa) thread stays responsive.
+        self.setPriority(QThread.Priority.LowPriority)
         try:
             self.status.emit(
                 f"Computing I^ref({self._m_ext}, {self._e_ext})…"
