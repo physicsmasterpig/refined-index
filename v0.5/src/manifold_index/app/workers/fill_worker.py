@@ -113,3 +113,53 @@ class FillWorker(QThread):
         except Exception as exc:
             self.error.emit(str(exc))
 
+
+class MultiFillWorker(QThread):
+    """Apply sequential basis changes and compute multi-cusp filled refined index."""
+
+    status   = Signal(str)
+    progress = Signal(int, int)
+    finished = Signal(object)
+    error    = Signal(str)
+
+    def __init__(
+        self,
+        nz_data: Any,
+        cusp_specs: list[dict],
+        q_order_half: int,
+        auto_precompute: bool = True,
+        manifold_name: str = "unknown",
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._nz_data         = nz_data
+        self._cusp_specs      = cusp_specs
+        self._q_order_half    = q_order_half
+        self._auto_precompute = auto_precompute
+        self._manifold_name   = manifold_name
+
+    def run(self) -> None:
+        self.setPriority(QThread.Priority.LowPriority)
+        try:
+            cusp_summary = ", ".join(
+                f"C{s['cusp_idx']}:({s['user_P']},{s['user_Q']})"
+                for s in self._cusp_specs
+            )
+            self.status.emit(f"Computing multi-cusp filling ({cusp_summary})…")
+
+            def _prog(msg: str) -> None:
+                time.sleep(0.005)
+                self.status.emit(msg)
+
+            augmented, result = FillingService.compute_multi_cusp_filled_index(
+                nz_data        = self._nz_data,
+                cusp_specs     = self._cusp_specs,
+                q_order_half   = self._q_order_half,
+                auto_precompute= self._auto_precompute,
+                progress_fn    = _prog,
+                manifold_name  = self._manifold_name,
+            )
+            self.finished.emit({"cusp_specs": augmented, "result": result})
+        except Exception as exc:
+            self.error.emit(str(exc))
+
