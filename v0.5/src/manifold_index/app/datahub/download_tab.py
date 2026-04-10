@@ -139,6 +139,7 @@ class DownloadTab(QWidget):
             "other":   "Other",
         }
 
+        pack_count = 0
         for cat in cat_order:
             packs_in_cat = categories.get(cat, [])
             if not packs_in_cat:
@@ -161,6 +162,11 @@ class DownloadTab(QWidget):
                 row = QTreeWidgetItem([name, status, size_str, qq, coverage])
                 row.setData(0, Qt.ItemDataRole.UserRole, pack)
                 header.addChild(row)
+                pack_count += 1
+                # Yield to event loop every 50 packs to keep UI responsive
+                # when building tree with many data packs.
+                if pack_count % 50 == 0:
+                    QCoreApplication.processEvents()
 
             header.setExpanded(True)
 
