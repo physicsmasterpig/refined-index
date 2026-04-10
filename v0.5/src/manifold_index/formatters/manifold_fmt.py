@@ -5,11 +5,11 @@ HTML / LaTeX formatters for the Manifold card (Card ①).
 
 Public API
 ----------
-format_nz_latex(nz)            → $$...$$ LaTeX string for the NZ matrix
-format_gluing_table_html(md)   → <table> HTML (SnaPy gluing equations)
-format_easy_edges_html(ps)     → <table> HTML for independent easy edges
-format_hard_edges_html(ps)     → <table> HTML for hard-padding edges
-format_summary_html(md, ps)    → <p> blurb: name / tetrahedra / cusps / edges
+format_nz_latex(nz)               → $$...$$ LaTeX string for the NZ matrix
+format_gluing_table_html(md)      → <table> HTML (SnaPy gluing equations)
+format_easy_edges_html(ps, md)    → <table> HTML for independent easy edges with compositions
+format_hard_edges_html(ps, md)    → <table> HTML for hard-padding edges with compositions
+format_summary_html(md, ps)       → <p> blurb: name / tetrahedra / cusps / edges
 
 BLUEPRINT reference: §4 (formatters split), §10 (ManifoldCard display)
 """
@@ -147,35 +147,52 @@ def format_gluing_table_html(md) -> str:
 # Edge classification tables
 # ---------------------------------------------------------------------------
 
-def format_easy_edges_html(ps) -> str:
+def format_easy_edges_html(ps, md=None) -> str:
     """Return an HTML ``<table>`` for independent easy edges.
 
     Parameters
     ----------
     ps : EasyEdgeResult
         Requires ``ps.all_easy``, ``ps.independent_easy_indices``, ``ps.n``.
+    md : ManifoldData, optional
+        If provided, shows how each edge is composed from gluing equations.
     """
     n = ps.n
     lines = ""
     for idx, ei in enumerate(ps.independent_easy_indices):
         edge = ps.all_easy[ei]
         triplets = _edge_triplets_latex(edge, n)
+        composition = ""
+        if md is not None:
+            comp = _compute_edge_factorization(edge, md)
+            if comp:
+                composition = f"<td>${comp}$</td>"
+            else:
+                composition = "<td></td>"
+        else:
+            composition = "<td></td>"
         lines += (
             f'<tr><td><b>E{idx}</b></td>'
             f"<td>${triplets}$</td>"
+            f"{composition}"
             f"<td>basis row {idx + 1}</td></tr>\n"
         )
     if not lines:
         return '<p class="muted">No easy edges.</p>\n'
+    header = (
+        "<tr><th>Edge</th><th>Triplets</th>"
+        f"{'<th>Composition</th>' if md is not None else ''}"
+        "<th>Role</th></tr>\n"
+    )
     return (
         "<table>\n"
-        "<tr><th>Edge</th><th>Triplets</th><th>Role</th></tr>\n"
+        f"{header}"
         f"{lines}"
         "</table>\n"
     )
 
 
-def format_hard_edges_html(ps) -> str:
+def format_hard_edges_html(ps, md=None) -> str:
     """Return an HTML ``<table>`` for hard-padding edges.
 
     Parameters
@@ -183,22 +200,39 @@ def format_hard_edges_html(ps) -> str:
     ps : EasyEdgeResult
         Requires ``ps.hard_padding``, ``ps.n``,
         ``ps.num_independent_easy``.
+    md : ManifoldData, optional
+        If provided, shows how each edge is composed from gluing equations.
     """
     n = ps.n
     n_easy = ps.num_independent_easy
     lines = ""
     for idx, hedge in enumerate(ps.hard_padding):
         triplets = _edge_triplets_latex(hedge, n)
+        composition = ""
+        if md is not None:
+            comp = _compute_edge_factorization(hedge, md)
+            if comp:
+                composition = f"<td>${comp}$</td>"
+            else:
+                composition = "<td></td>"
+        else:
+            composition = "<td></td>"
         lines += (
             f'<tr><td><b>H{idx}</b></td>'
             f"<td>${triplets}$</td>"
+            f"{composition}"
             f"<td>basis row {n_easy + idx + 1}</td></tr>\n"
         )
     if not lines:
         return '<p class="muted">No hard edges.</p>\n'
+    header = (
+        "<tr><th>Edge</th><th>Triplets</th>"
+        f"{'<th>Composition</th>' if md is not None else ''}"
+        "<th>Role</th></tr>\n"
+    )
     return (
         "<table>\n"
-        "<tr><th>Edge</th><th>Triplets</th><th>Role</th></tr>\n"
+        f"{header}"
         f"{lines}"
         "</table>\n"
     )
@@ -211,6 +245,85 @@ def _edge_triplets_latex(edge: "np.ndarray", n: int) -> str:
         a, b, c = int(edge[3 * j]), int(edge[3 * j + 1]), int(edge[3 * j + 2])
         parts.append(rf"({a},{b},{c})\;")
     return "".join(parts)
+
+
+def _compute_edge_factorization(edge: "np.ndarray", md) -> str:
+    """Compute how an edge is composed: E = a @ edge_equations + b @ T_matrix.
+
+    Returns a LaTeX expression like: "2·row₀ + 3·row₁ + T₀"
+    """
+    try:
+        n = md.num_tetrahedra
+        edge_eqs = md.edge_equations.astype(float)  # shape (n, 3n)
+
+        # Build T_matrix where each row sums the three coordinates for one tet
+        # T_matrix[i] = (0,...,0, 1, 1, 1, 0,...,0) with ones at positions 3i, 3i+1, 3i+2
+        T_matrix = np.zeros((n, 3 * n), dtype=float)
+        for i in range(n):
+            T_matrix[i, 3 * i : 3 * i + 3] = 1.0
+
+        # Build augmented system: vstack([edge_eqs, T_matrix]) with shape (2n, 3n)
+        aug_matrix = np.vstack([edge_eqs, T_matrix])
+
+        # Solve: coeffs @ aug_matrix = edge
+        # This is an overdetermined or underdetermined system, use lstsq
+        from scipy.linalg import lstsq
+
+        coeffs, residual, rank, _ = lstsq(aug_matrix.T, edge.astype(float))
+
+        # Check if solution is valid (low residual)
+        if residual.size > 0 and float(residual[0]) > 0.5:
+            return ""
+
+        # Round to integers
+        coeffs_int = np.round(coeffs).astype(int)
+
+        # Verify the solution
+        reconstructed = coeffs_int @ aug_matrix
+        if np.linalg.norm(reconstructed - edge.astype(float)) > 0.5:
+            return ""
+
+        # Format output
+        parts = []
+
+        # Column coefficients (gluing equation rows)
+        for i in range(n):
+            c = coeffs_int[i]
+            if c == 0:
+                continue
+            if c == 1:
+                parts.append(f"c_{{{i}}}")
+            elif c == -1:
+                parts.append(f"-c_{{{i}}}")
+            else:
+                parts.append(f"{c}\\,c_{{{i}}}")
+
+        # T coefficients
+        for i in range(n):
+            c = coeffs_int[n + i]
+            if c == 0:
+                continue
+            if c == 1:
+                parts.append(f"T_{{{i}}}")
+            elif c == -1:
+                parts.append(f"-T_{{{i}}}")
+            else:
+                parts.append(f"{c}\\,T_{{{i}}}")
+
+        if not parts:
+            return "0"
+
+        # Join with proper spacing
+        result = parts[0]
+        for part in parts[1:]:
+            if part[0] == '-':
+                result += f" {part}"
+            else:
+                result += f" + {part}"
+
+        return result
+    except Exception:
+        return ""
 
 
 # ---------------------------------------------------------------------------

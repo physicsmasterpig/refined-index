@@ -3019,17 +3019,18 @@ def compute_multi_cusp_filled_refined_index(
         return result
 
     # ------------------------------------------------------------------
-    # Multi-cusp (n_fills == 2): batched first filling + second filling
+    # Multi-cusp (n_fills >= 2): sequential filling via batched algorithm
     # ------------------------------------------------------------------
-    if n_fills > 2:
-        raise NotImplementedError(
-            "Sequential filling of >2 cusps not yet implemented. "
-            f"Have {n_fills} fill specs."
-        )
-
     first = fill_specs[0]
-    second = fill_specs[1]
-    next_cusp = second.cusp_idx
+    second = fill_specs[1] if n_fills > 1 else None
+
+    if n_fills == 2:
+        next_cusp = second.cusp_idx
+    elif n_fills > 2:
+        next_cusp = second.cusp_idx
+    else:
+        # Should not reach here (n_fills == 1 is handled above)
+        raise ValueError("Invalid number of fill specs")
 
     # Step 1: determine what (m, e) pairs the second filling needs
     needed_me = _needed_spectator_charges(second, qq_order)
@@ -3058,31 +3059,40 @@ def compute_multi_cusp_filled_refined_index(
         f"intermediate entries, num_cusp_eta={num_cusp_eta_accum}"
     )
 
-    # Step 3: second filling
-    _status(
-        f"Step 2/{n_fills}: Filling cusp {second.cusp_idx} "
-        f"with ({second.P}, {second.Q}), "
-        f"|intermediate|={len(intermediate)}, "
-        f"num_cusp_eta_so_far={num_cusp_eta_accum}…"
-    )
+    # Step 3: sequential filling for cusps 1, 2, ..., n_fills-1
+    fill_result = None
+    for step_idx in range(1, n_fills):
+        spec = fill_specs[step_idx]
+        _status(
+            f"Step {step_idx+1}/{n_fills}: Filling cusp {spec.cusp_idx} "
+            f"with ({spec.P}, {spec.Q}), "
+            f"|intermediate|={len(intermediate) if isinstance(intermediate, dict) else 'N/A'}, "
+            f"num_cusp_eta_so_far={num_cusp_eta_accum}…"
+        )
 
-    fill_result = _apply_filling_kernel_to_intermediate(
-        intermediate,
-        P=second.P, Q=second.Q,
-        qq_order=qq_order,
-        num_hard=num_hard,
-        num_cusp_eta_in=num_cusp_eta_accum,
-        verbose=verbose,
-    )
-    num_cusp_eta_accum = fill_result.num_cusp_eta
+        fill_result = _apply_filling_kernel_to_intermediate(
+            intermediate,
+            P=spec.P, Q=spec.Q,
+            qq_order=qq_order,
+            num_hard=num_hard,
+            num_cusp_eta_in=num_cusp_eta_accum,
+            verbose=verbose,
+        )
+        num_cusp_eta_accum = fill_result.num_cusp_eta
 
-    if second.incompat_edges:
-        fill_result = fill_result.collapse_eta_edges(second.incompat_edges)
+        if spec.incompat_edges:
+            fill_result = fill_result.collapse_eta_edges(spec.incompat_edges)
 
-    _status(
-        f"Step 2/{n_fills} done: "
-        f"{len(fill_result.series)} entries in final result, "
-        f"num_cusp_eta={fill_result.num_cusp_eta}"
-    )
+        _status(
+            f"Step {step_idx+1}/{n_fills} done: "
+            f"{len(fill_result.series)} entries in result, "
+            f"num_cusp_eta={fill_result.num_cusp_eta}"
+        )
+
+        # For next iteration: intermediate = fill_result (keyed by next cusp's charges)
+        if step_idx < n_fills - 1:
+            # Convert result to intermediate form for next cusp
+            # This is implicit: fill_result.series is already indexed by next cusp's (m, e)
+            intermediate = fill_result.series
 
     return fill_result

@@ -219,6 +219,90 @@ class FillingService:
 
         return p, q, result
 
+    @staticmethod
+    def compute_multi_cusp_filled_index(
+        nz_data: Any,
+        cusp_specs: list[dict],
+        q_order_half: int,
+        auto_precompute: bool = True,
+        progress_fn: Callable | None = None,
+        manifold_name: str = "unknown",
+    ) -> tuple[list[dict], Any]:
+        """Sequentially fill multiple cusps of a manifold (supports any number).
+
+        For each cusp in cusp_specs:
+        1. Apply NC basis change (apply_general_cusp_basis_change)
+        2. Compute slope transform to get (p, q) in NC basis
+        3. Build MultiCuspFillSpec
+
+        Then call compute_multi_cusp_filled_refined_index sequentially for 2-cusp groups.
+        For >2 cusps, chains multiple 2-cusp fillings together.
+
+        Parameters
+        ----------
+        nz_data : NeumannZagierData
+        cusp_specs : list[dict]
+            Each dict has keys:
+            - cusp_idx : int
+            - nc_P, nc_Q : int (NC cycle in (α, β) basis)
+            - user_P, user_Q : int (user slope in (α, β) basis)
+            - weyl_a, weyl_b (optional) : list[Fraction] | None
+            - incompat_edges (optional) : list[int] | None
+        q_order_half : int
+        auto_precompute : bool
+        progress_fn : callable | None
+        manifold_name : str
+
+        Returns
+        -------
+        (augmented_cusp_specs, FilledRefinedResult)
+            where augmented_cusp_specs has p, q added to each dict.
+        """
+        nz_transformed = nz_data
+        fill_specs = []
+        augmented = []
+
+        for spec in cusp_specs:
+            cusp_idx = spec["cusp_idx"]
+            nc_P, nc_Q = spec["nc_P"], spec["nc_Q"]
+            user_P, user_Q = spec["user_P"], spec["user_Q"]
+
+            R, S = _df_mod.find_rs(nc_P, nc_Q)  # R·nc_Q − nc_P·S = 1
+            p = R * user_Q - S * user_P
+            q = nc_P * user_Q - nc_Q * user_P
+
+            nz_transformed = _nz_mod.apply_general_cusp_basis_change(
+                nz_transformed, cusp_idx, a=nc_P, b=nc_Q, c=-R, d=-S
+            )
+
+            weyl_a = spec.get("weyl_a")
+            weyl_b = spec.get("weyl_b")
+            incompat_edges = spec.get("incompat_edges")
+
+            fill_specs.append(_rdf_mod.MultiCuspFillSpec(
+                cusp_idx=cusp_idx, P=p, Q=q,
+                weyl_a=weyl_a, weyl_b=weyl_b,
+                incompat_edges=incompat_edges,
+            ))
+            augmented.append({**spec, "p": p, "q": q})
+
+        # Call core multi-cusp filling (now supports any number of cusps via sequential algorithm)
+        result = _rdf_mod.compute_multi_cusp_filled_refined_index(
+            nz_transformed,
+            fill_specs=fill_specs,
+            q_order_half=q_order_half,
+            auto_precompute=auto_precompute,
+            progress_callback=progress_fn,
+        )
+
+        # Best-effort I^ref cache save
+        try:
+            _kc_mod.save_iref_cache(nz_transformed, manifold_name=manifold_name)
+        except Exception:
+            pass
+
+        return augmented, result
+
     # ── Utilities ─────────────────────────────────────────────────────
 
     @staticmethod

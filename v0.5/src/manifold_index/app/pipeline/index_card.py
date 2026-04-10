@@ -246,7 +246,6 @@ class IndexCard(QWidget):
         self._workers.clear()
         self._pending_grid.clear()   # discard any unstarted grid items
         self._card.set_status(CardStatus.LOCKED)
-        self._card.collapse()
         self._results_table.clear_rows()
         self._progress_bar.setVisible(False)
         self._refresh_timer.stop()

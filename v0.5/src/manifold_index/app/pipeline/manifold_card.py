@@ -131,7 +131,7 @@ class ManifoldCard(QWidget):
         body_layout.addWidget(self._status_label)
 
         # MathView for NZ matrix + gluing table
-        self._math_view = MathView(min_h=120)
+        self._math_view = MathView(min_h=250)
         body_layout.addWidget(self._math_view)
 
         self._card.set_body(body)
@@ -348,8 +348,8 @@ class ManifoldCard(QWidget):
         try:
             nz_latex   = format_nz_latex(nz)
             gl_html    = format_gluing_table_html(md)
-            easy_html  = format_easy_edges_html(easy_result) if easy_result is not None else ""
-            hard_html  = format_hard_edges_html(easy_result) if easy_result is not None else ""
+            easy_html  = format_easy_edges_html(easy_result, md) if easy_result is not None else ""
+            hard_html  = format_hard_edges_html(easy_result, md) if easy_result is not None else ""
         except Exception:
             nz_latex = gl_html = easy_html = hard_html = ""
 
@@ -390,6 +390,8 @@ class ManifoldCard(QWidget):
             body_html += f"<h3>NZ Matrix</h3><p>{nz_latex}</p>"
         if gl_html:
             body_html += f"<h3>Gluing Equations</h3>{gl_html}"
+        if easy_html:
+            body_html += f"<h3>Easy Edges</h3>{easy_html}"
         if hard_html:
             body_html += f"<h3>Hard Edges</h3>{hard_html}"
         if not body_html:
@@ -398,5 +400,4 @@ class ManifoldCard(QWidget):
                 f"{vm.n_tetrahedra} tet, {vm.n_cusps} cusp, {n_hard} hard edge(s)</p>"
             )
         self._math_view.set_html(body_html)
-        self._card.collapse()
 

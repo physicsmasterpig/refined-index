@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from manifold_index.services.session import (
-    FillQuery, NCCycleSet, PipelineStage, Session,
+    FillQuery, MultiFillQuery, NCCycleSet, PipelineStage, Session,
 )
 from manifold_index.viewmodels.advisory import CardStatus
 from manifold_index.viewmodels.filling_vm import (
@@ -42,7 +42,7 @@ from manifold_index.app.widgets.series_table import SeriesTable
 from manifold_index.app.widgets.math_view import MathView
 from manifold_index.app.widgets.slope_input import SlopeInput
 from manifold_index.app.workers.nc_search_worker import NCSearchWorker
-from manifold_index.app.workers.fill_worker import FillWorker
+from manifold_index.app.workers.fill_worker import FillWorker, MultiFillWorker
 from manifold_index.app.workers.weyl_worker import WeylWorker
 from manifold_index.viewmodels.index_vm import build_weyl_vm
 from manifold_index.formatters.weyl_fmt import format_weyl_html
@@ -71,6 +71,8 @@ class FillingCard(QWidget):
         self._fill_current_row: int | None = None
         self._fill_grid_total: int = 0
         self._fill_grid_done: int = 0
+        self._cusp_fill_rows: list[dict] = []  # multi-cusp: list of {cusp_idx, nc_combo, slope}
+        self._cusp_fill_container: QWidget | None = None  # multi-cusp container
 
         self._card = CollapsibleCard(3, "Dehn Filling", parent=self)
         self._card.set_status(CardStatus.LOCKED)
@@ -299,6 +301,14 @@ class FillingCard(QWidget):
         self._other_box.setVisible(False)   # hidden for single-cusp manifolds
         fill_layout.addWidget(self._other_box)
 
+        # ── Multi-cusp: per-cusp NC cycle + slope inputs ──────────────────────
+        self._cusp_fill_container = QWidget()
+        self._cusp_fill_layout = QVBoxLayout(self._cusp_fill_container)
+        self._cusp_fill_layout.setContentsMargins(0, 0, 0, 0)
+        self._cusp_fill_layout.setSpacing(8)
+        self._cusp_fill_container.setVisible(False)
+        fill_layout.addWidget(self._cusp_fill_container)
+
         fill_btn_row = QHBoxLayout()
         self._fill_btn = QPushButton("Compute Filling")
         self._fill_btn.setProperty("class", "primary")
@@ -384,17 +394,33 @@ class FillingCard(QWidget):
         self._card.expand()
         # Populate the cusp combo for Phase B
         n_cusps = session.manifold_data.num_cusps if session.manifold_data else 1
-        self._cusp_combo.blockSignals(True)
-        self._cusp_combo.clear()
-        for i in range(n_cusps):
-            self._cusp_combo.addItem(f"Cusp {i}", i)
-        self._cusp_combo.blockSignals(False)
+
+        if n_cusps > 1:
+            # Multi-cusp: hide single-cusp UI, show multi-cusp container
+            self._cusp_combo.setVisible(False)
+            self._nc_combo.setVisible(False)
+            self._fill_slope.setVisible(False)
+            self._other_box.setVisible(False)
+            self._cusp_fill_container.setVisible(True)
+            self._rebuild_fill_cusp_rows(n_cusps)
+        else:
+            # Single-cusp: show single-cusp UI, hide multi-cusp container
+            self._cusp_combo.setVisible(True)
+            self._nc_combo.setVisible(True)
+            self._fill_slope.setVisible(True)
+            self._other_box.setVisible(False)  # no unfilled cusps for 1-cusp
+            self._cusp_fill_container.setVisible(False)
+            # Populate the cusp combo for Phase B
+            self._cusp_combo.blockSignals(True)
+            self._cusp_combo.clear()
+            for i in range(n_cusps):
+                self._cusp_combo.addItem(f"Cusp {i}", i)
+            self._cusp_combo.blockSignals(False)
+
         self._rebuild_nc_tables(n_cusps)
         self._cache_chk.setChecked(
             session.cache_status.get("nc", {}).get("available", False)
         )
-        # Show unfilled-cusp charge controls only for multi-cusp manifolds
-        self._other_box.setVisible(n_cusps > 1)
         # Rebuild edge-toggle checkboxes for filled results
         n_hard = session.num_hard() if session.manifold_data else 0
         self._fill_ref_box.setVisible(n_hard > 0)
@@ -414,13 +440,17 @@ class FillingCard(QWidget):
                 pass
             self._weyl_worker = None
         self._card.set_status(CardStatus.LOCKED)
-        self._card.collapse()
         self._fill_table.clear_rows()
         for mv in self._nc_table_views:
             mv.setVisible(False)
         for lbl in self._nc_table_labels:
             lbl.setVisible(False)
         self._nc_cycle_vms.clear()
+        # Reset multi-cusp fill rows
+        for row in self._cusp_fill_rows:
+            if row.get("widget"):
+                row["widget"].setParent(None)  # type: ignore[arg-type]
+        self._cusp_fill_rows.clear()
         self._fill_btn.setEnabled(False)
         # Reset manual-basis mode
         self._manual_basis_chk.setChecked(False)
@@ -476,6 +506,8 @@ class FillingCard(QWidget):
             self._fill_btn.setEnabled(True)
         for fq in session.fill_queries:
             self._show_fill_query(fq)
+        for mfq in session.multi_fill_queries:
+            self._show_multi_fill_query(mfq)
 
     def trigger_find_nc(self) -> None:
         """Public: programmatically trigger NC cycle search (used by Run All).
@@ -793,6 +825,80 @@ class FillingCard(QWidget):
             self._session.fill_queries.clear()
             self._update_summary()
 
+    def _rebuild_fill_cusp_rows(self, n_cusps: int) -> None:
+        """Create per-cusp checkbox + NC cycle + slope input rows for multi-cusp filling."""
+        # Clear existing rows
+        for row in self._cusp_fill_rows:
+            if row.get("widget"):
+                row["widget"].setParent(None)  # type: ignore[arg-type]
+        self._cusp_fill_rows.clear()
+
+        # Build one row per cusp
+        for cusp_idx in range(n_cusps):
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(8)
+
+            # "Fill" checkbox
+            fill_chk = QCheckBox("Fill")
+            fill_chk.setChecked(True)  # Default: fill all cusps
+            fill_chk.setFixedWidth(50)
+            row_layout.addWidget(fill_chk)
+
+            # Cusp label
+            row_layout.addWidget(QLabel(f"Cusp {cusp_idx}:"))
+
+            # NC cycle combo (will be populated by _rebuild_nc_combo)
+            nc_combo = QComboBox()
+            nc_combo.setMinimumWidth(120)
+            row_layout.addWidget(nc_combo)
+
+            # Slope input
+            slope = SlopeInput(label="Slope:", require_coprime=True)
+            row_layout.addWidget(slope)
+
+            # Unfilled cusp charges (m, e) - shown only when not checked
+            m_spin = QSpinBox()
+            m_spin.setRange(-99, 99)
+            m_spin.setValue(0)
+            m_spin.setFixedWidth(55)
+            m_spin.setVisible(False)
+
+            e_spin = QDoubleSpinBox()
+            e_spin.setRange(-49.5, 49.5)
+            e_spin.setSingleStep(0.5)
+            e_spin.setDecimals(1)
+            e_spin.setValue(0.0)
+            e_spin.setFixedWidth(65)
+            e_spin.setVisible(False)
+
+            # Toggle visibility when checkbox changes
+            def _on_fill_toggled(checked, m=m_spin, e=e_spin, nc=nc_combo, sl=slope):
+                nc.setVisible(checked)
+                sl.setVisible(checked)
+                m.setVisible(not checked)
+                e.setVisible(not checked)
+
+            fill_chk.toggled.connect(_on_fill_toggled)
+            row_layout.addWidget(QLabel("m:"))
+            row_layout.addWidget(m_spin)
+            row_layout.addWidget(QLabel("e:"))
+            row_layout.addWidget(e_spin)
+
+            row_layout.addStretch(1)
+            self._cusp_fill_layout.addWidget(row_widget)
+
+            self._cusp_fill_rows.append({
+                "cusp_idx": cusp_idx,
+                "widget": row_widget,
+                "fill_chk": fill_chk,
+                "nc_combo": nc_combo,
+                "slope": slope,
+                "m_spin": m_spin,
+                "e_spin": e_spin,
+            })
+
     def _rebuild_nc_tables(self, n_cusps: int) -> None:
         """Create/recreate one MathView per cusp inside the NC Cycles group box."""
         for lbl in self._nc_table_labels:
@@ -851,6 +957,7 @@ class FillingCard(QWidget):
                     QCoreApplication.processEvents()
 
     def _rebuild_nc_combo(self) -> None:
+        # Single-cusp mode: populate the single nc_combo
         self._nc_combo.blockSignals(True)
         self._nc_combo.clear()
         for i, vm in enumerate(self._nc_cycle_vms):
@@ -864,6 +971,26 @@ class FillingCard(QWidget):
         # NC cycle so the user doesn't accidentally fill at the NC cycle itself.
         if self._nc_cycle_vms:
             self._suggest_fill_slope(self._nc_cycle_vms[0])
+
+        # Multi-cusp mode: populate per-cusp combos
+        for row in self._cusp_fill_rows:
+            cusp_idx = row["cusp_idx"]
+            nc_combo = row["nc_combo"]
+            slope = row["slope"]
+            nc_combo.blockSignals(True)
+            nc_combo.clear()
+            first_vm_for_cusp = None
+            for i, vm in enumerate(self._nc_cycle_vms):
+                if vm.cusp_idx == cusp_idx:
+                    nc_combo.addItem(f"({vm.P},{vm.Q})", i)
+                    if first_vm_for_cusp is None:
+                        first_vm_for_cusp = vm
+                    if (i + 1) % 100 == 0:
+                        QCoreApplication.processEvents()
+            nc_combo.blockSignals(False)
+            # Suggest a fill slope for this cusp
+            if first_vm_for_cusp:
+                self._suggest_fill_slope_for_widget(slope, first_vm_for_cusp)
 
     def _suggest_fill_slope(self, vm: "NCCycleViewModel") -> None:
         """Set the fill-slope widget to the nearest primitive slope ≠ NC cycle.
@@ -887,6 +1014,24 @@ class FillingCard(QWidget):
                 return
         # Fallback: just nudge P by 2
         self._fill_slope.set_slope(nc_P + 2, nc_Q + 1)
+
+    def _suggest_fill_slope_for_widget(self, slope_widget: "SlopeInput", vm: "NCCycleViewModel") -> None:
+        """Suggest a fill slope for a given SlopeInput widget."""
+        from math import gcd as _gcd
+        nc_P, nc_Q = vm.P, vm.Q
+        candidates = [
+            (nc_P,     nc_Q + 1),
+            (nc_P + 1, nc_Q),
+            (nc_P + 1, nc_Q + 1),
+            (nc_P - 1, nc_Q),
+            (nc_P,     nc_Q - 1),
+        ]
+        for p, q in candidates:
+            if (p, q) != (nc_P, nc_Q) and _gcd(abs(p), abs(q)) == 1:
+                slope_widget.set_slope(p, q)
+                return
+        # Fallback: just nudge P by 2
+        slope_widget.set_slope(nc_P + 2, nc_Q + 1)
 
     def _on_nc_selected(self, idx: int) -> None:
         if 0 <= idx < len(self._nc_cycle_vms):
@@ -964,6 +1109,14 @@ class FillingCard(QWidget):
         if s.nz_data is None:
             return
 
+        # Check if we're in multi-cusp mode
+        n_cusps = s.manifold_data.num_cusps if s.manifold_data else 1
+        if n_cusps > 1:
+            self._on_multi_fill_clicked()
+            return
+
+        # Single-cusp path ──────────────────────────────────────────────────
+
         # Determine basis cycle (P, Q) — either from the NC combo or from the
         # manual spinboxes when the user has no NC cycles (or wants to override).
         if self._manual_basis_chk.isChecked():
@@ -983,7 +1136,6 @@ class FillingCard(QWidget):
             return
 
         cusp_idx = self._cusp_combo.currentData() or 0
-        n_cusps  = s.manifold_data.num_cusps if s.manifold_data else 1
 
         charge_points = self._other_charge_points(n_cusps)
         weyl_a = list(s.weyl_result.a) if s.weyl_result is not None else None
@@ -1141,6 +1293,155 @@ class FillingCard(QWidget):
         logging.warning("FillWorker error: %s", msg)
         self._card.set_status(CardStatus.ERROR)
 
+    def _on_multi_fill_clicked(self) -> None:
+        """Handle multi-cusp filling (selected cusps simultaneously)."""
+        s = self._session
+        if s.nz_data is None:
+            return
+
+        # Collect cusp_specs from the per-cusp rows (only checked cusps)
+        cusp_specs = []
+        for row in self._cusp_fill_rows:
+            fill_chk = row["fill_chk"]
+            cusp_idx = row["cusp_idx"]
+
+            if not fill_chk.isChecked():
+                continue  # Skip unchecked cusps
+
+            nc_combo = row["nc_combo"]
+            slope = row["slope"]
+
+            nc_idx = nc_combo.currentIndex()
+            if nc_idx < 0 or nc_idx >= len(self._nc_cycle_vms):
+                from manifold_index.viewmodels.advisory import Advisories
+                self._card.set_advisories([
+                    Advisories.warning(
+                        "Incomplete selection",
+                        f"Please select an NC cycle for Cusp {cusp_idx}."
+                    )
+                ])
+                return
+
+            nc_vm = self._nc_cycle_vms[nc_idx]
+            user_P, user_Q = slope.get_slope()
+            if not slope.is_valid():
+                from manifold_index.viewmodels.advisory import Advisories
+                self._card.set_advisories([
+                    Advisories.warning(
+                        "Invalid slope",
+                        f"Slope for Cusp {cusp_idx} is not a valid primitive pair."
+                    )
+                ])
+                return
+
+            weyl_a = list(s.weyl_result.a) if s.weyl_result is not None else None
+            weyl_b = list(s.weyl_result.b) if s.weyl_result is not None else None
+
+            cusp_specs.append({
+                "cusp_idx": cusp_idx,
+                "nc_P": nc_vm.P,
+                "nc_Q": nc_vm.Q,
+                "user_P": user_P,
+                "user_Q": user_Q,
+                "weyl_a": weyl_a,
+                "weyl_b": weyl_b,
+            })
+
+        # Verify at least one cusp is selected for filling
+        if not cusp_specs:
+            from manifold_index.viewmodels.advisory import Advisories
+            self._card.set_advisories([
+                Advisories.warning(
+                    "No cusps selected",
+                    "Please check at least one cusp to fill."
+                )
+            ])
+            return
+
+        # All specs collected; launch worker
+        cusp_strs = ", ".join(f"C{s['cusp_idx']}" for s in cusp_specs)
+        slope_strs = ", ".join(f"({s['user_P']},{s['user_Q']})" for s in cusp_specs)
+        row = self._fill_table.add_row(
+            cusp_strs,
+            slope_strs,
+            "",
+            "—"
+        )
+        self._fill_table.set_row_computing(row)
+
+        self._fill_btn.setEnabled(False)
+        self._fill_stop_btn.setEnabled(True)
+        self._fill_progress.setRange(0, 0)  # indeterminate
+        self._fill_progress.setVisible(True)
+        self._fill_status.setText("Computing multi-cusp filling…")
+        self._fill_status.setVisible(True)
+        self._card.set_status(CardStatus.RUNNING)
+
+        gen = self._session_gen
+        worker = MultiFillWorker(
+            nz_data        = s.nz_data,
+            cusp_specs     = cusp_specs,
+            q_order_half   = s.q_order_half,
+            manifold_name  = s.manifold_name if s.manifold_name else "unknown",
+            parent         = self,
+        )
+        worker.finished.connect(
+            lambda p, w=worker, r=row, g=gen: self._on_multi_fill_finished(p, r, g, w)
+        )
+        worker.error.connect(lambda e, w=worker, r=row, g=gen: self._on_fill_error(e, r, g, w))
+        self._fill_workers.append(worker)
+        worker.start()
+
+    def _on_multi_fill_finished(
+        self, payload: dict, row: int, gen: int, worker: object = None
+    ) -> None:
+        """Handle completion of multi-cusp filling computation."""
+        w = worker if worker is not None else self.sender()
+        if w in self._fill_workers:
+            self._fill_workers.remove(w)
+
+        if gen != self._session_gen:
+            return   # stale result
+
+        s = self._session
+        cusp_specs = payload.get("cusp_specs", [])
+        result = payload.get("result")
+
+        try:
+            if result is None:
+                series_latex = "—"
+            else:
+                series_latex = format_filled_series_latex(
+                    result.series,
+                    result.num_hard,
+                    result.has_cusp_eta,
+                    result.num_cusp_eta,
+                )
+        except Exception:
+            series_latex = "$0$" if (result and result.is_zero) else "—"
+
+        self._fill_table.set_row_result(row, series_latex, "computed")
+
+        # Create MultiFillQuery
+        mfq = MultiFillQuery(
+            cusp_specs   = cusp_specs,
+            q_order_half = s.q_order_half,
+            result       = result,
+            source       = "computed",
+        )
+        s.multi_fill_queries.append(mfq)
+
+        if s.stage < PipelineStage.FILLED:
+            s.stage = PipelineStage.FILLED
+
+        self._fill_btn.setEnabled(True)
+        self._fill_stop_btn.setEnabled(False)
+        self._fill_progress.setVisible(False)
+        self._fill_status.setVisible(False)
+        self._card.set_status(CardStatus.DONE)
+        self._update_summary()
+        self.session_updated.emit(s)
+
     def _show_fill_query(self, fq: FillQuery) -> None:
         try:
             if fq.result is None:
@@ -1163,6 +1464,34 @@ class FillingCard(QWidget):
             fq.source,
         )
         self._fill_table.set_row_result(row, series_latex, fq.source)
+
+    def _show_multi_fill_query(self, mfq: MultiFillQuery) -> None:
+        """Display a multi-fill query result in the results table."""
+        try:
+            if mfq.result is None:
+                series_latex = "—"
+            else:
+                inactive = [j for j, a in enumerate(self._fill_active_edges()) if not a]
+                projected = mfq.result.collapse_eta_edges(inactive)
+                series_latex = format_filled_series_latex(
+                    projected.series,
+                    projected.num_hard,
+                    projected.has_cusp_eta,
+                    projected.num_cusp_eta,
+                )
+        except Exception:
+            series_latex = "$0$" if (mfq.result and mfq.result.is_zero) else "—"
+
+        # Format row labels: show all cusps being filled
+        cusp_strs = [f"C{s['cusp_idx']}" for s in mfq.cusp_specs]
+        slope_strs = [f"({s['user_P']},{s['user_Q']})" for s in mfq.cusp_specs]
+        row = self._fill_table.add_row(
+            ", ".join(cusp_strs),
+            ", ".join(slope_strs),
+            "",
+            mfq.source,
+        )
+        self._fill_table.set_row_result(row, series_latex, mfq.source)
 
     # ------------------------------------------------------------------
     # Internal — filled results edge toggles
