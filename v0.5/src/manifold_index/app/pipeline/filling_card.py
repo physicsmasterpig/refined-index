@@ -1215,7 +1215,7 @@ class FillingCard(QWidget):
         if not self._session:
             return
         inactive = [j for j, a in enumerate(self._fill_active_edges()) if not a]
-        for i, fq in enumerate(self._session.fill_queries):
+        for idx, fq in enumerate(self._session.fill_queries):
             if fq.result is None:
                 continue
             try:
@@ -1228,7 +1228,11 @@ class FillingCard(QWidget):
                 )
             except Exception:
                 latex = "—"
-            self._fill_table.set_row_result(i, latex, fq.source)
+            self._fill_table.set_row_result(idx, latex, fq.source)
+            # Yield to event loop every 50 rows to keep UI responsive
+            # when re-projecting filled results after edge toggle.
+            if (idx + 1) % 50 == 0:
+                QCoreApplication.processEvents()
 
     def _update_summary(self) -> None:
         n_nc   = len(self._nc_cycle_vms)

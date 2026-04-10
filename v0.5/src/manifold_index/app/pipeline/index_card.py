@@ -675,7 +675,7 @@ class IndexCard(QWidget):
         if not hasattr(self, "_session") or self._session is None:
             return
         active = self._active_edges()
-        for i, iq in enumerate(self._session.index_queries):
+        for idx, iq in enumerate(self._session.index_queries):
             if iq is None or iq.result is None:
                 continue
             try:
@@ -684,7 +684,11 @@ class IndexCard(QWidget):
                                             self._session.q_order_half)
             except Exception:
                 latex = str(iq.result) if iq.result else "0"
-            self._results_table.set_row_result(i, latex, iq.source)
+            self._results_table.set_row_result(idx, latex, iq.source)
+            # Yield to event loop every 50 rows to keep UI responsive
+            # when re-projecting large grids after edge toggle.
+            if (idx + 1) % 50 == 0:
+                QCoreApplication.processEvents()
 
     def _on_edge_toggle(self) -> None:
         """Called when any W_j checkbox is toggled.
