@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from fractions import Fraction
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QTimer, Signal
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox,
     QHBoxLayout, QLabel, QProgressBar, QPushButton, QRadioButton,
@@ -830,6 +830,7 @@ class FillingCard(QWidget):
 
     def _rebuild_nc_vms_from_session(self) -> None:
         self._nc_cycle_vms.clear()
+        idx = 0
         for ncs in self._session.nc_cycles:
             for cyc in ncs.cycles:
                 P = int(cyc.P) if hasattr(cyc, "P") else 0
@@ -843,12 +844,21 @@ class FillingCard(QWidget):
                     slope_latex=sl, source=ncs.source,
                 )
                 self._nc_cycle_vms.append(vm)
+                idx += 1
+                # Yield to event loop every 100 items to keep UI responsive
+                # when rebuilding VMs for manifolds with many NC cycles.
+                if idx % 100 == 0:
+                    QCoreApplication.processEvents()
 
     def _rebuild_nc_combo(self) -> None:
         self._nc_combo.blockSignals(True)
         self._nc_combo.clear()
         for i, vm in enumerate(self._nc_cycle_vms):
             self._nc_combo.addItem(f"C{vm.cusp_idx}: ({vm.P},{vm.Q})", i)
+            # Yield to event loop every 100 items to keep UI responsive
+            # when populating combo box with many NC cycles.
+            if (i + 1) % 100 == 0:
+                QCoreApplication.processEvents()
         self._nc_combo.blockSignals(False)
         # After (re)populating, suggest a fill slope that differs from the first
         # NC cycle so the user doesn't accidentally fill at the NC cycle itself.

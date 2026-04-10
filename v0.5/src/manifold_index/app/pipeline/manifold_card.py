@@ -15,7 +15,7 @@ from __future__ import annotations
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QCoreApplication, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
@@ -31,6 +31,7 @@ from manifold_index.formatters.manifold_fmt import (
 from manifold_index.app.widgets.collapsible_card import CollapsibleCard
 from manifold_index.app.widgets.math_view import MathView, build_katex_html, sys_colors
 from manifold_index.app.workers.load_worker import LoadWorker
+from manifold_index.app.workers.manifold_load_worker import ManifoldLoadWorker
 
 if TYPE_CHECKING:
     pass
@@ -74,7 +75,9 @@ class ManifoldCard(QWidget):
     def __init__(self, session: Session, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._session = session
-        self._worker: LoadWorker | None = None
+        self._manifold_load_worker: ManifoldLoadWorker | None = None
+        self._cache_probe_worker: LoadWorker | None = None
+        self._load_cancelled = False
 
         # ── CollapsibleCard shell ────────────────────────────────────
         self._card = CollapsibleCard(1, "Manifold", parent=self)
@@ -218,10 +221,23 @@ class ManifoldCard(QWidget):
     # ------------------------------------------------------------------
 
     def _on_load_clicked(self) -> None:
+        # Handle Cancel during load
+        if self._load_cancelled or (self._load_btn.text() == "Cancel" and self._load_cancelled is False):
+            self._load_cancelled = True
+            # Stop both workers if running
+            if self._manifold_load_worker and self._manifold_load_worker.isRunning():
+                self._manifold_load_worker.quit()
+                self._manifold_load_worker.wait()
+            if self._cache_probe_worker and self._cache_probe_worker.isRunning():
+                self._cache_probe_worker.quit()
+                self._cache_probe_worker.wait()
+            return
+
         name = self._name_edit.text().strip()
         if not name:
             return
-        if self._worker and self._worker.isRunning():
+        if (self._manifold_load_worker and self._manifold_load_worker.isRunning()) or \
+           (self._cache_probe_worker and self._cache_probe_worker.isRunning()):
             return
 
         # Invalidate downstream if already loaded
@@ -231,35 +247,58 @@ class ManifoldCard(QWidget):
 
         self._session.q_order_half = self._nmax_spin.value() * 2
         self._card.set_status(CardStatus.RUNNING)
-        self._load_btn.setEnabled(False)
-        self._status_label.setText("Loading…")
+        self._load_btn.setText("Cancel")
+        self._load_btn.setEnabled(True)
+        self._status_label.setText("Loading manifold…")
         self._status_label.setVisible(True)
         self._math_view.set_loading(True)
+        self._load_cancelled = False
 
-        # Load manifold in main thread (SnapPy SQLite is thread-local)
-        try:
-            from manifold_index.services.compute_service import ComputeService
-            manifold_data, easy_result, nz_data = ComputeService.load_manifold(name)
-
-            # Start worker to probe cache (thread-safe operation)
-            self._worker = LoadWorker(
-                name,
-                manifold_data=manifold_data,
-                easy_result=easy_result,
-                nz_data=nz_data,
-                parent=self
-            )
-            self._worker.status.connect(self._on_status)
-            self._worker.finished.connect(self._on_finished)
-            self._worker.error.connect(self._on_error)
-            self._worker.start()
-        except Exception as exc:
-            self._on_error(str(exc))
+        # Start worker to load manifold in a separate thread.
+        # Uses thread-local SnaPy connection (imported in worker thread).
+        self._manifold_load_worker = ManifoldLoadWorker(name, parent=self)
+        self._manifold_load_worker.status.connect(self._on_status)
+        self._manifold_load_worker.finished.connect(self._on_manifold_loaded)
+        self._manifold_load_worker.error.connect(self._on_error)
+        self._manifold_load_worker.start()
 
     def _on_status(self, msg: str) -> None:
         self._status_label.setText(msg)
 
+    def _on_manifold_loaded(self, payload: dict) -> None:
+        """Called after ManifoldLoadWorker completes."""
+        # Check if user cancelled during manifold load
+        if self._load_cancelled:
+            self._load_btn.setText("Load")
+            self._load_btn.setEnabled(True)
+            self._status_label.setText("Cancelled.")
+            self._status_label.setVisible(True)
+            self._math_view.set_loading(False)
+            self._card.set_status(CardStatus.READY)
+            return
+
+        manifold_data = payload["manifold_data"]
+        easy_result = payload["easy_result"]
+        nz_data = payload["nz_data"]
+        name = manifold_data.name
+
+        # Start worker to probe cache (thread-safe operation)
+        self._status_label.setText("Probing cache…")
+        self._cache_probe_worker = LoadWorker(
+            name,
+            manifold_data=manifold_data,
+            easy_result=easy_result,
+            nz_data=nz_data,
+            parent=self
+        )
+        self._cache_probe_worker.status.connect(self._on_status)
+        self._cache_probe_worker.finished.connect(self._on_finished)
+        self._cache_probe_worker.error.connect(self._on_error)
+        self._cache_probe_worker.start()
+
     def _on_finished(self, payload: dict) -> None:
+        """Called after LoadWorker (cache probe) completes."""
+        self._load_btn.setText("Load")
         self._load_btn.setEnabled(True)
         self._status_label.setVisible(False)
         self._math_view.set_loading(False)
@@ -282,6 +321,7 @@ class ManifoldCard(QWidget):
         self.session_updated.emit(s)
 
     def _on_error(self, msg: str) -> None:
+        self._load_btn.setText("Load")
         self._load_btn.setEnabled(True)
         self._status_label.setVisible(False)
         self._math_view.set_loading(False)

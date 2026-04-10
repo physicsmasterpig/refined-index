@@ -14,7 +14,7 @@ import itertools
 import logging
 from fractions import Fraction
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QCoreApplication, QTimer, Signal
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
     QGroupBox, QHBoxLayout, QLabel, QProgressBar, QPushButton,
@@ -445,7 +445,7 @@ class IndexCard(QWidget):
             # fights that make the computation slower and the UI freeze.
             self._pending_grid.clear()
             first_item: tuple | None = None
-            for m_ext, e_ext in grid_points:
+            for idx, (m_ext, e_ext) in enumerate(grid_points):
                 m_disp = m_ext[0] if r_int == 1 else _fmt_charges(m_ext)
                 e_disp = str(e_ext[0]) if r_int == 1 else _fmt_charges(e_ext)
                 row = self._results_table.add_row(m_disp, e_disp, "", "—")
@@ -454,6 +454,10 @@ class IndexCard(QWidget):
                     first_item = (m_ext, e_ext, row, gen)
                 else:
                     self._pending_grid.append((m_ext, e_ext, row, gen))
+                # Yield to event loop every 100 rows to keep UI responsive during
+                # grid setup for heavy manifolds with many cusps/ranges.
+                if (idx + 1) % 100 == 0:
+                    QCoreApplication.processEvents()
 
             # Kick off only the first worker; _on_index_finished/_on_index_error
             # will drain _pending_grid one entry at a time.

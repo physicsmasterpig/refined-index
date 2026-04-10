@@ -222,7 +222,9 @@ class PipelineView(QWidget):
         self._sync_stepper()
         self.session_changed.emit(session)
         # ── Run All auto-proceed ──────────────────────────────────────
-        if self._full_run and session.index_queries:
+        # Only start NC search when index card is FULLY DONE (not just when results exist).
+        # This avoids resource contention between index workers and NC search workers.
+        if self._full_run and session.index_queries and self._index_card._card.get_status() == CardStatus.DONE:
             self._run_all_stage = 3
             self._run_all_lbl.setText("3/3 — searching NC cycles…")
             self._filling_card.trigger_find_nc()

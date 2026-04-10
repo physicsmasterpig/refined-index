@@ -209,6 +209,10 @@ class CollapsibleCard(QFrame):
         self._status = status
         self._apply_status(status)
 
+    def get_status(self) -> CardStatus:
+        """Return the current card status."""
+        return self._status
+
     def set_summary(self, text: str) -> None:
         """Set the one-liner summary shown when the card is collapsed.
 
