@@ -9,7 +9,7 @@ Displays installed pack details (coverage, qq order).
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QCoreApplication, Signal
 from PySide6.QtWidgets import (
     QGroupBox, QHBoxLayout, QLabel, QProgressBar,
     QPushButton, QScrollArea, QTreeWidget, QTreeWidgetItem,
