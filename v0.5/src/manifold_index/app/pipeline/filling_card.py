@@ -29,23 +29,60 @@ from PySide6.QtWidgets import (
 from manifold_index.services.session import (
     FillQuery, MultiFillQuery, NCCycleSet, PipelineStage, Session,
 )
+from manifold_index.services.compute_service import ComputeService
 from manifold_index.viewmodels.advisory import CardStatus
 from manifold_index.viewmodels.filling_vm import (
     build_nc_cycle_vm, NCCycleViewModel,
 )
-from manifold_index.formatters.filling_fmt import (
+from manifold_index.formatters.filling_fmt_v2 import (
     format_slope_latex, format_filled_series_latex,
-    format_nc_cycle_table_html,
+    format_nc_cycle_table_html, format_unrefined_series_latex,
+    format_fill_result_detailed, frac_to_latex,
 )
 from manifold_index.app.widgets.collapsible_card import CollapsibleCard
 from manifold_index.app.widgets.series_table import SeriesTable
 from manifold_index.app.widgets.math_view import MathView
 from manifold_index.app.widgets.slope_input import SlopeInput
 from manifold_index.app.workers.nc_search_worker import NCSearchWorker
-from manifold_index.app.workers.fill_worker import FillWorker, MultiFillWorker
+from manifold_index.app.workers.fill_worker import (
+    FillWorker, MultiFillWorker, UnrefinedFillWorker
+)
 from manifold_index.app.workers.weyl_worker import WeylWorker
 from manifold_index.viewmodels.index_vm import build_weyl_vm
 from manifold_index.formatters.weyl_fmt import format_weyl_html
+
+
+def _compute_incompat_edges(ab) -> list[int]:
+    """Return list of edge indices j where a[j] ∉ ℤ or 2*b[j] ∉ ℤ.
+
+    Parameters
+    ----------
+    ab : Weyl result object with .a and .b attributes
+
+    Returns
+    -------
+    list of edge indices to zero out
+    """
+    incompat = []
+    if ab is None:
+        return incompat
+    for j in range(len(ab.a)):
+        a_val = ab.a[j]
+        b_val = ab.b[j]
+        # Check if a[j] is an integer
+        if not isinstance(a_val, int) and a_val != int(a_val):
+            incompat.append(j)
+        # Check if 2*b[j] is an integer
+        elif not isinstance(b_val, (int, float)):
+            try:
+                if (2 * b_val) != int(2 * b_val):
+                    incompat.append(j)
+            except Exception:
+                incompat.append(j)
+        elif isinstance(b_val, float):
+            if (2 * b_val) != int(2 * b_val):
+                incompat.append(j)
+    return incompat
 
 
 class FillingCard(QWidget):
@@ -66,13 +103,16 @@ class FillingCard(QWidget):
         self._nc_cycle_vms: list[NCCycleViewModel] = []
         self._fill_edge_checkboxes: list[QCheckBox] = []
         self._session_gen: int = 0   # incremented on each unlock(); guards stale signals
-        self._weyl_worker: WeylWorker | None = None
+        self._auto_weyl_worker: WeylWorker | None = None  # Weyl check before fill
+        self._nc_weyl_workers: dict[tuple[int, int], WeylWorker] = {}  # Weyl per NC cycle (P,Q)
+        self._nc_weyl_results: dict[tuple[int, int], dict] = {}  # Results per cycle
         self._nc_worker_progress: dict[int, tuple[int, int]] = {}
         self._fill_current_row: int | None = None
         self._fill_grid_total: int = 0
         self._fill_grid_done: int = 0
         self._cusp_fill_rows: list[dict] = []  # multi-cusp: list of {cusp_idx, nc_combo, slope}
         self._cusp_fill_container: QWidget | None = None  # multi-cusp container
+        self._auto_weyl_status: QLabel | None = None  # inline status for auto-Weyl
 
         self._card = CollapsibleCard(3, "Dehn Filling", parent=self)
         self._card.set_status(CardStatus.LOCKED)
@@ -85,39 +125,6 @@ class FillingCard(QWidget):
         bl = QVBoxLayout(body)
         bl.setContentsMargins(0, 0, 0, 0)
         bl.setSpacing(10)
-
-        # ── Weyl Check ───────────────────────────────────────────────
-        weyl_box = QGroupBox("Weyl Check")
-        weyl_layout = QVBoxLayout(weyl_box)
-
-        weyl_btn_row = QHBoxLayout()
-        self._weyl_btn = QPushButton("Run Weyl Check")
-        self._weyl_btn.setProperty("class", "primary")
-        self._weyl_btn.clicked.connect(self._on_weyl_clicked)
-        weyl_btn_row.addWidget(self._weyl_btn)
-        self._weyl_stop_btn = QPushButton("Stop")
-        self._weyl_stop_btn.setProperty("class", "secondary")
-        self._weyl_stop_btn.setEnabled(False)
-        self._weyl_stop_btn.clicked.connect(self._on_weyl_stop_clicked)
-        weyl_btn_row.addWidget(self._weyl_stop_btn)
-        weyl_btn_row.addStretch(1)
-        weyl_layout.addLayout(weyl_btn_row)
-
-        self._weyl_progress = QProgressBar()
-        self._weyl_progress.setRange(0, 0)   # indeterminate
-        self._weyl_progress.setVisible(False)
-        weyl_layout.addWidget(self._weyl_progress)
-
-        self._weyl_status = QLabel()
-        self._weyl_status.setProperty("class", "muted")
-        self._weyl_status.setVisible(False)
-        weyl_layout.addWidget(self._weyl_status)
-
-        self._weyl_view = MathView(min_h=80)
-        self._weyl_view.setVisible(False)
-        weyl_layout.addWidget(self._weyl_view)
-
-        bl.addWidget(weyl_box)
 
         # ── NC search parameters ──────────────────────────────────────
         search_box = QGroupBox("NC Cycle Search")
@@ -188,37 +195,6 @@ class FillingCard(QWidget):
         cusp_row.addWidget(self._nc_combo)
         cusp_row.addStretch(1)
         fill_layout.addLayout(cusp_row)
-
-        # Manual basis cycle row (shown when user wants unrefined filling)
-        manual_chk_row = QHBoxLayout()
-        self._manual_basis_chk = QCheckBox("Manual basis cycle (unrefined)")
-        self._manual_basis_chk.setToolTip(
-            "When no NC cycles are found, or to override, enter any (P,Q) as\n"
-            "the basis cycle and compute Dehn filling without NC-cycle restriction."
-        )
-        self._manual_basis_chk.toggled.connect(self._on_manual_basis_toggled)
-        manual_chk_row.addWidget(self._manual_basis_chk)
-        manual_chk_row.addStretch(1)
-        fill_layout.addLayout(manual_chk_row)
-
-        self._manual_basis_widget = QWidget()
-        mbw_layout = QHBoxLayout(self._manual_basis_widget)
-        mbw_layout.setContentsMargins(0, 0, 0, 0)
-        mbw_layout.addWidget(QLabel("  Basis cycle (P, Q):"))
-        self._manual_nc_P = QSpinBox()
-        self._manual_nc_P.setRange(-999, 999)
-        self._manual_nc_P.setValue(1)
-        self._manual_nc_P.setFixedWidth(65)
-        mbw_layout.addWidget(self._manual_nc_P)
-        mbw_layout.addWidget(QLabel(","))
-        self._manual_nc_Q = QSpinBox()
-        self._manual_nc_Q.setRange(-999, 999)
-        self._manual_nc_Q.setValue(0)
-        self._manual_nc_Q.setFixedWidth(65)
-        mbw_layout.addWidget(self._manual_nc_Q)
-        mbw_layout.addStretch(1)
-        self._manual_basis_widget.setVisible(False)
-        fill_layout.addWidget(self._manual_basis_widget)
 
         self._fill_slope = SlopeInput(label="Filling slope:", require_coprime=True)
         fill_layout.addWidget(self._fill_slope)
@@ -334,6 +310,12 @@ class FillingCard(QWidget):
         self._fill_grid_bar.setVisible(False)
         fill_layout.addWidget(self._fill_grid_bar)
 
+        # Inline auto-Weyl status label (after fill progress bar)
+        self._auto_weyl_status = QLabel()
+        self._auto_weyl_status.setProperty("class", "muted")
+        self._auto_weyl_status.setVisible(False)
+        fill_layout.addWidget(self._auto_weyl_status)
+
         self._fill_status = QLabel()
         self._fill_status.setProperty("class", "muted")
         self._fill_status.setVisible(False)
@@ -400,23 +382,21 @@ class FillingCard(QWidget):
             self._cusp_combo.setVisible(False)
             self._nc_combo.setVisible(False)
             self._fill_slope.setVisible(False)
-            self._other_box.setVisible(False)
-            self._cusp_fill_container.setVisible(True)
+            self._other_box.setVisible(True)
             self._rebuild_fill_cusp_rows(n_cusps)
+            self._cusp_fill_container.setVisible(True)
         else:
-            # Single-cusp: show single-cusp UI, hide multi-cusp container
+            # Single-cusp: show single-cusp UI
             self._cusp_combo.setVisible(True)
             self._nc_combo.setVisible(True)
             self._fill_slope.setVisible(True)
-            self._other_box.setVisible(False)  # no unfilled cusps for 1-cusp
+            self._other_box.setVisible(False)
             self._cusp_fill_container.setVisible(False)
-            # Populate the cusp combo for Phase B
-            self._cusp_combo.blockSignals(True)
+            # Populate cusp combo
             self._cusp_combo.clear()
-            for i in range(n_cusps):
-                self._cusp_combo.addItem(f"Cusp {i}", i)
-            self._cusp_combo.blockSignals(False)
-
+            if n_cusps == 1:
+                self._cusp_combo.addItem("C0", 0)
+        # Rebuild NC tables
         self._rebuild_nc_tables(n_cusps)
         self._cache_chk.setChecked(
             session.cache_status.get("nc", {}).get("available", False)
@@ -431,14 +411,23 @@ class FillingCard(QWidget):
         # cannot corrupt the next session's state.
         self._abandon_nc_workers()
         self._abandon_fill_workers()
-        # Abandon Weyl worker
-        if self._weyl_worker is not None:
+        # Abandon auto-Weyl workers (per-cycle NC and pre-fill)
+        for worker in self._nc_weyl_workers.values():
             try:
-                self._weyl_worker.finished.disconnect()
-                self._weyl_worker.error.disconnect()
+                worker.finished.disconnect()
+                worker.error.disconnect()
             except RuntimeError:
                 pass
-            self._weyl_worker = None
+        self._nc_weyl_workers.clear()
+        self._nc_weyl_results.clear()
+
+        if self._auto_weyl_worker is not None:
+            try:
+                self._auto_weyl_worker.finished.disconnect()
+                self._auto_weyl_worker.error.disconnect()
+            except RuntimeError:
+                pass
+            self._auto_weyl_worker = None
         self._card.set_status(CardStatus.LOCKED)
         self._fill_table.clear_rows()
         for mv in self._nc_table_views:
@@ -452,9 +441,6 @@ class FillingCard(QWidget):
                 row["widget"].setParent(None)  # type: ignore[arg-type]
         self._cusp_fill_rows.clear()
         self._fill_btn.setEnabled(False)
-        # Reset manual-basis mode
-        self._manual_basis_chk.setChecked(False)
-        self._manual_basis_widget.setVisible(False)
         # Reset refinement toggles
         self._fill_refresh_timer.stop()
         self._fill_ref_box.setVisible(False)
@@ -464,12 +450,9 @@ class FillingCard(QWidget):
         self._fill_preset_combo.blockSignals(True)
         self._fill_preset_combo.setCurrentIndex(0)
         self._fill_preset_combo.blockSignals(False)
-        # Reset Weyl UI
-        self._weyl_btn.setEnabled(True)
-        self._weyl_stop_btn.setEnabled(False)
-        self._weyl_progress.setVisible(False)
-        self._weyl_status.setVisible(False)
-        self._weyl_view.setVisible(False)
+        # Reset auto-Weyl UI
+        if self._auto_weyl_status is not None:
+            self._auto_weyl_status.setVisible(False)
         # Reset NC UI
         self._nc_search_btn.setEnabled(True)
         self._nc_stop_btn.setEnabled(False)
@@ -488,17 +471,6 @@ class FillingCard(QWidget):
 
     def refresh(self, session: Session) -> None:
         self._session = session
-        # Restore Weyl result if available
-        if session.weyl_checked and session.weyl_result is not None:
-            vm = build_weyl_vm(
-                session.weyl_result,
-                session.num_hard(),
-                adjoint_value=None,
-                adjoint_passed=session.weyl_adjoint_pass,
-            )
-            html = "<h3>Weyl Check</h3>\n" + format_weyl_html(vm)
-            self._weyl_view.set_html(html)
-            self._weyl_view.setVisible(True)
         if session.nc_cycles:
             self._rebuild_nc_vms_from_session()
             self._render_nc_tables()
@@ -518,85 +490,156 @@ class FillingCard(QWidget):
         # Temporarily force the cache checkbox on so _on_find_nc_clicked
         # picks it up — it will be restored to the session-driven value the
         # next time unlock() is called.
+        was_checked = self._cache_chk.isChecked()
         self._cache_chk.setChecked(True)
         self._on_find_nc_clicked()
-
-    def trigger_stop_nc(self) -> None:
-        """Public: programmatically trigger NC stop (used by Run All Stop)."""
-        self._on_nc_stop_clicked()
+        # Don't restore yet — let the async worker run; unlock() will reset it
+        # when the next manifold is loaded.
 
     # ------------------------------------------------------------------
-    # Internal — worker lifecycle helpers
+    # Internal — NC cycle search
     # ------------------------------------------------------------------
 
     def _abandon_nc_workers(self) -> None:
-        """Disconnect signals from all NC workers and let them finish silently."""
+        """Signal all running NC workers to stop."""
         for w in self._nc_workers:
             try:
                 w.finished.disconnect()
                 w.error.disconnect()
-                w.status.disconnect()
+                w.progress.disconnect()
             except RuntimeError:
-                pass  # already disconnected
+                pass
+            w.requestInterruption()
         self._nc_workers.clear()
 
     def _abandon_fill_workers(self) -> None:
-        """Disconnect signals from all fill workers and let them finish silently."""
+        """Signal all running fill workers to stop."""
         for w in self._fill_workers:
             try:
                 w.finished.disconnect()
                 w.error.disconnect()
             except RuntimeError:
                 pass
+            w.requestInterruption()
         self._fill_workers.clear()
 
-    # ------------------------------------------------------------------
-    # Internal — NC cycle search
-    # ------------------------------------------------------------------
+    def _rebuild_nc_vms_from_session(self) -> None:
+        """Reconstruct NC cycle ViewModels from session data."""
+        self._nc_cycle_vms.clear()
+        s = self._session
+        for ncs in s.nc_cycles:
+            for cyc in ncs.cycles:
+                P = int(cyc.P) if hasattr(cyc, "P") else 0
+                Q = int(cyc.Q) if hasattr(cyc, "Q") else 0
+                try:
+                    sl = format_slope_latex(P, Q)
+                except Exception:
+                    sl = f"({P},{Q})"
+                vm = build_nc_cycle_vm(
+                    cusp_idx=ncs.cusp_idx,
+                    P=P,
+                    Q=Q,
+                    weyl_compatible=None if s.weyl_result is None else True,
+                    adjoint_proj_pass=s.weyl_adjoint_pass,
+                    source=ncs.source,
+                    slope_latex=sl,
+                )
+                self._nc_cycle_vms.append(vm)
+
+    def _rebuild_nc_tables(self, n_cusps: int) -> None:
+        """Rebuild NC cycle tables (one per cusp)."""
+        # Clear old views
+        for mv in self._nc_table_views:
+            mv.setParent(None)  # type: ignore[arg-type]
+        for lbl in self._nc_table_labels:
+            lbl.setParent(None)  # type: ignore[arg-type]
+        self._nc_table_views.clear()
+        self._nc_table_labels.clear()
+
+        # Clear layout
+        while self._nc_table_layout.count():
+            item = self._nc_table_layout.takeAt(0)
+            if item and item.widget():
+                item.widget().setParent(None)  # type: ignore[arg-type]
+
+    def _render_nc_tables(self) -> None:
+        """Render NC cycles (grouped by cusp) in the NC table views."""
+        s = self._session
+        # Group cycles by cusp
+        by_cusp: dict[int, list] = {}
+        for vm in self._nc_cycle_vms:
+            if vm.cusp_idx not in by_cusp:
+                by_cusp[vm.cusp_idx] = []
+            by_cusp[vm.cusp_idx].append(vm)
+
+        # Render one table per cusp
+        # (per-cycle Weyl vectors are now in each VM, not global)
+        for cusp_idx in sorted(by_cusp.keys()):
+            vms = by_cusp[cusp_idx]
+            html = format_nc_cycle_table_html(vms)
+
+            lbl = QLabel(f"Cusp C{cusp_idx}")
+            lbl.setProperty("class", "secondary")
+            self._nc_table_layout.addWidget(lbl)
+            self._nc_table_labels.append(lbl)
+
+            mv = MathView(min_h=80)
+            mv.set_html(html)
+            self._nc_table_layout.addWidget(mv)
+            self._nc_table_views.append(mv)
+
+    def _rebuild_nc_combo(self) -> None:
+        """Rebuild NC cycle combo with all loaded cycles."""
+        self._nc_combo.blockSignals(True)
+        self._nc_combo.clear()
+        for i, vm in enumerate(self._nc_cycle_vms):
+            slope_label = f"({vm.P},{vm.Q})"
+            self._nc_combo.addItem(slope_label, i)
+        self._nc_combo.blockSignals(False)
 
     def _on_find_nc_clicked(self) -> None:
         s = self._session
-        if s.stage < PipelineStage.LOADED or s.nz_data is None:
+        if s.nz_data is None:
             return
+        n_cusps = s.manifold_data.num_cusps if s.manifold_data else 1
 
-        p_half  = self._p_range_spin.value()
-        q_half  = self._q_range_spin.value()
+        p_half = self._p_range_spin.value()
+        q_half = self._q_range_spin.value()
         p_range = (-p_half, p_half)
         q_range = (-q_half, q_half)
-        use_cache = self._cache_chk.isChecked()
 
-        n_cusps = (
-            self._session.manifold_data.num_cusps
-            if self._session.manifold_data else 1
-        )
         self._nc_search_btn.setEnabled(False)
         self._nc_stop_btn.setEnabled(True)
-        self._nc_worker_progress.clear()
-        self._nc_progress.setRange(0, 0)   # indeterminate until first progress signal
+        self._nc_progress.setRange(0, 0)   # indeterminate
         self._nc_progress.setVisible(True)
-        self._nc_status.setText(f"Searching NC cycles for {n_cusps} cusp(s)…")
+        self._nc_status.setText("Searching for NC cycles…")
         self._nc_status.setVisible(True)
         self._card.set_status(CardStatus.RUNNING)
-        self._nc_cycle_vms.clear()
 
-        gen = self._session_gen          # capture generation at launch time
+        # Clear old results before starting new search
+        self._nc_cycle_vms.clear()
+        self._rebuild_nc_tables(n_cusps)  # Properly remove old table widgets from layout
+        self._nc_combo.clear()  # Clear the combo box
+        self._fill_btn.setEnabled(False)  # Disable fill button until new results arrive
+
+        gen = self._session_gen
+
         for i in range(n_cusps):
             worker = NCSearchWorker(
-                nz_data       = s.nz_data,
-                cusp_idx      = i,
-                p_range       = p_range,
-                q_range       = q_range,
-                q_order_half  = s.q_order_half,
+                nz_data      = s.nz_data,
+                cusp_idx     = i,
+                p_range      = p_range,
+                q_range      = q_range,
+                use_cache    = self._cache_chk.isChecked(),
+                q_order_half = s.q_order_half,
                 manifold_name = s.manifold_name,
-                use_cache     = use_cache,
-                parent        = self,
-            )
-            worker.status.connect(self._nc_status.setText)
-            worker.progress.connect(
-                lambda d, t, ci=i: self._on_nc_progress(d, t, ci)
+                parent       = self,
             )
             worker.finished.connect(
-                lambda p, w=worker, ci=i, g=gen: self._on_nc_finished(p, ci, g, w)
+                lambda p, ci=i, g=gen: self._on_nc_finished(p, ci, g)
+            )
+            worker.progress.connect(
+                lambda d, t, ci=i: self._on_nc_progress(d, t, ci)
             )
             worker.error.connect(
                 lambda e, w=worker, ci=i, g=gen: self._on_nc_error(e, ci, g, w)
@@ -649,17 +692,22 @@ class FillingCard(QWidget):
             self._nc_progress.setVisible(False)
             self._nc_status.setVisible(False)
             self._nc_workers.clear()
-            self._render_nc_tables()
+            # Don't render tables yet - wait for Weyl check to complete
+            # (tables will be rendered after Weyl with compatibility info)
             self._rebuild_nc_combo()
+            # Always enable fill button, even if no NC cycles found
+            # (meridian basis (1,0) fallback will be used)
+            self._fill_btn.setEnabled(True)
             if self._nc_cycle_vms:
                 self._card.set_status(CardStatus.DONE)
-                self._fill_btn.setEnabled(True)
             else:
-                self._card.set_status(CardStatus.ERROR)
-                from manifold_index.viewmodels.advisory import Advisories
-                self._card.set_advisories([Advisories.C1()])
+                self._card.set_status(CardStatus.READY)
             self._update_summary()
             self.session_updated.emit(s)
+
+            # Launch Weyl check automatically after NC search completes
+            # (this will render the tables with compatibility info)
+            self._launch_weyl_for_nc_compatibility()
 
     def _on_nc_error(self, msg: str, cusp_idx: int, gen: int, worker: object = None) -> None:
         if gen != self._session_gen:
@@ -676,107 +724,6 @@ class FillingCard(QWidget):
             self._nc_workers.clear()
         logging.warning("NCSearchWorker cusp %d error: %s", cusp_idx, msg)
         self._card.set_status(CardStatus.ERROR)
-
-    # ------------------------------------------------------------------
-    # Internal — Weyl check
-    # ------------------------------------------------------------------
-
-    def _on_weyl_clicked(self) -> None:
-        s = self._session
-        if not s.index_queries:
-            self._weyl_status.setText("No index queries to check. Run index computation first.")
-            self._weyl_status.setVisible(True)
-            return
-        entries = [
-            (q.m_ext, q.e_ext, q.result)
-            for q in s.index_queries
-            if q.result is not None
-        ]
-        self._weyl_btn.setEnabled(False)
-        self._weyl_stop_btn.setEnabled(True)
-        self._weyl_progress.setRange(0, 0)   # indeterminate
-        self._weyl_progress.setVisible(True)
-        self._weyl_status.setText("Running Weyl check…")
-        self._weyl_status.setVisible(True)
-        self._weyl_view.setVisible(False)
-        self._card.set_status(CardStatus.RUNNING)
-
-        self._weyl_worker = WeylWorker(
-            entries      = entries,
-            num_hard     = s.num_hard(),
-            q_order_half = s.q_order_half,
-            parent       = self,
-        )
-        gen = self._session_gen
-        self._weyl_worker.finished.connect(lambda p, g=gen: self._on_weyl_finished(p, g))
-        self._weyl_worker.error.connect(self._on_weyl_error)
-        self._weyl_worker.start()
-
-    def _on_weyl_stop_clicked(self) -> None:
-        """Abandon the running Weyl worker."""
-        if self._weyl_worker is not None:
-            try:
-                self._weyl_worker.finished.disconnect()
-                self._weyl_worker.error.disconnect()
-            except RuntimeError:
-                pass
-            self._weyl_worker = None
-        self._weyl_btn.setEnabled(True)
-        self._weyl_stop_btn.setEnabled(False)
-        self._weyl_progress.setVisible(False)
-        self._weyl_status.setText("Stopped.")
-        self._weyl_status.setVisible(True)
-        self._card.set_status(CardStatus.READY)
-
-    def _on_weyl_finished(self, payload: dict, gen: int) -> None:
-        if gen != self._session_gen:
-            return   # stale
-        self._weyl_worker = None
-        self._weyl_btn.setEnabled(True)
-        self._weyl_stop_btn.setEnabled(False)
-        self._weyl_progress.setVisible(False)
-        self._weyl_status.setVisible(False)
-
-        ab        = payload["ab_vectors"]
-        adj_pass  = payload.get("adjoint_is_pass")
-        adj_value = payload.get("adjoint_value")
-        s = self._session
-        s.weyl_result       = ab
-        s.weyl_adjoint_pass = adj_pass
-        s.weyl_checked      = True
-
-        vm = build_weyl_vm(
-            ab, s.num_hard(),
-            adjoint_value=float(adj_value) if adj_value is not None else None,
-            adjoint_passed=adj_pass,
-        )
-        self._card.set_advisories(vm.advisories)
-
-        if ab is not None:
-            html = "<h3>Weyl Check</h3>\n" + format_weyl_html(vm)
-        else:
-            html = "<h3>Weyl Check</h3><p class='warn'>⚠ Could not extract Weyl vectors</p>"
-        self._weyl_view.set_loading(False)
-        self._weyl_view.set_html(html)
-        self._weyl_view.setVisible(True)
-        self._card.set_status(CardStatus.DONE)
-        self._update_summary()
-        self.session_updated.emit(s)
-
-    def _on_weyl_error(self, msg: str) -> None:
-        self._weyl_worker = None
-        self._weyl_btn.setEnabled(True)
-        self._weyl_stop_btn.setEnabled(False)
-        self._weyl_progress.setVisible(False)
-        self._weyl_status.setVisible(False)
-        self._weyl_view.set_loading(False)
-        self._weyl_view.set_html(f"<p class='warn'>Weyl error: {msg}</p>")
-        self._weyl_view.setVisible(True)
-        self._card.set_status(CardStatus.ERROR)
-
-    # ------------------------------------------------------------------
-    # Internal — NC stop and progress
-    # ------------------------------------------------------------------
 
     def _on_nc_stop_clicked(self) -> None:
         """Abandon all running NC search workers."""
@@ -799,6 +746,172 @@ class FillingCard(QWidget):
             self._nc_progress.setValue(agg_done)
         self._nc_status.setText(f"Tested {agg_done} / {agg_total} slopes…")
 
+    def _launch_weyl_for_nc_compatibility(self) -> None:
+        """After NC search, run Weyl check for EACH NC cycle with basis change."""
+        s = self._session
+        # Check if we have index queries (needed for Weyl check)
+        if not s.index_queries:
+            print("[WEYL-NC] Skipping Weyl checks: no index queries yet")
+            self._render_nc_tables()
+            return
+
+        # Build entries from index queries that have results
+        entries = [
+            (q.m_ext, q.e_ext, q.result)
+            for q in s.index_queries
+            if q.result is not None
+        ]
+
+        if not entries:
+            print("[WEYL-NC] Skipping Weyl checks: no index query results")
+            self._render_nc_tables()
+            return
+
+        # Clear previous results
+        self._nc_weyl_results.clear()
+        self._nc_weyl_workers.clear()
+
+        # Import here to avoid circular dependencies
+        from manifold_index.core import dehn_filling as _df_mod, neumann_zagier as _nz_mod
+
+        print(f"[WEYL-NC] Launching Weyl checks for {len(self._nc_cycle_vms)} NC cycles")
+
+        gen = self._session_gen
+        cusp_idx = 0  # Assuming single cusp for now
+
+        # Launch a WeylWorker for each NC cycle with basis change applied
+        for vm in self._nc_cycle_vms:
+            P, Q = vm.P, vm.Q
+            print(f"[WEYL-NC] Cycle ({P},{Q}): applying basis change and recomputing index")
+
+            try:
+                # Apply basis change using this cycle as basis
+                R, S = _df_mod.find_rs(P, Q)
+                nz_nc = _nz_mod.apply_general_cusp_basis_change(
+                    s.nz_data, cusp_idx, a=P, b=Q, c=-R, d=-S
+                )
+
+                # RECOMPUTE all index entries in the basis-changed NZ structure
+                entries_nc = []
+                for q in s.index_queries:
+                    if q.result is not None:
+                        # Recompute refined index on basis-changed NZ data
+                        result_nc = ComputeService.compute_refined_index(
+                            nz_nc, q.m_ext, q.e_ext, s.q_order_half
+                        )
+                        if result_nc is not None:
+                            entries_nc.append((q.m_ext, q.e_ext, result_nc))
+
+                print(f"[WEYL-NC] Cycle ({P},{Q}): recomputed {len(entries_nc)} entries, launching Weyl check")
+
+                # Run Weyl check on basis-changed entries
+                cycle_key = (P, Q)
+                worker = WeylWorker(
+                    entries      = entries_nc,  # Use basis-changed entries!
+                    num_hard     = s.num_hard(),
+                    q_order_half = s.q_order_half,
+                    parent       = self,
+                )
+                # Store metadata: which cycle this worker is for
+                worker._cycle_key = cycle_key  # type: ignore
+
+                worker.finished.connect(
+                    lambda p, ck=cycle_key, g=gen: self._on_weyl_for_nc_cycle_done(p, ck, g)
+                )
+                worker.error.connect(
+                    lambda e, ck=cycle_key, g=gen: self._on_weyl_for_nc_cycle_error(e, ck, g)
+                )
+                self._nc_weyl_workers[cycle_key] = worker
+                worker.start()
+            except Exception as e:
+                print(f"[WEYL-NC] Error setting up worker for cycle ({P},{Q}): {e}")
+                self._nc_weyl_results[(P, Q)] = {"error": str(e)}
+
+    def _on_weyl_for_nc_cycle_done(self, payload: dict, cycle_key: tuple, gen: int) -> None:
+        """Handle Weyl check completion for one NC cycle."""
+        if gen != self._session_gen:
+            print(f"[WEYL-NC] Ignoring stale generation for cycle {cycle_key}")
+            return
+
+        P, Q = cycle_key
+        if cycle_key in self._nc_weyl_workers:
+            del self._nc_weyl_workers[cycle_key]
+
+        ab = payload["ab_vectors"]
+        adj_pass = payload.get("adjoint_is_pass")
+
+        print(f"[WEYL-NC] Cycle ({P},{Q}) done: ab={'present' if ab else 'None'}, adj_pass={adj_pass}")
+
+        # Store per-cycle result
+        self._nc_weyl_results[cycle_key] = {
+            "ab": ab,
+            "adj_pass": adj_pass,
+        }
+
+        # Check if all cycles are done
+        if not self._nc_weyl_workers:
+            print("[WEYL-NC] All Weyl checks complete, updating NC table")
+            self._rebuild_nc_vm_compatibility()
+            self._render_nc_tables()
+            self.session_updated.emit(self._session)
+
+    def _on_weyl_for_nc_cycle_error(self, msg: str, cycle_key: tuple, gen: int) -> None:
+        """Handle Weyl check error for one NC cycle."""
+        if gen != self._session_gen:
+            return
+
+        P, Q = cycle_key
+        if cycle_key in self._nc_weyl_workers:
+            del self._nc_weyl_workers[cycle_key]
+
+        print(f"[WEYL-NC] Cycle ({P},{Q}) error: {msg}")
+
+        # Store error result
+        self._nc_weyl_results[cycle_key] = {
+            "error": msg,
+            "ab": None,
+            "adj_pass": None,
+        }
+
+        # Check if all cycles are done
+        if not self._nc_weyl_workers:
+            print("[WEYL-NC] All Weyl checks complete, updating NC table")
+            self._rebuild_nc_vm_compatibility()
+            self._render_nc_tables()
+            self.session_updated.emit(self._session)
+
+    def _rebuild_nc_vm_compatibility(self) -> None:
+        """Update NC cycle VMs with per-cycle Weyl results."""
+        for vm in self._nc_cycle_vms:
+            cycle_key = (vm.P, vm.Q)
+            if cycle_key in self._nc_weyl_results:
+                result = self._nc_weyl_results[cycle_key]
+                if "error" in result:
+                    # Error occurred
+                    vm.weyl_compatible = None
+                    vm.adjoint_proj_pass = None
+                    vm.weyl_a = None
+                    vm.weyl_b = None
+                else:
+                    # Success - check both Weyl and q¹
+                    ab = result.get("ab")
+                    adj_pass = result.get("adj_pass")
+                    vm.weyl_compatible = None if ab is None else True
+                    vm.adjoint_proj_pass = adj_pass
+                    # Store Weyl vectors
+                    if ab is not None:
+                        vm.weyl_a = list(ab.a) if hasattr(ab, 'a') else None
+                        vm.weyl_b = list(ab.b) if hasattr(ab, 'b') else None
+                    else:
+                        vm.weyl_a = None
+                        vm.weyl_b = None
+            else:
+                # Not yet computed
+                vm.weyl_compatible = None
+                vm.adjoint_proj_pass = None
+                vm.weyl_a = None
+                vm.weyl_b = None
+
     # ------------------------------------------------------------------
     # Internal — Fill stop
     # ------------------------------------------------------------------
@@ -814,6 +927,7 @@ class FillingCard(QWidget):
         self._fill_progress.setVisible(False)
         self._fill_grid_bar.setVisible(False)
         self._fill_status.setVisible(False)
+        self._auto_weyl_status.setVisible(False)
         self._fill_grid_total = 0
         self._fill_grid_done = 0
         self._card.set_status(CardStatus.READY)
@@ -847,150 +961,111 @@ class FillingCard(QWidget):
             row_layout.addWidget(fill_chk)
 
             # Cusp label
-            row_layout.addWidget(QLabel(f"Cusp {cusp_idx}:"))
+            row_layout.addWidget(QLabel(f"C{cusp_idx}"))
 
-            # NC cycle combo (will be populated by _rebuild_nc_combo)
+            # NC cycle combo
             nc_combo = QComboBox()
-            nc_combo.setMinimumWidth(120)
+            nc_combo.setMinimumWidth(100)
             row_layout.addWidget(nc_combo)
 
-            # Slope input
-            slope = SlopeInput(label="Slope:", require_coprime=True)
+            # Filling slope
+            slope = SlopeInput(label="→", require_coprime=True)
             row_layout.addWidget(slope)
-
-            # Unfilled cusp charges (m, e) - shown only when not checked
-            m_spin = QSpinBox()
-            m_spin.setRange(-99, 99)
-            m_spin.setValue(0)
-            m_spin.setFixedWidth(55)
-            m_spin.setVisible(False)
-
-            e_spin = QDoubleSpinBox()
-            e_spin.setRange(-49.5, 49.5)
-            e_spin.setSingleStep(0.5)
-            e_spin.setDecimals(1)
-            e_spin.setValue(0.0)
-            e_spin.setFixedWidth(65)
-            e_spin.setVisible(False)
-
-            # Toggle visibility when checkbox changes
-            def _on_fill_toggled(checked, m=m_spin, e=e_spin, nc=nc_combo, sl=slope):
-                nc.setVisible(checked)
-                sl.setVisible(checked)
-                m.setVisible(not checked)
-                e.setVisible(not checked)
-
-            fill_chk.toggled.connect(_on_fill_toggled)
-            row_layout.addWidget(QLabel("m:"))
-            row_layout.addWidget(m_spin)
-            row_layout.addWidget(QLabel("e:"))
-            row_layout.addWidget(e_spin)
-
             row_layout.addStretch(1)
-            self._cusp_fill_layout.addWidget(row_widget)
 
+            self._cusp_fill_layout.addWidget(row_widget)
             self._cusp_fill_rows.append({
-                "cusp_idx": cusp_idx,
                 "widget": row_widget,
+                "cusp_idx": cusp_idx,
                 "fill_chk": fill_chk,
                 "nc_combo": nc_combo,
                 "slope": slope,
-                "m_spin": m_spin,
-                "e_spin": e_spin,
             })
 
-    def _rebuild_nc_tables(self, n_cusps: int) -> None:
-        """Create/recreate one MathView per cusp inside the NC Cycles group box."""
-        for lbl in self._nc_table_labels:
-            lbl.setParent(None)  # type: ignore[arg-type]
-        self._nc_table_labels.clear()
-        for mv in self._nc_table_views:
-            mv.setParent(None)  # type: ignore[arg-type]
-        self._nc_table_views.clear()
-        for i in range(n_cusps):
-            label = QLabel(f"Cusp {i}")
-            label.setProperty("class", "secondary")
-            self._nc_table_layout.addWidget(label)
-            self._nc_table_labels.append(label)
-            mv = MathView(min_h=60)
-            mv.setVisible(False)
-            self._nc_table_layout.addWidget(mv)
-            self._nc_table_views.append(mv)
+    def _rebuild_fill_edge_toggles(self, n_hard: int) -> None:
+        """Create per-edge W checkboxes; called from unlock()."""
+        for cb in self._fill_edge_checkboxes:
+            cb.setParent(None)  # type: ignore[arg-type]
+        self._fill_edge_checkboxes.clear()
+        for j in range(n_hard):
+            sub = chr(0x2080 + j) if j <= 9 else f"_{j}"
+            cb = QCheckBox(f"W{sub}")
+            cb.setChecked(True)
+            cb.stateChanged.connect(self._on_fill_edge_toggle)
+            self._fill_edge_layout.addWidget(cb)
+            self._fill_edge_checkboxes.append(cb)
 
-    def _render_nc_tables(self) -> None:
-        """Re-render each per-cusp MathView from the current NC cycle VMs."""
-        # Group VMs by cusp index
-        by_cusp: dict[int, list] = {}
-        for vm in self._nc_cycle_vms:
-            by_cusp.setdefault(vm.cusp_idx, []).append(vm)
+    def _fill_active_edges(self) -> list[bool]:
+        return [cb.isChecked() for cb in self._fill_edge_checkboxes]
 
-        for i, mv in enumerate(self._nc_table_views):
-            cusp_vms = by_cusp.get(i, [])
-            if cusp_vms:
-                html = format_nc_cycle_table_html(cusp_vms)
-                mv.set_html(html)
-                mv.setVisible(True)
-            else:
-                mv.set_html('<p class="muted">No non-closable cycles found.</p>')
-                mv.setVisible(True)
+    def _on_fill_preset_changed(self, text: str) -> None:
+        """Apply preset and refresh display (no debounce — instant)."""
+        for cb in self._fill_edge_checkboxes:
+            cb.blockSignals(True)
+            if text == "Full Refined":
+                cb.setChecked(True)
+                cb.setEnabled(False)
+            elif text == "Unrefined":
+                cb.setChecked(False)
+                cb.setEnabled(False)
+            else:  # Custom
+                cb.setEnabled(True)
+            cb.blockSignals(False)
+        if text != "Custom":
+            self._do_refresh_fill_display()
 
-    def _rebuild_nc_vms_from_session(self) -> None:
-        self._nc_cycle_vms.clear()
-        idx = 0
-        for ncs in self._session.nc_cycles:
-            for cyc in ncs.cycles:
-                P = int(cyc.P) if hasattr(cyc, "P") else 0
-                Q = int(cyc.Q) if hasattr(cyc, "Q") else 0
-                try:
-                    sl = format_slope_latex(P, Q)
-                except Exception:
-                    sl = f"({P},{Q})"
-                vm = build_nc_cycle_vm(
-                    cusp_idx=ncs.cusp_idx, P=P, Q=Q,
-                    slope_latex=sl, source=ncs.source,
-                )
-                self._nc_cycle_vms.append(vm)
-                idx += 1
-                # Yield to event loop every 100 items to keep UI responsive
-                # when rebuilding VMs for manifolds with many NC cycles.
-                if idx % 100 == 0:
-                    QCoreApplication.processEvents()
+    def _on_fill_edge_toggle(self) -> None:
+        """Called when user manually clicks an individual W checkbox."""
+        if not self._session or not self._session.fill_queries:
+            return
+        # Switch preset label to "Custom"
+        self._fill_preset_combo.blockSignals(True)
+        self._fill_preset_combo.setCurrentText("Custom")
+        self._fill_preset_combo.blockSignals(False)
+        self._fill_refresh_timer.start()
 
-    def _rebuild_nc_combo(self) -> None:
-        # Single-cusp mode: populate the single nc_combo
-        self._nc_combo.blockSignals(True)
-        self._nc_combo.clear()
-        for i, vm in enumerate(self._nc_cycle_vms):
-            self._nc_combo.addItem(f"C{vm.cusp_idx}: ({vm.P},{vm.Q})", i)
-            # Yield to event loop every 100 items to keep UI responsive
-            # when populating combo box with many NC cycles.
-            if (i + 1) % 100 == 0:
+    def _do_refresh_fill_display(self) -> None:
+        """Re-render all fill rows with the current edge-toggle projection."""
+        if not self._session:
+            return
+        inactive = [j for j, a in enumerate(self._fill_active_edges()) if not a]
+        for idx, fq in enumerate(self._session.fill_queries):
+            if fq.result is None:
+                continue
+            try:
+                if fq.unrefined_fallback:
+                    # For unrefined results, apply edge-toggle projection directly
+                    projected = fq.result.collapse_eta_edges(inactive)
+                    latex = format_filled_series_latex(
+                        projected.series,
+                        projected.num_hard,
+                        projected.has_cusp_eta,
+                        projected.num_cusp_eta,
+                    )
+                else:
+                    projected = fq.result.collapse_eta_edges(inactive)
+                    latex = format_filled_series_latex(
+                        projected.series,
+                        projected.num_hard,
+                        projected.has_cusp_eta,
+                        projected.num_cusp_eta,
+                    )
+            except Exception:
+                latex = "—"
+            self._fill_table.set_row_result(idx, latex, fq.source)
+            # Yield to event loop every 50 rows to keep UI responsive
+            # when re-projecting filled results after edge toggle.
+            if (idx + 1) % 50 == 0:
                 QCoreApplication.processEvents()
-        self._nc_combo.blockSignals(False)
-        # After (re)populating, suggest a fill slope that differs from the first
-        # NC cycle so the user doesn't accidentally fill at the NC cycle itself.
-        if self._nc_cycle_vms:
-            self._suggest_fill_slope(self._nc_cycle_vms[0])
 
-        # Multi-cusp mode: populate per-cusp combos
-        for row in self._cusp_fill_rows:
-            cusp_idx = row["cusp_idx"]
-            nc_combo = row["nc_combo"]
-            slope = row["slope"]
-            nc_combo.blockSignals(True)
-            nc_combo.clear()
-            first_vm_for_cusp = None
-            for i, vm in enumerate(self._nc_cycle_vms):
-                if vm.cusp_idx == cusp_idx:
-                    nc_combo.addItem(f"({vm.P},{vm.Q})", i)
-                    if first_vm_for_cusp is None:
-                        first_vm_for_cusp = vm
-                    if (i + 1) % 100 == 0:
-                        QCoreApplication.processEvents()
-            nc_combo.blockSignals(False)
-            # Suggest a fill slope for this cusp
-            if first_vm_for_cusp:
-                self._suggest_fill_slope_for_widget(slope, first_vm_for_cusp)
+    def _update_summary(self) -> None:
+        n_nc   = len(self._nc_cycle_vms)
+        n_fill = len(self._session.fill_queries)
+        weyl   = "✓" if self._session.weyl_checked else "not run"
+        self._card.set_summary(
+            f"Weyl: {weyl}  ·  {n_nc} NC cycle{'s' if n_nc != 1 else ''}  ·  "
+            f"{n_fill} filled quer{'ies' if n_fill != 1 else 'y'}"
+        )
 
     def _suggest_fill_slope(self, vm: "NCCycleViewModel") -> None:
         """Set the fill-slope widget to the nearest primitive slope ≠ NC cycle.
@@ -1044,31 +1119,12 @@ class FillingCard(QWidget):
             # gives series={} by definition).
             self._suggest_fill_slope(vm)
 
-    # ------------------------------------------------------------------
-    # Internal — manual basis cycle toggle
-    # ------------------------------------------------------------------
-
-    def _on_manual_basis_toggled(self, checked: bool) -> None:
-        """Show/hide the manual (P,Q) spinboxes and update fill-button state."""
-        self._manual_basis_widget.setVisible(checked)
-        if checked:
-            # Manual mode: always allow filling (basis is whatever the user enters)
-            self._fill_btn.setEnabled(True)
-        else:
-            # Back to NC mode: only enable fill if NC cycles are loaded
-            has_nc = bool(self._nc_cycle_vms) and self._nc_combo.currentIndex() >= 0
-            self._fill_btn.setEnabled(has_nc)
-
-    # ------------------------------------------------------------------
-    # Internal — other-cusp mode toggle
-    # ------------------------------------------------------------------
-
     def _on_other_mode_changed(self, point_checked: bool) -> None:
         self._other_point_row.setVisible(point_checked)
         self._other_grid_row.setVisible(not point_checked)
 
     # ------------------------------------------------------------------
-    # Internal — fill computation
+    # Internal — fill computation with auto-Weyl dispatch
     # ------------------------------------------------------------------
 
     def _other_charge_points(self, n_cusps: int) -> list[tuple[list[int], list[Fraction]]]:
@@ -1078,33 +1134,35 @@ class FillingCard(QWidget):
         Multi-cusp point mode: one pair from the spinboxes.
         Multi-cusp grid mode: all (m, e) on the Cartesian grid.
         """
-        n_other = max(0, n_cusps - 1)
-        if n_other == 0:
+        if n_cusps == 1:
             return [([], [])]
 
-        if not self._other_box.isVisible() or self._other_point.isChecked():
+        if self._other_point.isChecked():
             m_val = self._other_m.value()
-            e_val = Fraction(self._other_e.value()).limit_denominator(2)
-            # For now, apply the same (m, e) to all other cusps
-            return [([m_val] * n_other, [e_val] * n_other)]
-
-        # Grid mode
-        m_lo = self._other_m_min.value()
-        m_hi = self._other_m_max.value()
-        e_lo = Fraction(self._other_e_min.value()).limit_denominator(2)
-        e_hi = Fraction(self._other_e_max.value()).limit_denominator(2)
-        e_step = Fraction(1, 2)
-        points = []
-        m = m_lo
-        while m <= m_hi:
-            e = e_lo
-            while e <= e_hi:
-                points.append(([m] * n_other, [e] * n_other))
-                e += e_step
-            m += 1
-        return points if points else [([0] * n_other, [Fraction(0)] * n_other)]
+            e_val = Fraction(int(self._other_e.value() * 2), 2)
+            return [([m_val], [e_val])]
+        else:
+            m_lo = self._other_m_min.value()
+            m_hi = self._other_m_max.value()
+            e_lo = Fraction(int(self._other_e_min.value() * 2), 2)
+            e_hi = Fraction(int(self._other_e_max.value() * 2), 2)
+            e_step = Fraction(1, 2)
+            points = []
+            m = m_lo
+            while m <= m_hi:
+                e = e_lo
+                while e <= e_hi:
+                    points.append(([m] * n_cusps, [e] * n_cusps))
+                    e += e_step
+                m += 1
+            return points if points else [([0] * n_cusps, [Fraction(0)] * n_cusps)]
 
     def _on_fill_clicked(self) -> None:
+        """Entry point for fill computation.
+
+        Weyl check is run automatically after NC search.
+        This method just determines refined vs unrefined based on saved Weyl results.
+        """
         s = self._session
         if s.nz_data is None:
             return
@@ -1115,18 +1173,129 @@ class FillingCard(QWidget):
             self._on_multi_fill_clicked()
             return
 
-        # Single-cusp path ──────────────────────────────────────────────────
+        # Use saved Weyl results from NC search
+        print(f"[FILL] weyl_checked={s.weyl_checked}, weyl_result={'present' if s.weyl_result else 'None'}")
 
-        # Determine basis cycle (P, Q) — either from the NC combo or from the
-        # manual spinboxes when the user has no NC cycles (or wants to override).
-        if self._manual_basis_chk.isChecked():
-            nc_P = self._manual_nc_P.value()
-            nc_Q = self._manual_nc_Q.value()
-            basis_label = f"Manual ({nc_P},{nc_Q})"
+        # Go directly to fill path with Weyl results
+        self._launch_fill_path(ab=s.weyl_result, adj_pass=s.weyl_adjoint_pass)
+
+    def _launch_auto_weyl_then_fill(self) -> None:
+        """Launch WeylWorker to compute Weyl vectors, then proceed to fill."""
+        s = self._session
+        entries = [
+            (q.m_ext, q.e_ext, q.result)
+            for q in s.index_queries
+            if q.result is not None
+        ]
+
+        print(f"[WEYL] Launching: found {len(entries)} entries with results (out of {len(s.index_queries)} total)")
+
+        self._fill_btn.setEnabled(False)
+        self._fill_stop_btn.setEnabled(True)
+        self._fill_progress.setRange(0, 0)   # indeterminate
+        self._fill_progress.setVisible(True)
+        self._auto_weyl_status.setText("Computing Weyl vectors…")
+        self._auto_weyl_status.setVisible(True)
+        self._card.set_status(CardStatus.RUNNING)
+
+        gen = self._session_gen
+        self._auto_weyl_worker = WeylWorker(
+            entries      = entries,
+            num_hard     = s.num_hard(),
+            q_order_half = s.q_order_half,
+            parent       = self,
+        )
+        self._auto_weyl_worker.finished.connect(
+            lambda p, g=gen: self._on_auto_weyl_done(p, g)
+        )
+        self._auto_weyl_worker.error.connect(
+            lambda e, g=gen: self._on_auto_weyl_error(e, g)
+        )
+        self._auto_weyl_worker.start()
+
+    def _on_auto_weyl_done(self, payload: dict, gen: int) -> None:
+        """Handle successful auto-Weyl computation, then launch fill."""
+        if gen != self._session_gen:
+            print("[WEYL] Ignoring stale generation")
+            return   # stale
+
+        self._auto_weyl_worker = None
+        s = self._session
+
+        ab = payload["ab_vectors"]
+        adj_pass = payload.get("adjoint_is_pass")
+        adj_value = payload.get("adjoint_value")
+
+        print(f"[WEYL] Done: ab={'present' if ab else 'None'}, adj_pass={adj_pass}")
+
+        # Save Weyl result
+        s.weyl_result = ab
+        s.weyl_adjoint_pass = adj_pass
+        s.weyl_checked = True
+
+        # Build and display Weyl result with AB vectors and projection info
+        if ab is not None:
+            vm = build_weyl_vm(
+                ab, s.num_hard(),
+                adjoint_value=float(adj_value) if adj_value is not None else None,
+                adjoint_passed=adj_pass,
+            )
+            self._card.set_advisories(vm.advisories)
+
+            # Format AB vectors display
+            a_str = ", ".join(f"{a}" for a in ab.a[:min(3, len(ab.a))])
+            b_str = ", ".join(f"{b}" for b in ab.b[:min(3, len(ab.b))])
+            adj_str = "✓ Pass" if adj_pass else "✗ Fail" if adj_pass is False else "—"
+
+            status_msg = (
+                f"Weyl: a=[{a_str}{'…' if len(ab.a) > 3 else ''}] "
+                f"b=[{b_str}{'…' if len(ab.b) > 3 else ''}] | "
+                f"q¹ projection: {adj_str}"
+            )
+            self._auto_weyl_status.setText(status_msg)
+            self._auto_weyl_status.setVisible(True)
         else:
-            nc_idx = self._nc_combo.currentIndex()
-            if nc_idx < 0 or nc_idx >= len(self._nc_cycle_vms):
-                return
+            self._auto_weyl_status.setText("Weyl check: AB vectors could not be extracted")
+            self._auto_weyl_status.setVisible(True)
+
+        # Proceed to fill path with Weyl vectors
+        self._launch_fill_path(ab=ab, adj_pass=adj_pass)
+
+    def _on_auto_weyl_error(self, msg: str, gen: int) -> None:
+        """Handle auto-Weyl error; fall back to unrefined fill."""
+        if gen != self._session_gen:
+            print("[WEYL] Ignoring stale generation (error)")
+            return   # stale
+
+        self._auto_weyl_worker = None
+        print(f"[WEYL] ERROR: {msg}")
+
+        # Show warning but continue with unrefined fill
+        self._auto_weyl_status.setText(f"Weyl computation failed: {msg}. Using unrefined fill.")
+        self._auto_weyl_status.setVisible(True)
+
+        # Proceed to fill path without Weyl vectors (unrefined)
+        self._launch_fill_path(ab=None, adj_pass=None)
+
+    def _launch_fill_path(self, ab, adj_pass) -> None:
+        """Decide whether to use refined or unrefined fill.
+
+        If ab is not None and adj_pass is True: use refined with incompat edges
+        Otherwise: use unrefined
+        """
+        s = self._session
+        if s.nz_data is None:
+            return
+
+        n_cusps = s.manifold_data.num_cusps if s.manifold_data else 1
+
+        # Determine basis cycle (P, Q)
+        nc_idx = self._nc_combo.currentIndex()
+        if nc_idx < 0 or nc_idx >= len(self._nc_cycle_vms):
+            # Fallback to meridian (1, 0)
+            nc_P, nc_Q = 1, 0
+            basis_label = "Meridian (1,0)"
+        else:
             nc_vm = self._nc_cycle_vms[nc_idx]
             nc_P, nc_Q = nc_vm.P, nc_vm.Q
             basis_label = f"NC ({nc_P},{nc_Q})"
@@ -1136,10 +1305,53 @@ class FillingCard(QWidget):
             return
 
         cusp_idx = self._cusp_combo.currentData() or 0
-
         charge_points = self._other_charge_points(n_cusps)
-        weyl_a = list(s.weyl_result.a) if s.weyl_result is not None else None
-        weyl_b = list(s.weyl_result.b) if s.weyl_result is not None else None
+
+        # Determine refined vs unrefined
+        q1_passes = (adj_pass is True)
+        use_refined = ab is not None and q1_passes
+
+        print(f"[FILL] Deciding path: ab={'present' if ab else 'None'}, adj_pass={adj_pass}, use_refined={use_refined}")
+
+        # Determine refined vs unrefined and launch appropriate workers
+        # (Weyl status label was already set in _on_auto_weyl_done and will remain visible)
+        if use_refined:
+            print("[FILL] → Using REFINED fill")
+            weyl_a = list(ab.a) if ab is not None else None
+            weyl_b = list(ab.b) if ab is not None else None
+            self._launch_refined_fill_workers(
+                nc_P, nc_Q, user_P, user_Q, cusp_idx, charge_points,
+                weyl_a, weyl_b, basis_label
+            )
+        else:
+            print("[FILL] → Using UNREFINED fill")
+            self._launch_unrefined_fill_workers(
+                nc_P, nc_Q, user_P, user_Q, cusp_idx, charge_points, basis_label
+            )
+
+    def _launch_refined_fill_workers(
+        self, nc_P: int, nc_Q: int, user_P: int, user_Q: int, cusp_idx: int,
+        charge_points: list, weyl_a, weyl_b, basis_label: str
+    ) -> None:
+        """Launch FillWorker for each charge point (refined path)."""
+        s = self._session
+        n_cusps = s.manifold_data.num_cusps if s.manifold_data else 1
+
+        # Clear old results before starting new computation
+        self._fill_table.clear_rows()
+
+        # Compute incompat edges if weyl_a is provided
+        incompat_edges = []
+        if weyl_a is not None:
+            ab = type('obj', (object,), {'a': weyl_a, 'b': weyl_b})()
+            incompat_edges = _compute_incompat_edges(ab)
+
+        # Zero out incompat edges in weyl_a
+        if incompat_edges and weyl_a is not None:
+            weyl_a = list(weyl_a)
+            for j in incompat_edges:
+                if j < len(weyl_a):
+                    weyl_a[j] = 0
 
         self._fill_btn.setEnabled(False)
         self._fill_stop_btn.setEnabled(True)
@@ -1163,8 +1375,6 @@ class FillingCard(QWidget):
 
         gen = self._session_gen
         for m_other, e_other in charge_points:
-            # Row label: for multi-cusp show (m,e) alongside basis; for single
-            # cusp show basis label / filling slope.
             if n_cusps > 1:
                 m_lbl = f"m={m_other[0]}" if m_other else ""
                 e_val = float(e_other[0]) if e_other else 0.0
@@ -1195,8 +1405,74 @@ class FillingCard(QWidget):
             )
             worker.finished.connect(
                 lambda p, w=worker, r=row, nP=nc_P, nQ=nc_Q, uP=user_P, uQ=user_Q,
+                       ci=cusp_idx, mo=list(m_other), eo=list(e_other), g=gen, ie=incompat_edges:
+                    self._on_fill_finished(p, r, nP, nQ, uP, uQ, ci, mo, eo, g, w, ie)
+            )
+            worker.error.connect(lambda e, w=worker, r=row, g=gen: self._on_fill_error(e, r, g, w))
+            self._fill_workers.append(worker)
+            worker.start()
+
+    def _launch_unrefined_fill_workers(
+        self, nc_P: int, nc_Q: int, user_P: int, user_Q: int, cusp_idx: int,
+        charge_points: list, basis_label: str
+    ) -> None:
+        """Launch UnrefinedFillWorker for each charge point."""
+        s = self._session
+        n_cusps = s.manifold_data.num_cusps if s.manifold_data else 1
+
+        # Clear old results before starting new computation
+        self._fill_table.clear_rows()
+
+        self._fill_btn.setEnabled(False)
+        self._fill_stop_btn.setEnabled(True)
+        self._fill_grid_total = len(charge_points)
+        self._fill_grid_done = 0
+        if self._fill_grid_total > 1:
+            self._fill_progress.setVisible(False)
+            self._fill_grid_bar.setRange(0, self._fill_grid_total)
+            self._fill_grid_bar.setValue(0)
+            self._fill_grid_bar.setVisible(True)
+        else:
+            self._fill_progress.setRange(0, 0)   # indeterminate
+            self._fill_progress.setVisible(True)
+            self._fill_grid_bar.setVisible(False)
+        self._fill_status.setText(
+            f"Computing {self._fill_grid_total} filling(s)…"
+            if self._fill_grid_total > 1 else "Computing…"
+        )
+        self._fill_status.setVisible(True)
+        self._card.set_status(CardStatus.RUNNING)
+
+        gen = self._session_gen
+        for m_other, e_other in charge_points:
+            if n_cusps > 1:
+                m_lbl = f"m={m_other[0]}" if m_other else ""
+                e_val = float(e_other[0]) if e_other else 0.0
+                e_lbl = f"e={e_val:g}"
+                row_m = f"{m_lbl} {e_lbl}  {basis_label}"
+                row_e = f"→({user_P},{user_Q})"
+            else:
+                row_m = basis_label
+                row_e = f"slope ({user_P},{user_Q})"
+
+            row = self._fill_table.add_row(row_m, row_e, "", "—")
+            self._fill_table.set_row_computing(row)
+
+            worker = UnrefinedFillWorker(
+                nz_data      = s.nz_data,
+                cusp_idx     = cusp_idx,
+                user_P       = user_P,
+                user_Q       = user_Q,
+                m_other      = list(m_other),
+                e_other      = list(e_other),
+                q_order_half = s.q_order_half,
+                manifold_name= s.manifold_name if s.manifold_name else "unknown",
+                parent       = self,
+            )
+            worker.finished.connect(
+                lambda p, w=worker, r=row, nP=nc_P, nQ=nc_Q, uP=user_P, uQ=user_Q,
                        ci=cusp_idx, mo=list(m_other), eo=list(e_other), g=gen:
-                    self._on_fill_finished(p, r, nP, nQ, uP, uQ, ci, mo, eo, g, w)
+                    self._on_unrefined_fill_finished(p, r, nP, nQ, uP, uQ, ci, mo, eo, g, w)
             )
             worker.error.connect(lambda e, w=worker, r=row, g=gen: self._on_fill_error(e, r, g, w))
             self._fill_workers.append(worker)
@@ -1206,7 +1482,7 @@ class FillingCard(QWidget):
         self, payload: dict, row: int,
         nc_P: int, nc_Q: int, user_P: int, user_Q: int,
         cusp_idx: int, m_other: list, e_other: list, gen: int,
-        worker: object = None,
+        worker: object = None, incompat_edges: list | None = None,
     ) -> None:
         w = worker if worker is not None else self.sender()
         if w in self._fill_workers:
@@ -1229,6 +1505,7 @@ class FillingCard(QWidget):
             self._fill_progress.setVisible(False)
             self._fill_grid_bar.setVisible(False)
             self._fill_status.setVisible(False)
+            self._auto_weyl_status.setVisible(False)
             self._fill_current_row = None
 
         result = payload["result"]
@@ -1264,8 +1541,78 @@ class FillingCard(QWidget):
             result       = result,
             weyl_a       = list(s.weyl_result.a) if s.weyl_result else None,
             weyl_b       = list(s.weyl_result.b) if s.weyl_result else None,
+            incompat_edges = incompat_edges or [],
+            source       = "computed",
+        )
+        s.fill_queries.append(fq)
+        if s.stage < PipelineStage.FILLED:
+            s.stage = PipelineStage.FILLED
+
+        self._card.set_status(CardStatus.DONE)
+        self._update_summary()
+        self.session_updated.emit(s)
+
+    def _on_unrefined_fill_finished(
+        self, payload: dict, row: int,
+        nc_P: int, nc_Q: int, user_P: int, user_Q: int,
+        cusp_idx: int, m_other: list, e_other: list, gen: int,
+        worker: object = None,
+    ) -> None:
+        """Handle unrefined fill completion."""
+        w = worker if worker is not None else self.sender()
+        if w in self._fill_workers:
+            self._fill_workers.remove(w)
+
+        if gen != self._session_gen:
+            return   # stale result — manifold was reloaded
+
+        # Grid progress tracking
+        self._fill_grid_done += 1
+        all_done = not self._fill_workers
+        if self._fill_grid_total > 1:
+            self._fill_grid_bar.setValue(self._fill_grid_done)
+            self._fill_status.setText(
+                f"{self._fill_grid_done} / {self._fill_grid_total} done…"
+            )
+        if all_done:
+            self._fill_btn.setEnabled(True)
+            self._fill_stop_btn.setEnabled(False)
+            self._fill_progress.setVisible(False)
+            self._fill_grid_bar.setVisible(False)
+            self._fill_status.setVisible(False)
+            self._auto_weyl_status.setVisible(False)
+            self._fill_current_row = None
+
+        result = payload["result"]
+        s = self._session
+        try:
+            if result is None:
+                series_latex = "—"
+            else:
+                # Format unrefined series
+                series_latex = format_unrefined_series_latex(result.series)
+        except Exception:
+            series_latex = "—"
+
+        self._fill_table.set_row_result(row, series_latex, "computed")
+
+        fq = FillQuery(
+            cusp_idx     = cusp_idx,
+            nc_P         = nc_P,
+            nc_Q         = nc_Q,
+            user_P       = user_P,
+            user_Q       = user_Q,
+            p            = 0,
+            q            = 0,
+            m_other      = m_other,
+            e_other      = e_other,
+            q_order_half = s.q_order_half,
+            result       = result,
+            weyl_a       = list(s.weyl_result.a) if s.weyl_result else None,
+            weyl_b       = list(s.weyl_result.b) if s.weyl_result else None,
             incompat_edges = [],
             source       = "computed",
+            unrefined_fallback = True,
         )
         s.fill_queries.append(fq)
         if s.stage < PipelineStage.FILLED:
@@ -1288,6 +1635,7 @@ class FillingCard(QWidget):
             self._fill_progress.setVisible(False)
             self._fill_grid_bar.setVisible(False)
             self._fill_status.setVisible(False)
+            self._auto_weyl_status.setVisible(False)
             self._fill_current_row = None
         self._fill_table.set_row_result(row, f"Error: {msg}", "—")
         logging.warning("FillWorker error: %s", msg)
@@ -1401,12 +1749,10 @@ class FillingCard(QWidget):
             self._fill_workers.remove(w)
 
         if gen != self._session_gen:
-            return   # stale result
+            return   # stale
 
+        result = payload["result"]
         s = self._session
-        cusp_specs = payload.get("cusp_specs", [])
-        result = payload.get("result")
-
         try:
             if result is None:
                 series_latex = "—"
@@ -1421,6 +1767,9 @@ class FillingCard(QWidget):
             series_latex = "$0$" if (result and result.is_zero) else "—"
 
         self._fill_table.set_row_result(row, series_latex, "computed")
+
+        # Extract cusp_specs from payload
+        cusp_specs = payload.get("cusp_specs", [])
 
         # Create MultiFillQuery
         mfq = MultiFillQuery(
@@ -1447,20 +1796,40 @@ class FillingCard(QWidget):
             if fq.result is None:
                 series_latex = "—"
             else:
-                inactive = [j for j, a in enumerate(self._fill_active_edges()) if not a]
-                projected = fq.result.collapse_eta_edges(inactive)
-                series_latex = format_filled_series_latex(
-                    projected.series,
-                    projected.num_hard,
-                    projected.has_cusp_eta,
-                    projected.num_cusp_eta,
-                )
+                if fq.unrefined_fallback:
+                    # For unrefined, format directly
+                    series_latex = format_unrefined_series_latex(fq.result.series)
+                else:
+                    inactive = [j for j, a in enumerate(self._fill_active_edges()) if not a]
+                    projected = fq.result.collapse_eta_edges(inactive)
+                    series_latex = format_filled_series_latex(
+                        projected.series,
+                        projected.num_hard,
+                        projected.has_cusp_eta,
+                        projected.num_cusp_eta,
+                    )
         except Exception:
             series_latex = "$0$" if (fq.result and fq.result.is_zero) else "—"
+
+        # Format NC basis using v0.4 style: γ = P·γ + Q·δ
+        nc_slope = format_slope_latex(fq.nc_P, fq.nc_Q, a=r"\gamma", b=r"\delta")
+        nc_label = f"$\\gamma = {nc_slope}$"
+
+        # Format user slope using v0.4 style: A·α + B·β
+        user_slope = format_slope_latex(fq.user_P, fq.user_Q, a=r"\alpha", b=r"\beta")
+        slope_label = f"${user_slope}$"
+
+        # Format Weyl info string with improved notation
+        weyl_info = ""
+        if fq.weyl_a is not None and fq.weyl_b is not None:
+            a_str = ", ".join(frac_to_latex(a) for a in fq.weyl_a)
+            b_str = ", ".join(frac_to_latex(b) for b in fq.weyl_b)
+            weyl_info = f"$a=({a_str}), b=({b_str})$"
+
         row = self._fill_table.add_row(
-            f"NC ({fq.nc_P},{fq.nc_Q})",
-            f"slope ({fq.user_P},{fq.user_Q})",
-            "",
+            nc_label,
+            slope_label,
+            weyl_info,
             fq.source,
         )
         self._fill_table.set_row_result(row, series_latex, fq.source)
@@ -1492,82 +1861,3 @@ class FillingCard(QWidget):
             mfq.source,
         )
         self._fill_table.set_row_result(row, series_latex, mfq.source)
-
-    # ------------------------------------------------------------------
-    # Internal — filled results edge toggles
-    # ------------------------------------------------------------------
-
-    def _rebuild_fill_edge_toggles(self, n_hard: int) -> None:
-        """Create per-edge W checkboxes; called from unlock()."""
-        for cb in self._fill_edge_checkboxes:
-            cb.setParent(None)  # type: ignore[arg-type]
-        self._fill_edge_checkboxes.clear()
-        for j in range(n_hard):
-            sub = chr(0x2080 + j) if j <= 9 else f"_{j}"
-            cb = QCheckBox(f"W{sub}")
-            cb.setChecked(True)
-            cb.stateChanged.connect(self._on_fill_edge_toggle)
-            self._fill_edge_layout.addWidget(cb)
-            self._fill_edge_checkboxes.append(cb)
-
-    def _fill_active_edges(self) -> list[bool]:
-        return [cb.isChecked() for cb in self._fill_edge_checkboxes]
-
-    def _on_fill_preset_changed(self, text: str) -> None:
-        """Apply preset and refresh display (no debounce — instant)."""
-        for cb in self._fill_edge_checkboxes:
-            cb.blockSignals(True)
-            if text == "Full Refined":
-                cb.setChecked(True)
-                cb.setEnabled(False)
-            elif text == "Unrefined":
-                cb.setChecked(False)
-                cb.setEnabled(False)
-            else:  # Custom
-                cb.setEnabled(True)
-            cb.blockSignals(False)
-        if text != "Custom":
-            self._do_refresh_fill_display()
-
-    def _on_fill_edge_toggle(self) -> None:
-        """Called when user manually clicks an individual W checkbox."""
-        if not self._session or not self._session.fill_queries:
-            return
-        # Switch preset label to "Custom"
-        self._fill_preset_combo.blockSignals(True)
-        self._fill_preset_combo.setCurrentText("Custom")
-        self._fill_preset_combo.blockSignals(False)
-        self._fill_refresh_timer.start()
-
-    def _do_refresh_fill_display(self) -> None:
-        """Re-render all fill rows with the current edge-toggle projection."""
-        if not self._session:
-            return
-        inactive = [j for j, a in enumerate(self._fill_active_edges()) if not a]
-        for idx, fq in enumerate(self._session.fill_queries):
-            if fq.result is None:
-                continue
-            try:
-                projected = fq.result.collapse_eta_edges(inactive)
-                latex = format_filled_series_latex(
-                    projected.series,
-                    projected.num_hard,
-                    projected.has_cusp_eta,
-                    projected.num_cusp_eta,
-                )
-            except Exception:
-                latex = "—"
-            self._fill_table.set_row_result(idx, latex, fq.source)
-            # Yield to event loop every 50 rows to keep UI responsive
-            # when re-projecting filled results after edge toggle.
-            if (idx + 1) % 50 == 0:
-                QCoreApplication.processEvents()
-
-    def _update_summary(self) -> None:
-        n_nc   = len(self._nc_cycle_vms)
-        n_fill = len(self._session.fill_queries)
-        weyl   = "✓" if self._session.weyl_checked else "not run"
-        self._card.set_summary(
-            f"Weyl: {weyl}  ·  {n_nc} NC cycle{'s' if n_nc != 1 else ''}  ·  "
-            f"{n_fill} filled quer{'ies' if n_fill != 1 else 'y'}"
-        )

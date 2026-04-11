@@ -303,6 +303,40 @@ class FillingService:
 
         return augmented, result
 
+    @staticmethod
+    def compute_unrefined_filled_index(
+        nz_data: Any,
+        cusp_idx: int,
+        user_P: int,
+        user_Q: int,
+        m_other: list[int] | None = None,
+        e_other: list[Fraction] | None = None,
+        q_order_half: int = 10,
+    ) -> Any:
+        """Unrefined (3D) Dehn filling — no basis change, no η variables.
+
+        Parameters
+        ----------
+        nz_data : NeumannZagierData  (original basis, unchanged)
+        cusp_idx : int
+        user_P, user_Q : int  — filling slope in original (α, β) basis
+        m_other, e_other : charges for unfilled cusps (None → all zeros)
+        q_order_half : int
+
+        Returns
+        -------
+        FilledIndexResult
+        """
+        return _df_mod.compute_filled_index(
+            nz_data,
+            cusp_idx=cusp_idx,
+            P=user_P,
+            Q=user_Q,
+            m_other=m_other,
+            e_other=e_other,
+            q_order_half=q_order_half,
+        )
+
     # ── Utilities ─────────────────────────────────────────────────────
 
     @staticmethod

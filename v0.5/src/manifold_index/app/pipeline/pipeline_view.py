@@ -249,11 +249,11 @@ class PipelineView(QWidget):
             any_nc = any(len(ncs.cycles) > 0 for ncs in session.nc_cycles)
             if any_nc:
                 self._run_all_lbl.setText(
-                    "✓ Done — NC cycles found, choose a slope and click Compute Filling"
+                    "✓ Done — NC cycles found, select slope and click Compute Filling"
                 )
             else:
                 self._run_all_lbl.setText(
-                    "⚠ No NC cycles found — try the Manual basis cycle option"
+                    "✓ Done — no NC cycles, meridian basis ready, enter slope and click Compute Filling"
                 )
 
     # ------------------------------------------------------------------

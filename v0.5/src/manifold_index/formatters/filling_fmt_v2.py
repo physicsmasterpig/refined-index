@@ -1,39 +1,27 @@
 """
-formatters.filling_fmt
-======================
-HTML / LaTeX formatters for the Dehn Filling card (Card ③).
+formatters.filling_fmt_v2
+==========================
+Improved HTML/LaTeX formatters for Dehn Filling (Card ③) with v0.4-style design.
 
-Public API
-----------
-format_filled_series_latex(series, num_hard, has_cusp_eta, max_q_terms)
-    → compact ``$...$`` KaTeX string for a filled index series
-
-format_nc_cycle_table_html(nc_cycles)
-    → ``<table class="nc">`` HTML listing NC cycle slopes
-
-format_fill_result_html(fq)
-    → HTML fragment for one FillQueryViewModel result row
-
-format_slope_latex(P, Q)
-    → ``$P\\alpha + Q\\beta$`` KaTeX (public convenience re-export)
-
-BLUEPRINT reference: §4 (formatters split), §11 (FillingCard display)
+Features:
+- Proper mathematical notation (α, β, γ, δ with subscripts)
+- Sophisticated table layouts with proper alignment
+- HJ continued fraction display
+- Transformed slope in γᵢ/δᵢ basis
+- Per-cycle Weyl vectors
 """
 from __future__ import annotations
 
 from fractions import Fraction
-
-from manifold_index.viewmodels.filling_vm import (
-    FillQueryViewModel,
-    NCCycleViewModel,
-)
+from manifold_index.viewmodels.filling_vm import NCCycleViewModel
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────
+# Helpers
+# ─────────────────────────────────────────────────────────────────────────
 
-def _frac_to_latex(v) -> str:
+def frac_to_latex(v) -> str:
+    """Format a number as LaTeX: 0, 1, -2, 1/2, -3/2 etc."""
     f = Fraction(v).limit_denominator(1000)
     if f.denominator == 1:
         return str(int(f))
@@ -41,12 +29,14 @@ def _frac_to_latex(v) -> str:
     return rf"{sign}\tfrac{{{abs(f.numerator)}}}{{{f.denominator}}}"
 
 
-def format_slope_latex(P: int, Q: int,
-                       a: str = r"\gamma", b: str = r"\delta") -> str:
-    r"""Format $P\,\gamma + Q\,\delta$ with correct sign handling.
+# Alias for backwards compatibility
+_frac_to_latex = frac_to_latex
 
-    The default basis is (γ, δ) = (meridian, longitude) for Dehn filling.
-    Returns a bare LaTeX string (no surrounding ``$``).
+
+def format_slope_latex(P: int, Q: int, a: str = r"\gamma", b: str = r"\delta") -> str:
+    r"""Format $P\,\gamma + Q\,\delta$ with proper sign handling.
+
+    Examples: γ, -γ + 2δ, α - β, 0
     """
     if P == 0 and Q == 0:
         return "0"
@@ -68,9 +58,145 @@ def format_slope_latex(P: int, Q: int,
     return "".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# Filled series → KaTeX
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────
+# NC Cycle Table (v0.4 style)
+# ─────────────────────────────────────────────────────────────────────────
+
+def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
+    """Return HTML table with per-cycle Weyl vectors and q¹ projection.
+
+    Columns:
+    - # : cycle number
+    - γᵢ : NC cycle in meridian/longitude basis
+    - δᵢ : Complementary cycle (Bézout complement)
+    - Weyl a : Weyl vector a (per-cycle)
+    - Weyl b : Weyl vector b (per-cycle)
+    - q¹ Proj : q¹ adjoint projection result
+    - Source : computed or cached
+    """
+    if not nc_cycles:
+        return '<p class="muted">No non-closable cycles found.</p>\n'
+
+    html = (
+        '<table class="nc" style="font-size: 0.95em;">\n'
+        '<tr>\n'
+        '  <th>#</th>\n'
+        '  <th>$\\gamma_i$ (basis)</th>\n'
+        '  <th>Weyl $a_i$</th>\n'
+        '  <th>Weyl $b_i$</th>\n'
+        '  <th>$q^1$ Projection</th>\n'
+        '  <th>Source</th>\n'
+        '</tr>\n'
+    )
+
+    for i, nc in enumerate(nc_cycles, 1):
+        # Cycle slope in (P, Q) notation
+        cycle_latex = format_slope_latex(nc.P, nc.Q)
+
+        # Weyl vectors display
+        if nc.weyl_a and nc.weyl_b:
+            # Show all components in tuple form
+            a_str = ", ".join(_frac_to_latex(a) for a in nc.weyl_a)
+            b_str = ", ".join(_frac_to_latex(b) for b in nc.weyl_b)
+            weyl_a = f"$({a_str})$"
+            weyl_b = f"$({b_str})$"
+        else:
+            weyl_a = "—"
+            weyl_b = "—"
+
+        # q¹ projection result
+        if nc.adjoint_proj_pass is True:
+            q1_str = '<span style="color: #0a0;">✓ Pass</span>'
+        elif nc.adjoint_proj_pass is False:
+            q1_str = '<span style="color: #d00;">✗ Fail</span>'
+        else:
+            q1_str = "—"
+
+        # Determine row color based on compatibility
+        w = nc.weyl_compatible
+        a = nc.adjoint_proj_pass
+        if w is False or a is False:
+            row_style = 'style="background-color: #f0e0e0;"'
+        elif w is True and a is True:
+            row_style = 'style="background-color: #e0f0e0;"'
+        else:
+            row_style = ''
+
+        html += (
+            f'<tr {row_style}>\n'
+            f'  <td style="text-align: center; font-weight: bold;"><b>{i}</b></td>\n'
+            f'  <td style="text-align: center;">${cycle_latex}$</td>\n'
+            f'  <td style="text-align: center;">{weyl_a}</td>\n'
+            f'  <td style="text-align: center;">{weyl_b}</td>\n'
+            f'  <td style="text-align: center;">{q1_str}</td>\n'
+            f'  <td style="text-align: center;"><small>{nc.source}</small></td>\n'
+            f'</tr>\n'
+        )
+
+    html += '</table>\n'
+    return html
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Fill Result Display (v0.4 style)
+# ─────────────────────────────────────────────────────────────────────────
+
+def format_fill_result_detailed(
+    nc_P: int,
+    nc_Q: int,
+    user_P: int,
+    user_Q: int,
+    p: int,
+    q: int,
+    weyl_a: list | None = None,
+    weyl_b: list | None = None,
+    hj_ks: list | None = None,
+    series_latex: str = "—",
+) -> str:
+    """Format a filled index result with v0.4-style layout.
+
+    Shows:
+    - NC cycle as γᵢ, δᵢ
+    - User slope in original basis
+    - Transformed slope in new basis
+    - HJ continued fraction
+    - Weyl vectors
+    - Result series
+    """
+    parts = []
+
+    # NC cycle info
+    gamma_str = format_slope_latex(nc_P, nc_Q)
+    parts.append(f'<p><b>NC basis:</b> $\\gamma = {gamma_str}$</p>')
+
+    # User slope
+    user_slope = format_slope_latex(user_P, user_Q, r"\alpha", r"\beta")
+    parts.append(f'<p><b>User slope:</b> ${user_slope}$</p>')
+
+    # Transformed slope in new basis
+    trans_slope = format_slope_latex(p, q, r"\gamma", r"\delta")
+    parts.append(f'<p><b>Transformed:</b> ${trans_slope}$</p>')
+
+    # HJ continued fraction (if available)
+    if hj_ks:
+        hj_str = "[" + ", ".join(str(k) for k in hj_ks) + "]"
+        parts.append(f'<p><b>HJ:</b> $[{hj_str}]$</p>')
+
+    # Weyl vectors (if available)
+    if weyl_a and weyl_b:
+        a_str = ", ".join(_frac_to_latex(a) for a in weyl_a)
+        b_str = ", ".join(_frac_to_latex(b) for b in weyl_b)
+        parts.append(f'<p><b>Weyl:</b> $a = ({a_str})$, $b = ({b_str})$</p>')
+
+    # Result series
+    parts.append(f'<p><b>$\\mathcal{{I}}$ result:</b> {series_latex}</p>')
+
+    return '\n'.join(parts)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Refined Series Display (from filling_fmt.py)
+# ─────────────────────────────────────────────────────────────────────────
 
 def format_filled_series_latex(
     series: dict,
@@ -307,137 +433,3 @@ def format_unrefined_series_latex(
             result_str += " + " + t
 
     return f"${result_str}$"
-
-
-# ---------------------------------------------------------------------------
-# NC cycle table
-# ---------------------------------------------------------------------------
-
-def format_nc_cycle_table_html(
-    nc_cycles: list[NCCycleViewModel],
-    weyl_a: list | None = None,
-    weyl_b: list | None = None,
-    adjoint_proj_pass: bool | None = None,
-) -> str:
-    """Return ``<table class="nc">`` with per-cycle Weyl vectors in expanded view.
-
-    Each NC cycle shows its own Weyl vectors (from basis change in that cycle).
-
-    Parameters
-    ----------
-    nc_cycles : list[NCCycleViewModel]
-        Each VM contains its own weyl_a, weyl_b, adjoint_proj_pass (per-cycle).
-    weyl_a, weyl_b, adjoint_proj_pass
-        (Legacy parameters, ignored if per-cycle data present)
-    """
-    if not nc_cycles:
-        return '<p class="muted">No non-closable cycles found.</p>\n'
-
-    header = (
-        '<table class="nc">\n'
-        "<tr>"
-        "<th>#</th>"
-        "<th>Slope $\\gamma$</th>"
-        "<th>Weyl Vectors (a, b)</th>"
-        "<th>q¹ Projection</th>"
-        "<th>Source</th>"
-        "</tr>\n"
-    )
-    rows = ""
-    for i, nc in enumerate(nc_cycles, 1):
-        # Format Weyl vectors for this cycle
-        if nc.weyl_a and nc.weyl_b:
-            a_str = ", ".join(str(a) for a in nc.weyl_a[:min(2, len(nc.weyl_a))])
-            b_str = ", ".join(str(b) for b in nc.weyl_b[:min(2, len(nc.weyl_b))])
-            a_ellipsis = "…" if len(nc.weyl_a) > 2 else ""
-            b_ellipsis = "…" if len(nc.weyl_b) > 2 else ""
-            weyl_str = f"a=[{a_str}{a_ellipsis}] b=[{b_str}{b_ellipsis}]"
-        else:
-            weyl_str = "—"
-
-        # Format q¹ projection result
-        if nc.adjoint_proj_pass is True:
-            q1_str = "✓ Pass"
-        elif nc.adjoint_proj_pass is False:
-            q1_str = "✗ Fail"
-        else:
-            q1_str = "—"
-
-        # Overall compatibility
-        w = nc.weyl_compatible
-        a = nc.adjoint_proj_pass
-        if w is False or a is False:
-            compat_class = 'style="color: #d00;"'
-        elif w is True and a is True:
-            compat_class = 'style="color: #0a0;"'
-        else:
-            compat_class = ''
-
-        rows += (
-            f"<tr {compat_class}>"
-            f"<td>{i}</td>"
-            f"<td>${nc.slope_latex}$</td>"
-            f"<td><small>{weyl_str}</small></td>"
-            f"<td>{q1_str}</td>"
-            f"<td>{nc.source}</td>"
-            f"</tr>\n"
-        )
-
-    return header + rows + "</table>\n"
-
-
-# ---------------------------------------------------------------------------
-# Fill-query result HTML
-# ---------------------------------------------------------------------------
-
-def format_fill_result_html(fq: FillQueryViewModel) -> str:
-    """Return an HTML fragment for one ``FillQueryViewModel``.
-
-    Shows the NC slope, user slope, transformed (p,q) coordinates,
-    and the filled series.
-
-    Parameters
-    ----------
-    fq : FillQueryViewModel
-    """
-    parts: list[str] = []
-
-    # Slope header
-    parts.append(
-        f"<p>NC cycle: {fq.nc_slope_latex} &nbsp;|&nbsp; "
-        f"User slope: {fq.user_slope_latex}</p>"
-    )
-
-    # Transformed coordinates
-    transformed = format_slope_latex(fq.p, fq.q,
-                                     a=r"\gamma", b=r"\delta")
-    parts.append(
-        f"<p>Transformed slope: ${transformed}$"
-        f" &nbsp; $(p,q) = ({fq.p},\\,{fq.q})$</p>"
-    )
-
-    # Weyl vectors (if available)
-    if fq.weyl_a_latex is not None:
-        parts.append(
-            f"<p>Weyl: $a = {fq.weyl_a_latex}$, "
-            f"$b = {fq.weyl_b_latex}$</p>"
-        )
-
-    # Series result
-    result_block = (
-        '<table class="idx">\n'
-        f'<tr><td class="eq">$=$</td>'
-        f'<td class="sr">{fq.result_latex}</td></tr>\n'
-        "</table>\n"
-    )
-    parts.append(result_block)
-
-    # Incompatible edges warning
-    if fq.incompat_edges:
-        edge_list = ", ".join(str(e) for e in fq.incompat_edges)
-        parts.append(
-            f'<p class="warn">⚠ Edges {{{edge_list}}} incompatible with '
-            "this filling slope — η zeroed.</p>"
-        )
-
-    return "\n".join(parts) + "\n"

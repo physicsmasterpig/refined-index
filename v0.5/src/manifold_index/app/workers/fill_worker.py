@@ -114,6 +114,70 @@ class FillWorker(QThread):
             self.error.emit(str(exc))
 
 
+class UnrefinedFillWorker(QThread):
+    """Compute unrefined (3D) Dehn filling without basis change or η variables."""
+
+    status   = Signal(str)
+    progress = Signal(int, int)
+    finished = Signal(object)
+    error    = Signal(str)
+
+    def __init__(
+        self,
+        nz_data: Any,
+        cusp_idx: int,
+        user_P: int,
+        user_Q: int,
+        m_other: list[int] | None,
+        e_other: list[Fraction] | None,
+        q_order_half: int,
+        manifold_name: str = "unknown",
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._nz_data      = nz_data
+        self._cusp_idx     = cusp_idx
+        self._user_P       = user_P
+        self._user_Q       = user_Q
+        self._m_other      = m_other
+        self._e_other      = e_other
+        self._q_order_half = q_order_half
+        self._manifold_name = manifold_name
+
+    def run(self) -> None:
+        self.setPriority(QThread.Priority.LowPriority)
+        try:
+            self.status.emit(
+                f"Computing unrefined Dehn filling (slope=({self._user_P},{self._user_Q}))…"
+            )
+
+            def _prog(done: int, total: int) -> None:
+                time.sleep(0.005)
+                self.progress.emit(done, total)
+
+            result = FillingService.compute_unrefined_filled_index(
+                nz_data      = self._nz_data,
+                cusp_idx     = self._cusp_idx,
+                user_P       = self._user_P,
+                user_Q       = self._user_Q,
+                m_other      = self._m_other,
+                e_other      = self._e_other,
+                q_order_half = self._q_order_half,
+            )
+            self.finished.emit(
+                {
+                    "cusp_idx": self._cusp_idx,
+                    "user_P":   self._user_P,
+                    "user_Q":   self._user_Q,
+                    "p":        self._user_P,
+                    "q":        self._user_Q,
+                    "result":   result,
+                }
+            )
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
 class MultiFillWorker(QThread):
     """Apply sequential basis changes and compute multi-cusp filled refined index."""
 

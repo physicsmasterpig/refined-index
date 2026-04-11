@@ -47,6 +47,10 @@ class NCCycleViewModel:
     adjoint_proj_pass : bool | None
         Whether the q¹ adjoint su(2) projection equals −1.
         ``None`` if the adjoint check has not been run.
+    weyl_a : list | None
+        Weyl a vectors (one entry per hard edge) for this NC cycle basis.
+    weyl_b : list | None
+        Weyl b vectors (one entry per hard edge) for this NC cycle basis.
     source : str
         ``"computed"`` or ``"cache"``.
     """
@@ -56,7 +60,9 @@ class NCCycleViewModel:
     slope_latex: str
     weyl_compatible: "bool | None"
     adjoint_proj_pass: "bool | None"
-    source: str
+    weyl_a: "list | None" = None
+    weyl_b: "list | None" = None
+    source: str = ""
 
 
 # ---------------------------------------------------------------------------
