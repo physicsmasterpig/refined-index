@@ -35,9 +35,15 @@ _frac_to_latex = frac_to_latex
 
 
 def _extended_gcd(a: int, b: int) -> tuple[int, int, int]:
-    """Extended Euclidean algorithm: returns (gcd, x, y) where a*x + b*y = gcd."""
+    """Extended Euclidean algorithm: returns (gcd, x, y) where a*x + b*y = gcd.
+
+    Works correctly even if a or b are negative.
+    """
     if b == 0:
-        return a, 1, 0
+        if a >= 0:
+            return a, 1, 0
+        else:
+            return -a, -1, 0
     gcd, x1, y1 = _extended_gcd(b, a % b)
     x = y1
     y = x1 - (a // b) * y1
@@ -49,18 +55,28 @@ def _bezout_complement(P: int, Q: int) -> tuple[int, int]:
 
     Given a slope (P, Q) in the (α, β) basis, compute its dual (R, S)
     such that P·S - Q·R = 1 (unimodular transformation).
+
+    This handles signs correctly: for any (P, Q) with gcd(P,Q)=1,
+    there exist unique integers (R, S) satisfying the equation.
     """
     if P == 0 and Q == 0:
         return 0, 0
 
-    # Solve P·S - Q·R = 1, or equivalently P·S + Q·(-R) = 1
-    gcd, s, neg_r = _extended_gcd(P, Q)
+    # Find (x, y) such that P·x + Q·y = gcd(P, Q)
+    gcd, x, y = _extended_gcd(P, Q)
 
-    if gcd != 1:
+    if abs(gcd) != 1:
         # Not coprime - shouldn't happen for valid NC cycles
+        # Return a default that won't cause division by zero
         return 0, 1
 
-    return (-neg_r, s)
+    # From P·x + Q·y = gcd, we want P·S - Q·R = 1
+    # If gcd = 1: set S = x, R = -y  →  P·x - Q·(-y) = 1  ✓
+    # If gcd = -1: set S = -x, R = y  →  P·(-x) - Q·y = -(P·x + Q·y) = -(-1) = 1  ✓
+    if gcd == 1:
+        return (-y, x)
+    else:
+        return (y, -x)
 
 
 def format_slope_latex(P: int, Q: int, a: str = r"\gamma", b: str = r"\delta") -> str:
