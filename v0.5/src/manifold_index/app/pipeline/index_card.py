@@ -107,6 +107,25 @@ def _fmt_charges(vals: list) -> str:
     return "(" + ", ".join(parts) + ")"
 
 
+def _format_boundary_curve_header(m_ext: list, e_ext: list) -> str:
+    """Format boundary curve info for table header (γᵢ, δᵢ notation).
+
+    Shows: User slope: e₁α₁ - m₁/2·β₁; ...
+    Following v0.4 style with γ/δ notation.
+    """
+    if len(m_ext) == 0:
+        return "User slope: —"
+
+    # γᵢ = eᵢ (coefficient of αᵢ)
+    # δᵢ = -mᵢ/2 (coefficient of βᵢ in -mᵢ/2·βᵢ)
+
+    gammas = [f"γ_{i+1}={_frac_to_latex(e)}" for i, e in enumerate(e_ext)]
+    deltas = [f"δ_{i+1}={_frac_to_latex(Fraction(-m, 2))}" for i, m in enumerate(m_ext)]
+
+    info = "; ".join(gammas + deltas)
+    return f"User slope: {info}"
+
+
 class IndexCard(QWidget):
     """Card ②: compute or load I^ref(m,e).
 
