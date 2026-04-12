@@ -253,13 +253,21 @@ class ManifoldCard(QWidget):
         self._math_view.set_loading(True)
         self._load_cancelled = False
 
-        # Start worker to load manifold in a separate thread.
-        # Uses thread-local SnaPy connection (imported in worker thread).
-        self._manifold_load_worker = ManifoldLoadWorker(name, parent=self)
-        self._manifold_load_worker.status.connect(self._on_status)
-        self._manifold_load_worker.finished.connect(self._on_manifold_loaded)
-        self._manifold_load_worker.error.connect(self._on_error)
-        self._manifold_load_worker.start()
+        # Load manifold in MAIN THREAD (SnaPy's SQLite is thread-local)
+        # Worker thread would fail with cross-thread database access error
+        try:
+            from manifold_index.services.compute_service import ComputeService
+            self._status_label.setText("Loading manifold…")
+            manifold_data, easy_result, nz_data = ComputeService.load_manifold(name)
+
+            # Emit as if worker finished
+            self._on_manifold_loaded({
+                "manifold_data": manifold_data,
+                "easy_result": easy_result,
+                "nz_data": nz_data,
+            })
+        except Exception as exc:
+            self._on_error(str(exc))
 
     def _on_status(self, msg: str) -> None:
         self._status_label.setText(msg)
