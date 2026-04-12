@@ -1811,13 +1811,13 @@ class FillingCard(QWidget):
         except Exception:
             series_latex = "$0$" if (fq.result and fq.result.is_zero) else "—"
 
-        # Format NC basis using v0.4 style: γ = P·γ + Q·δ
-        nc_slope = format_slope_latex(fq.nc_P, fq.nc_Q, a=r"\gamma", b=r"\delta")
+        # Format NC cycle using v0.4 style: γ = P·α + Q·β
+        nc_slope = format_slope_latex(fq.nc_P, fq.nc_Q, a=r"\alpha", b=r"\beta")
         nc_label = f"$\\gamma = {nc_slope}$"
 
-        # Format user slope using v0.4 style: A·α + B·β
-        user_slope = format_slope_latex(fq.user_P, fq.user_Q, a=r"\alpha", b=r"\beta")
-        slope_label = f"${user_slope}$"
+        # Format user slope in γᵢ/δᵢ basis: p·γᵢ + q·δᵢ
+        trans_slope = format_slope_latex(fq.p, fq.q, a=r"\gamma", b=r"\delta")
+        slope_label = f"${trans_slope}$"
 
         # Format Weyl info string with improved notation
         weyl_info = ""
