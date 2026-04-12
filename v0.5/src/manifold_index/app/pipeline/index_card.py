@@ -35,8 +35,68 @@ from manifold_index.app.workers.index_worker import IndexWorker
 # Display helpers
 # ---------------------------------------------------------------------------
 
+def _frac_to_latex(v: Fraction | float) -> str:
+    """Format a fraction as LaTeX: 0, 1, -2, 1/2, -3/2 etc."""
+    f = Fraction(v).limit_denominator(1000)
+    if f.denominator == 1:
+        return str(int(f))
+    sign = "-" if f < 0 else ""
+    return rf"{sign}\tfrac{{{abs(f.numerator)}}}{{{f.denominator}}}"
+
+
+def _slope_latex(P: int | float, Q: int | float, a: str = r"\alpha", b: str = r"\beta") -> str:
+    """Format P·a + Q·b with proper sign handling.
+
+    Examples: α, -α + 2β, α - β, 0
+    """
+    P, Q = int(P), int(Q)
+    if P == 0 and Q == 0:
+        return "0"
+    parts: list[str] = []
+    if P != 0:
+        if P == 1:
+            parts.append(a)
+        elif P == -1:
+            parts.append(f"-{a}")
+        else:
+            parts.append(f"{P}\\,{a}")
+    if Q != 0:
+        if Q > 0:
+            q_part = f"{Q}\\,{b}" if Q != 1 else b
+            if parts:
+                parts.append(f" + {q_part}")
+            else:
+                parts.append(q_part)
+        else:
+            q_part = f"{-Q}\\,{b}" if Q != -1 else b
+            if parts:
+                parts.append(f" - {q_part}")
+            else:
+                parts.append(f"-{q_part}")
+    return "".join(parts)
+
+
+def _fmt_charges_as_alphabeta(m_vals: list, e_vals: list) -> str:
+    """Format m,e charges as beautiful α/β notation.
+
+    Convention: boundary curve is e·α − (m/2)·β
+    For each cusp: shows the α and β coefficients.
+    """
+    parts = []
+    for m, e in zip(m_vals, e_vals):
+        m_int = int(m)
+        e_frac = Fraction(e).limit_denominator(1000)
+        # Format as e·α - (m/2)·β
+        formula = _slope_latex(int(e_frac), -m_int // 2, a=r"\alpha", b=r"\beta")
+        parts.append(formula)
+
+    if len(parts) == 1:
+        return f"${parts[0]}$"
+    return f"$({', '.join(parts)})$"
+
+
 def _fmt_charges(vals: list) -> str:
-    """Format a list of m/e charge values as a parenthesized tuple string.
+    """Format a list of charge values (fallback for simple display).
 
     Converts ``[0, Fraction(1, 2)]`` → ``"(0, 1/2)"`` for display.
     """
@@ -356,8 +416,9 @@ class IndexCard(QWidget):
 
             for m_ext, e_ext, result in entries:
                 r_int = int(s.nz_data.r)
-                m_disp = m_ext[0] if r_int == 1 else _fmt_charges(m_ext)
-                e_disp = str(e_ext[0]) if r_int == 1 else _fmt_charges(e_ext)
+                # Format charges as beautiful α/β notation
+                m_disp = _fmt_charges_as_alphabeta(m_ext, [0] * len(m_ext))
+                e_disp = _fmt_charges_as_alphabeta([0] * len(e_ext), e_ext)
                 try:
                     series_latex = format_series_latex(result, s.num_hard(), s.q_order_half)
                 except Exception:
@@ -437,8 +498,9 @@ class IndexCard(QWidget):
             self._pending_grid.clear()
             first_item: tuple | None = None
             for idx, (m_ext, e_ext) in enumerate(grid_points):
-                m_disp = m_ext[0] if r_int == 1 else _fmt_charges(m_ext)
-                e_disp = str(e_ext[0]) if r_int == 1 else _fmt_charges(e_ext)
+                # Format charges as beautiful α/β notation
+                m_disp = _fmt_charges_as_alphabeta(m_ext, [0] * len(m_ext))
+                e_disp = _fmt_charges_as_alphabeta([0] * len(e_ext), e_ext)
                 row = self._results_table.add_row(m_disp, e_disp, "", "—")
                 self._results_table.set_row_computing(row)
                 if first_item is None:
