@@ -36,7 +36,7 @@ PKG = SRC / "manifold_index"
 # ── Version ────────────────────────────────────────────────────────
 APP_VERSION = "0.5.3"
 
-# ── collect_all for snappy ecosystem ──────────────────────────────
+# ── collect_all for snappy ecosystem and UI framework ────────────
 _snappy_datas, _snappy_bins, _snappy_hidden = collect_all("snappy")
 _sm_datas,     _sm_bins,     _sm_hidden     = collect_all("snappy_manifolds")
 _sph_datas,    _sph_bins,    _sph_hidden    = collect_all("spherogram")
@@ -45,6 +45,7 @@ _cy_datas,     _cy_bins,     _cy_hidden     = collect_all("cypari")
 _fx_datas,     _fx_bins,     _fx_hidden     = collect_all("FXrays")
 _kfh_datas,    _kfh_bins,    _kfh_hidden    = collect_all("knot_floer_homology")
 _li_datas,     _li_bins,     _li_hidden     = collect_all("low_index")
+_pyside_datas, _pyside_bins, _pyside_hidden = collect_all("PySide6")
 
 # ── Hidden imports ─────────────────────────────────────────────────
 hidden = collect_submodules("manifold_index")
@@ -52,6 +53,9 @@ hidden = collect_submodules("manifold_index")
 # Snappy ecosystem
 hidden += _snappy_hidden + _sm_hidden + _sph_hidden + _pl_hidden
 hidden += _cy_hidden + _fx_hidden + _kfh_hidden + _li_hidden
+
+# PySide6 ecosystem
+hidden += _pyside_hidden
 
 # Additional runtime deps
 hidden += [
@@ -72,14 +76,8 @@ hidden += [
     # numpy
     "numpy._core._methods",
     "numpy.linalg._umath_linalg",
-    # PySide6 — core widgets used in v0.5
-    "PySide6.QtCore",
-    "PySide6.QtGui",
-    "PySide6.QtWidgets",
-    "PySide6.QtNetwork",
-    "PySide6.QtWebEngineWidgets",
-    "PySide6.QtWebEngineCore",
-    "PySide6.QtWebChannel",
+    # PySide6 — collected via collect_all above, but listed for clarity
+    "PySide6",
     # stdlib
     "fractions",
     "importlib.resources",
@@ -102,6 +100,7 @@ datas = []
 datas += _snappy_datas + _sm_datas + _sph_datas + _pl_datas
 datas += _cy_datas + _fx_datas + _kfh_datas + _li_datas
 datas += collect_data_files("scipy")
+datas += _pyside_datas  # PySide6 plugins, libraries, etc.
 
 # Our package data (data_packs.json, kernel caches, etc.)
 datas += collect_data_files("manifold_index", subdir="data")
@@ -112,6 +111,9 @@ binaries = []
 # Snappy ecosystem binaries
 binaries += _snappy_bins + _sm_bins + _sph_bins + _pl_bins
 binaries += _cy_bins + _fx_bins + _kfh_bins + _li_bins
+
+# PySide6 binaries (Qt frameworks, libraries)
+binaries += _pyside_bins
 
 # ── Analysis ───────────────────────────────────────────────────────
 a = Analysis(
