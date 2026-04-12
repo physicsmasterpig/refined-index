@@ -56,7 +56,7 @@ jobs:
           echo "Building Refined Index Calculator ${{ steps.version.outputs.version }}..."
           pyinstaller ManifoldIndex.spec --noconfirm
 
-      - name: Create distributable zip
+      - name: Create distributable zip and copy exe
         shell: pwsh
         working-directory: ${{ steps.version.outputs.build_dir }}
         run: |
@@ -71,25 +71,39 @@ jobs:
           Compress-Archive -Path "dist/ManifoldIndex" -DestinationPath $zipPath -Force
           Write-Output "Created: $zipPath"
 
-          # Get size
-          $size = (Get-Item $zipPath).Length / 1MB
-          Write-Output "Size: $([Math]::Round($size, 2)) MB"
+          # Copy exe to dist root for easier direct download
+          $exePath = "dist/ManifoldIndex.exe"
+          if (Test-Path "dist/ManifoldIndex/ManifoldIndex.exe") {
+            Copy-Item "dist/ManifoldIndex/ManifoldIndex.exe" $exePath
+            Write-Output "Copied exe to: $exePath"
+          }
+
+          # Get sizes
+          $zipSize = (Get-Item $zipPath).Length / 1MB
+          $exeSize = (Get-Item $exePath).Length / 1MB
+          Write-Output "Zip size: $([Math]::Round($zipSize, 2)) MB"
+          Write-Output "Exe size: $([Math]::Round($exeSize, 2)) MB"
 
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
+            ${{ steps.version.outputs.build_dir }}/dist/ManifoldIndex.exe
             ${{ steps.version.outputs.build_dir }}/dist/ManifoldIndex-windows.zip
           body: |
             **Windows Build for ${{ steps.version.outputs.version }}**
 
             This is the Windows 11/10 executable build.
 
+            **Quick Start:**
+            - Download `ManifoldIndex.exe` and run it directly
+            - Or download `ManifoldIndex-windows.zip` and extract to use
+
             **Installation:**
-            1. Download `ManifoldIndex-windows.zip`
-            2. Extract to a folder
-            3. Run `ManifoldIndex.exe`
+            1. Download either the `.exe` (standalone) or `.zip` (with dependencies packaged)
+            2. If using `.exe`, just run it
+            3. If using `.zip`, extract to a folder and run `ManifoldIndex.exe`
 
             **Note:** Windows Defender may warn about the unsigned executable. Click "More info" → "Run anyway".
           draft: false

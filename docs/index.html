@@ -578,8 +578,8 @@
         <span class="version-badge latest">Latest</span>
         <h3>v0.5.3 for Windows</h3>
         <div class="platform-info">Windows 10+ · x64 standalone .exe</div>
-        <a href="#" class="download-btn" onclick="alert('Build on Windows with: cd v0.5 && build_app.bat --clean\n\nProduces dist/ManifoldIndex.exe'); return false;">Build Instructions</a>
-        <div class="system-note"><strong>Build on Windows:</strong> Clone repo, then run <code>cd v0.5 && build_app.bat --clean</code><br>Produces <code>dist\ManifoldIndex.exe</code> — just download and run, Windows Defender may warn.</div>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.3/ManifoldIndex-windows.zip" class="download-btn">Download (154 MB)</a>
+        <div class="system-note">Download the zip, extract it, then run <code>ManifoldIndex.exe</code>. Windows Defender may warn on first run — click <strong>More info</strong> → <strong>Run anyway</strong>.</div>
       </div>
 
       <!-- macOS v0.4.2 -->
@@ -596,8 +596,8 @@
         <span class="version-badge">v0.4.2</span>
         <h3>v0.4.2 for Windows</h3>
         <div class="platform-info">Windows 10+ · x64 standalone .exe</div>
-        <a href="#" class="download-btn" onclick="alert('Build on Windows with: cd v0.4 && build_app.sh --clean\n\nProduces dist/ManifoldIndex.exe'); return false;">Build Instructions</a>
-        <div class="system-note"><strong>Build on Windows:</strong> Clone repo, then run <code>cd v0.4 && build_app.bat --clean</code><br>Produces <code>dist\ManifoldIndex.exe</code> — just download and run.</div>
+        <a href="#" class="download-btn" onclick="alert('Build on Windows with:\n\ncd v0.4\npip install pyinstaller\nbuild_app.bat --clean\n\nThen run dist\\ManifoldIndex.exe\n\nOr use v0.5.3 (recommended) which has pre-built Windows support.'); return false;">Build Instructions</a>
+        <div class="system-note"><strong>Note:</strong> Pre-built Windows support is available in v0.5.3 (recommended). For v0.4.2 on Windows, clone the repo and build locally using build_app.bat.</div>
       </div>
     </div>
 
@@ -657,7 +657,7 @@
       <p>Then launch normally. This is only required once.</p>
 
       <h3>Windows</h3>
-      <p>Download and run <code>ManifoldIndex.exe</code> directly. If Windows Defender warns, click <strong>More info</strong> → <strong>Run anyway</strong>. To build: <code>cd v0.5 && pip install pyinstaller && build_app.bat --clean</code></p>
+      <p>Download the standalone <code>ManifoldIndex.exe</code> from above and run it directly — no installation needed. If Windows Defender warns about the unsigned executable, click <strong>More info</strong> → <strong>Run anyway</strong>.</p>
 
       <h3>From Source</h3>
       <p>Requires Python ≥ 3.10 and dependencies in <code>pyproject.toml</code>.</p>
@@ -671,7 +671,7 @@
       <h3>v0.5.3</h3>
       <ul>
         <li><strong>Display Improvements:</strong> Better fill result layout with combined metadata and improved LaTeX notation</li>
-        <li><strong>Windows Support:</strong> Added build_app.bat script for standalone .exe building on Windows</li>
+        <li><strong>Windows Support:</strong> Pre-built standalone .exe available for direct download (built via GitHub Actions)</li>
         <li><strong>New Widget:</strong> math_label.py for enhanced mathematical notation display</li>
         <li><strong>Code Quality:</strong> Simplified UI labels and reduced complexity in display components</li>
         <li>Improved multi-cusp filling display with per-cusp slope formatting</li>
