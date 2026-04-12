@@ -9,6 +9,7 @@ Features:
 - HJ continued fraction display
 - Transformed slope in γᵢ/δᵢ basis
 - Per-cycle Weyl vectors
+- Bézout complement (δᵢ) computation for NC cycles
 """
 from __future__ import annotations
 
@@ -31,6 +32,35 @@ def frac_to_latex(v) -> str:
 
 # Alias for backwards compatibility
 _frac_to_latex = frac_to_latex
+
+
+def _extended_gcd(a: int, b: int) -> tuple[int, int, int]:
+    """Extended Euclidean algorithm: returns (gcd, x, y) where a*x + b*y = gcd."""
+    if b == 0:
+        return a, 1, 0
+    gcd, x1, y1 = _extended_gcd(b, a % b)
+    x = y1
+    y = x1 - (a // b) * y1
+    return gcd, x, y
+
+
+def _bezout_complement(P: int, Q: int) -> tuple[int, int]:
+    """Compute Bézout complement (R, S) such that P·S - Q·R = 1.
+
+    Given a slope (P, Q) in the (α, β) basis, compute its dual (R, S)
+    such that P·S - Q·R = 1 (unimodular transformation).
+    """
+    if P == 0 and Q == 0:
+        return 0, 0
+
+    # Solve P·S - Q·R = 1, or equivalently P·S + Q·(-R) = 1
+    gcd, s, neg_r = _extended_gcd(P, Q)
+
+    if gcd != 1:
+        # Not coprime - shouldn't happen for valid NC cycles
+        return 0, 1
+
+    return (-neg_r, s)
 
 
 def format_slope_latex(P: int, Q: int, a: str = r"\gamma", b: str = r"\delta") -> str:
@@ -63,15 +93,14 @@ def format_slope_latex(P: int, Q: int, a: str = r"\gamma", b: str = r"\delta") -
 # ─────────────────────────────────────────────────────────────────────────
 
 def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
-    """Return HTML table with per-cycle Weyl vectors and q¹ projection.
+    """Return HTML table matching v0.4 style with γᵢ, δᵢ, and Weyl vectors.
 
-    Columns:
+    Columns (v0.4-style):
     - # : cycle number
-    - γᵢ : NC cycle in meridian/longitude basis
-    - δᵢ : Complementary cycle (Bézout complement)
-    - Weyl a : Weyl vector a (per-cycle)
-    - Weyl b : Weyl vector b (per-cycle)
-    - q¹ Proj : q¹ adjoint projection result
+    - γᵢ : NC cycle (P, Q)
+    - δᵢ : Bézout complement (R, S)
+    - Weyl a : Weyl vector a
+    - Weyl b : Weyl vector b
     - Source : computed or cached
     """
     if not nc_cycles:
@@ -81,21 +110,24 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
         '<table class="nc" style="font-size: 0.95em;">\n'
         '<tr>\n'
         '  <th>#</th>\n'
-        '  <th>$\\gamma_i$ (basis)</th>\n'
-        '  <th>Weyl $a_i$</th>\n'
-        '  <th>Weyl $b_i$</th>\n'
-        '  <th>$q^1$ Projection</th>\n'
+        '  <th>$\\gamma_i$</th>\n'
+        '  <th>$\\delta_i$</th>\n'
+        '  <th>$a_i$</th>\n'
+        '  <th>$b_i$</th>\n'
         '  <th>Source</th>\n'
         '</tr>\n'
     )
 
     for i, nc in enumerate(nc_cycles, 1):
-        # Cycle slope in (P, Q) notation
-        cycle_latex = format_slope_latex(nc.P, nc.Q)
+        # γᵢ = (P, Q) in the (α, β) basis
+        gamma_str = format_slope_latex(nc.P, nc.Q, r"\alpha", r"\beta")
 
-        # Weyl vectors display
+        # δᵢ = (R, S) — Bézout complement
+        R, S = _bezout_complement(nc.P, nc.Q)
+        delta_str = format_slope_latex(R, S, r"\alpha", r"\beta")
+
+        # Weyl vectors
         if nc.weyl_a and nc.weyl_b:
-            # Show all components in tuple form
             a_str = ", ".join(_frac_to_latex(a) for a in nc.weyl_a)
             b_str = ", ".join(_frac_to_latex(b) for b in nc.weyl_b)
             weyl_a = f"$({a_str})$"
@@ -104,24 +136,13 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
             weyl_a = "—"
             weyl_b = "—"
 
-        # q¹ projection result
-        if nc.adjoint_proj_pass is True:
-            q1_str = '<span style="color: #0a0;">✓ Pass</span>'
-        elif nc.adjoint_proj_pass is False:
-            q1_str = '<span style="color: #d00;">✗ Fail</span>'
-        else:
-            q1_str = "—"
-
-        # No background coloring — white text on transparent background
-        row_style = ''
-
         html += (
-            f'<tr {row_style}>\n'
-            f'  <td style="text-align: center; font-weight: bold;"><b>{i}</b></td>\n'
-            f'  <td style="text-align: center;">${cycle_latex}$</td>\n'
+            f'<tr>\n'
+            f'  <td style="text-align: center;"><b>{i}</b></td>\n'
+            f'  <td style="text-align: center;">${gamma_str}$</td>\n'
+            f'  <td style="text-align: center;">${delta_str}$</td>\n'
             f'  <td style="text-align: center;">{weyl_a}</td>\n'
             f'  <td style="text-align: center;">{weyl_b}</td>\n'
-            f'  <td style="text-align: center;">{q1_str}</td>\n'
             f'  <td style="text-align: center;"><small>{nc.source}</small></td>\n'
             f'</tr>\n'
         )
