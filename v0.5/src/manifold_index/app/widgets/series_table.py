@@ -235,7 +235,7 @@ class SeriesTable(QWidget):
             css
             + "<table class='st'>"
             "<thead><tr>"
-            "<th>#</th><th><i>m</i></th><th><i>e</i></th>"
+            "<th>#</th><th>$m$</th><th>$e$</th>"
             "<th>Series</th><th>Source</th><th></th>"
             "</tr></thead>"
             "<tbody>"

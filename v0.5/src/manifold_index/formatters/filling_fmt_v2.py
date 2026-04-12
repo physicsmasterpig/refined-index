@@ -112,15 +112,8 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
         else:
             q1_str = "—"
 
-        # Determine row color based on compatibility
-        w = nc.weyl_compatible
-        a = nc.adjoint_proj_pass
-        if w is False or a is False:
-            row_style = 'style="background-color: #f0e0e0;"'
-        elif w is True and a is True:
-            row_style = 'style="background-color: #e0f0e0;"'
-        else:
-            row_style = ''
+        # No background coloring — white text on transparent background
+        row_style = ''
 
         html += (
             f'<tr {row_style}>\n'

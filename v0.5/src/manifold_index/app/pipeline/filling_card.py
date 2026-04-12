@@ -1826,10 +1826,16 @@ class FillingCard(QWidget):
             b_str = ", ".join(frac_to_latex(b) for b in fq.weyl_b)
             weyl_info = f"$a=({a_str}), b=({b_str})$"
 
+        # Combine query metadata into a single label for better layout
+        # Format: γ = ... / slope = ... / weyl info
+        metadata = f"{nc_label} — {slope_label}"
+        if weyl_info:
+            metadata = f"{metadata}<br>{weyl_info}"
+
         row = self._fill_table.add_row(
-            nc_label,
-            slope_label,
-            weyl_info,
+            metadata,
+            "",
+            series_latex,
             fq.source,
         )
         self._fill_table.set_row_result(row, series_latex, fq.source)
@@ -1851,13 +1857,20 @@ class FillingCard(QWidget):
         except Exception:
             series_latex = "$0$" if (mfq.result and mfq.result.is_zero) else "—"
 
-        # Format row labels: show all cusps being filled
-        cusp_strs = [f"C{s['cusp_idx']}" for s in mfq.cusp_specs]
-        slope_strs = [f"({s['user_P']},{s['user_Q']})" for s in mfq.cusp_specs]
+        # Format row labels with improved LaTeX notation
+        # Show all cusps being filled with their slopes in v0.4 style
+        slope_parts = []
+        for s in mfq.cusp_specs:
+            cusp_label = f"C{s['cusp_idx']}"
+            slope = format_slope_latex(s['user_P'], s['user_Q'], a=r"\alpha", b=r"\beta")
+            slope_parts.append(f"${cusp_label}: {slope}$")
+
+        metadata = "<br>".join(slope_parts)
+
         row = self._fill_table.add_row(
-            ", ".join(cusp_strs),
-            ", ".join(slope_strs),
+            metadata,
             "",
+            series_latex,
             mfq.source,
         )
         self._fill_table.set_row_result(row, series_latex, mfq.source)
