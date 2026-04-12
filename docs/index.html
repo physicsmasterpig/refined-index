@@ -550,7 +550,7 @@
         <div class="selector">
           <label class="selector-label">Version</label>
           <div class="selector-buttons version-selector">
-            <button class="selector-btn active" data-value="v0.5" onclick="selectVersion('v0.5')">v0.5.0</button>
+            <button class="selector-btn active" data-value="v0.5" onclick="selectVersion('v0.5')">v0.5.1</button>
             <button class="selector-btn" data-value="v0.4" onclick="selectVersion('v0.4')">v0.4.2</button>
           </div>
         </div>
@@ -564,22 +564,22 @@
         </div>
       </div>
 
-      <!-- macOS v0.5.0 -->
+      <!-- macOS v0.5.1 -->
       <div class="download-card active" id="card-v0.5-macos">
         <span class="version-badge latest">Latest</span>
-        <h3>v0.5.0 for macOS</h3>
-        <div class="platform-info">Apple Silicon (arm64) · macOS 11+</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.0/ManifoldIndex.zip" class="download-btn">Download (295 MB)</a>
+        <h3>v0.5.1 for macOS</h3>
+        <div class="platform-info">Universal (Intel + Apple Silicon) · macOS 11+</div>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.1/ManifoldIndex.zip" class="download-btn">Download (296 MB)</a>
         <div class="system-note">Ad-hoc signed. Clear quarantine with: <code>xattr -cr ~/Downloads/ManifoldIndex.app</code></div>
       </div>
 
-      <!-- Windows v0.5.0 -->
+      <!-- Windows v0.5.1 -->
       <div class="download-card" id="card-v0.5-windows">
         <span class="version-badge latest">Latest</span>
-        <h3>v0.5.0 for Windows</h3>
+        <h3>v0.5.1 for Windows</h3>
         <div class="platform-info">Windows 10+ · x64</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.0/ManifoldIndex-windows.zip" class="download-btn">Download</a>
-        <div class="system-note">Unsigned. Click "More info" → "Run anyway" if Windows Defender warns.</div>
+        <a href="https://github.com/physicsmasterpig/refined-index" class="download-btn">Build Instructions</a>
+        <div class="system-note">Build on Windows: <code>cd v0.5 && build_app.bat --clean</code> Produces <code>dist\ManifoldIndex.exe</code></div>
       </div>
 
       <!-- macOS v0.4.2 -->
@@ -657,7 +657,7 @@
       <p>Then launch normally. This is only required once.</p>
 
       <h3>Windows</h3>
-      <p>Extract <code>ManifoldIndex-windows.zip</code> and run <code>ManifoldIndex.exe</code>. If Windows Defender warns, click <strong>More info</strong> → <strong>Run anyway</strong>.</p>
+      <p>Download and run <code>ManifoldIndex.exe</code> directly. If Windows Defender warns, click <strong>More info</strong> → <strong>Run anyway</strong>. To build: <code>cd v0.5 && pip install pyinstaller && build_app.bat --clean</code></p>
 
       <h3>From Source</h3>
       <p>Requires Python ≥ 3.10 and dependencies in <code>pyproject.toml</code>.</p>
@@ -667,6 +667,15 @@
     <!-- ── Changelog ────────────────────────────────────────────────────– -->
     <section>
       <h2>Changelog</h2>
+
+      <h3>v0.5.1</h3>
+      <ul>
+        <li><strong>UI Redesign:</strong> Complete v0.4-style formatters with mathematical notation (α, β, γ, δ)</li>
+        <li><strong>KaTeX Rendering:</strong> Inline LaTeX throughout — table headers, parameters, results</li>
+        <li><strong>Per-Cycle Weyl:</strong> Independent Weyl compatibility checks for each NC cycle basis choice</li>
+        <li><strong>Enhanced Tables:</strong> NC cycle display with per-cycle Weyl vectors as tuples, professional appearance</li>
+        <li><strong>Improved Display:</strong> Better fill result layout, transparent backgrounds, proper mathematical notation</li>
+      </ul>
 
       <h3>v0.5.0</h3>
       <ul>
