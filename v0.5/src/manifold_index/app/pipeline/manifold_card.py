@@ -104,7 +104,6 @@ class ManifoldCard(QWidget):
         self._attach_autocomplete()
 
         nmax_label = QLabel("Nmax:")
-        nmax_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         input_row.addWidget(nmax_label)
 
         self._nmax_spin = QSpinBox()
@@ -311,7 +310,7 @@ class ManifoldCard(QWidget):
         # ── Populate session ──────────────────────────────────────────
         s = self._session
         s.manifold_name = manifold_data.name
-        s.manifold_data = manifold_data
+        # Don't store manifold_data — it's thread-bound; reload in main thread when needed
         s.nz_data       = nz_data
         s.cache_status  = cache_info
         s.active_edges  = [True] * int(nz_data.num_hard)
@@ -341,7 +340,15 @@ class ManifoldCard(QWidget):
     # ------------------------------------------------------------------
 
     def _render_loaded(self, session: Session, easy_result=None) -> None:
-        md = session.manifold_data
+        # Reload manifold in main thread (SnaPy SQLite is thread-bound)
+        # Don't use session.manifold_data directly as it was created in worker thread
+        from manifold_index.services.compute_service import ComputeService
+        try:
+            md, _, _ = ComputeService.load_manifold(session.manifold_name)
+        except Exception as e:
+            self._status_label.setText(f"Error: {e}")
+            return
+
         nz = session.nz_data
 
         # Build ViewModel (formatters fill HTML)

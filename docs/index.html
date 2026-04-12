@@ -550,7 +550,7 @@
         <div class="selector">
           <label class="selector-label">Version</label>
           <div class="selector-buttons version-selector">
-            <button class="selector-btn active" data-value="v0.5" onclick="selectVersion('v0.5')">v0.5.1</button>
+            <button class="selector-btn active" data-value="v0.5" onclick="selectVersion('v0.5')">v0.5.2</button>
             <button class="selector-btn" data-value="v0.4" onclick="selectVersion('v0.4')">v0.4.2</button>
           </div>
         </div>
@@ -564,19 +564,19 @@
         </div>
       </div>
 
-      <!-- macOS v0.5.1 -->
+      <!-- macOS v0.5.2 -->
       <div class="download-card active" id="card-v0.5-macos">
         <span class="version-badge latest">Latest</span>
-        <h3>v0.5.1 for macOS</h3>
+        <h3>v0.5.2 for macOS</h3>
         <div class="platform-info">Universal (Intel + Apple Silicon) · macOS 11+</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.1/ManifoldIndex.zip" class="download-btn">Download (296 MB)</a>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.2/ManifoldIndex.zip" class="download-btn">Download (296 MB)</a>
         <div class="system-note">Ad-hoc signed. Clear quarantine with: <code>xattr -cr ~/Downloads/ManifoldIndex.app</code></div>
       </div>
 
-      <!-- Windows v0.5.1 -->
+      <!-- Windows v0.5.2 -->
       <div class="download-card" id="card-v0.5-windows">
         <span class="version-badge latest">Latest</span>
-        <h3>v0.5.1 for Windows</h3>
+        <h3>v0.5.2 for Windows</h3>
         <div class="platform-info">Windows 10+ · x64</div>
         <a href="https://github.com/physicsmasterpig/refined-index" class="download-btn">Build Instructions</a>
         <div class="system-note">Build on Windows: <code>cd v0.5 && build_app.bat --clean</code> Produces <code>dist\ManifoldIndex.exe</code></div>
@@ -667,6 +667,13 @@
     <!-- ── Changelog ────────────────────────────────────────────────────– -->
     <section>
       <h2>Changelog</h2>
+
+      <h3>v0.5.2</h3>
+      <ul>
+        <li><strong>Critical Fix:</strong> Resolved SnaPy SQLite thread-binding error on manifold loading</li>
+        <li><strong>Threading:</strong> Manifold now reloaded in main thread to avoid cross-thread database access</li>
+        <li>All manifolds from SnapPy census can now be loaded reliably</li>
+      </ul>
 
       <h3>v0.5.1</h3>
       <ul>
