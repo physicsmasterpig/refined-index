@@ -104,6 +104,22 @@ def format_slope_latex(P: int, Q: int, a: str = r"\gamma", b: str = r"\delta") -
     return "".join(parts)
 
 
+def _alpha_latex(coeff: Fraction, cusp: int) -> str:
+    """Format a single alpha term like '0\\,\\alpha_1' or '-\\tfrac{1}{2}\\,\\alpha_2'."""
+    c = Fraction(coeff)
+    if c == 0:
+        return rf"0\,\alpha_{cusp + 1}"
+    return rf"{_frac_to_latex(c)}\,\alpha_{cusp + 1}"
+
+
+def _beta_latex(coeff: Fraction, cusp: int) -> str:
+    """Format a single beta term like '0\\,\\beta_1' or '1\\,\\beta_2'."""
+    c = Fraction(coeff)
+    if c == 0:
+        return rf"0\,\beta_{cusp + 1}"
+    return rf"{_frac_to_latex(c)}\,\beta_{cusp + 1}"
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # NC Cycle Table (v0.4 style)
 # ─────────────────────────────────────────────────────────────────────────
@@ -170,6 +186,60 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
 # ─────────────────────────────────────────────────────────────────────────
 # Fill Result Display (v0.4 style)
 # ─────────────────────────────────────────────────────────────────────────
+
+def format_fill_result_as_index_row(
+    user_P: int,
+    user_Q: int,
+    series_latex: str,
+    cusp_idx: int = 0,
+) -> str:
+    """Format a single fill result as v0.4-style I(Aα + Bβ) = series table row.
+
+    Returns HTML for a single <tr> with columns: I( | α | β | ) | = | series
+
+    This matches the v0.4 sophisticated table design with proper LaTeX formatting
+    and visual alignment for easy reading.
+    """
+    # Convert user slope to α/β notation (single cusp)
+    # For single-cusp: user_P is A in Aα + Bβ, user_Q is B
+    A = Fraction(user_P)
+    B = Fraction(user_Q)
+
+    # Format α column (just one term for single cusp)
+    if A == 0:
+        alpha_col = r"0\,\alpha"
+    elif A == 1:
+        alpha_col = r"\alpha"
+    elif A == -1:
+        alpha_col = r"-\alpha"
+    else:
+        alpha_col = rf"{_frac_to_latex(A)}\,\alpha"
+
+    # Format β column
+    beta_parts = []
+    if B < 0:
+        beta_parts.append(rf"-\; {_frac_to_latex(-B)}\,\beta")
+    elif B == 0:
+        beta_parts.append(r"+\; 0\,\beta")
+    elif B == 1:
+        beta_parts.append(r"+\; \beta")
+    else:
+        beta_parts.append(rf"+\; {_frac_to_latex(B)}\,\beta")
+    beta_col = " ".join(beta_parts)
+
+    # Build the table row with v0.4-style columns
+    html = (
+        f'<tr>\n'
+        f'  <td class="i">$I($</td>\n'
+        f'  <td class="al">${alpha_col}$</td>\n'
+        f'  <td class="bl">${beta_col}$</td>\n'
+        f'  <td class="cp">$)$</td>\n'
+        f'  <td class="eq">$=$</td>\n'
+        f'  <td class="sr">{series_latex}</td>\n'
+        f'</tr>\n'
+    )
+    return html
+
 
 def format_fill_result_detailed(
     nc_P: int,
@@ -383,6 +453,55 @@ def format_filled_series_latex(
             result_str += " + " + t
 
     return f"${result_str}$"
+
+
+def format_filled_index_table_html(
+    fill_queries: list,  # list[FillQuery]
+    nc_info: str = "",
+) -> str:
+    """Format filled index results table in v0.4-style with I(Aα + Bβ) = series rows.
+
+    Parameters
+    ----------
+    fill_queries : list[FillQuery]
+        List of fill query results with user slopes and series
+    nc_info : str
+        Optional header describing the NC cycle (e.g., "γ = 3α + 5β")
+
+    Returns
+    -------
+    str
+        HTML table with v0.4-style I(α + β) = series rows
+    """
+    if not fill_queries:
+        return '<p class="muted">No fill results</p>\n'
+
+    html = '<table class="idx" style="width: 100%;">\n'
+
+    for fq in fill_queries:
+        # Get the result series
+        if hasattr(fq, 'result') and fq.result is not None:
+            # For FilledRefinedResult
+            if hasattr(fq.result, 'series'):
+                series_latex = f"${fq.result.series}$" if isinstance(fq.result.series, str) else "$0$"
+            else:
+                series_latex = "$0$"
+        elif hasattr(fq, 'series_latex'):
+            series_latex = fq.series_latex
+        else:
+            series_latex = "—"
+
+        # Format as v0.4-style row: I(Aα + Bβ) = series
+        row = format_fill_result_as_index_row(
+            user_P=fq.user_P,
+            user_Q=fq.user_Q,
+            series_latex=series_latex,
+            cusp_idx=fq.cusp_idx,
+        )
+        html += row
+
+    html += '</table>\n'
+    return html
 
 
 def format_unrefined_series_latex(
