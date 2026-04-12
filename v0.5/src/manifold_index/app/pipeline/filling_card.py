@@ -38,6 +38,7 @@ from manifold_index.formatters.filling_fmt_v2 import (
     format_slope_latex, format_filled_series_latex,
     format_nc_cycle_table_html, format_unrefined_series_latex,
     format_fill_result_detailed, frac_to_latex,
+    format_filled_index_table_html, format_fill_result_as_index_row,
 )
 from manifold_index.app.widgets.collapsible_card import CollapsibleCard
 from manifold_index.app.widgets.series_table import SeriesTable
@@ -1826,9 +1827,39 @@ class FillingCard(QWidget):
             b_str = ", ".join(frac_to_latex(b) for b in fq.weyl_b)
             weyl_info = f"$a=({a_str}), b=({b_str})$"
 
-        # Combine query metadata into a single label for better layout
-        # Format: γ = ... / slope = ... / weyl info
-        metadata = f"{nc_label} — {slope_label}"
+        # Format metadata using v0.4-style I(Aα + Bβ) notation
+        # Build the index notation with proper α/β formatting
+        A = Fraction(fq.user_P)
+        B = Fraction(fq.user_Q)
+
+        # Format α term
+        if A == 0:
+            alpha_str = ""
+        elif A == 1:
+            alpha_str = r"\alpha"
+        elif A == -1:
+            alpha_str = r"-\alpha"
+        else:
+            alpha_str = rf"{frac_to_latex(A)}\,\alpha"
+
+        # Format β term with sign
+        beta_str = ""
+        if B > 0:
+            if B == 1:
+                beta_str = r"+\beta" if alpha_str else r"\beta"
+            else:
+                beta_str = rf"+{frac_to_latex(B)}\,\beta" if alpha_str else rf"{frac_to_latex(B)}\,\beta"
+        elif B < 0:
+            beta_str = rf"-{frac_to_latex(-B)}\,\beta"
+
+        # Combine for v0.4-style display
+        if alpha_str or beta_str:
+            index_notation = f"$\\mathcal{{I}}({alpha_str}{beta_str})$"
+        else:
+            index_notation = r"$\mathcal{I}(0)$"
+
+        # Combine metadata with NC info
+        metadata = f"{nc_label}<br>{index_notation}"
         if weyl_info:
             metadata = f"{metadata}<br>{weyl_info}"
 
