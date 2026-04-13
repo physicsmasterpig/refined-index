@@ -71,13 +71,15 @@ header "[ 1/6 ]  Pre-flight"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 ok "Branch: $BRANCH"
 
-if [[ -n "$(git status --porcelain -- \
-      v0.5/pyproject.toml v0.5/ManifoldIndex.spec v0.5/ManifoldIndex_win.spec \
-      v0.5/build_app.sh v0.5/build_app.bat docs/index.html 2>/dev/null)" ]]; then
-  warn "Uncommitted changes in version-controlled files — commit or stash first."
-  git status --short -- v0.5/pyproject.toml v0.5/ManifoldIndex.spec \
-    v0.5/ManifoldIndex_win.spec v0.5/build_app.sh v0.5/build_app.bat docs/index.html
-  $DRY_RUN || die "Aborting. Use --dry-run to preview without touching git."
+# Block on uncommitted changes to *non-version* tracked files only.
+# It's fine if version files are already bumped — the commit step handles that.
+DIRTY=$(git status --porcelain | grep -v '^ ' \
+  | grep -vE '(pyproject\.toml|ManifoldIndex.*\.spec|build_app\.(sh|bat)|docs/index\.html)' \
+  | grep -v '^??' || true)
+if [[ -n "$DIRTY" ]]; then
+  warn "Uncommitted staged changes outside version files:"
+  echo "$DIRTY"
+  $DRY_RUN || die "Commit or stash these before releasing."
 fi
 
 if git rev-parse "$VERSION_TAG" >/dev/null 2>&1; then
@@ -188,7 +190,13 @@ git add \
   v0.5/build_app.bat \
   docs/index.html
 
-git commit -m "chore: bump version to ${VERSION_NUM}"
+if git diff --cached --quiet; then
+  ok "Nothing to commit (version files already at ${VERSION_NUM})"
+else
+  git commit -m "chore: bump version to ${VERSION_NUM}"
+  ok "Committed version bump"
+fi
+
 git push origin "$BRANCH"
 ok "Pushed branch '$BRANCH'"
 
