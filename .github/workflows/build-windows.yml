@@ -1,112 +1,149 @@
-name: Build Windows Release
+name: Build Windows
+
+# Triggers:
+#   - push a version tag from Mac:  git tag v0.5.3 && git push origin v0.5.3
+#   - manual run from GitHub UI (Actions tab → Run workflow) for testing
 
 on:
   push:
     tags:
-      - 'v*'  # Trigger on version tags (v0.5.0, v0.4.2, etc.)
+      - 'v*.*.*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label for the zip (e.g. v0.5.3). Defaults to "dev".'
+        required: false
+        default: 'dev'
 
 permissions:
-  contents: write
+  contents: write   # needed to upload to GitHub Releases
 
 jobs:
   build-windows:
     runs-on: windows-latest
-    strategy:
-      matrix:
-        python-version: ['3.11']
 
     steps:
-      - name: Checkout code
+      # ── 1. Checkout ─────────────────────────────────────────────
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      # ── 2. Python ───────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.11'
           cache: 'pip'
 
-      - name: Extract version from tag
-        id: version
+      # ── 3. Determine version label ───────────────────────────────
+      # On tag push  → use the tag (e.g. v0.5.3)
+      # On manual run → use the workflow_dispatch input
+      - name: Set version
+        id: ver
         shell: bash
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          # Determine which v0.x directory to build
-          if [[ "$VERSION" == v0.5* ]]; then
-            echo "build_dir=v0.5" >> $GITHUB_OUTPUT
-          elif [[ "$VERSION" == v0.4* ]]; then
-            echo "build_dir=v0.4" >> $GITHUB_OUTPUT
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
           else
-            echo "build_dir=v0.5" >> $GITHUB_OUTPUT
+            VERSION="${{ github.event.inputs.version }}"
           fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version: $VERSION"
 
+      # ── 4. Install dependencies ──────────────────────────────────
+      # pip on a fresh GitHub Actions Windows runner:
+      # - Python DLLs are in the standard PATH, so PyInstaller finds
+      #   sqlite3/ssl/lzma automatically (no conda Library/bin needed)
       - name: Install dependencies
-        shell: bash
-        working-directory: ${{ steps.version.outputs.build_dir }}
+        working-directory: v0.5
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-          pip install pyinstaller
+          pip install snappy numpy scipy "PySide6>=6.6" pyinstaller Pillow
 
+      # ── 5. Generate .ico ─────────────────────────────────────────
+      # macOS uses .icns — Windows needs .ico. Generate from the PNG.
+      - name: Generate icon
+        working-directory: v0.5
+        run: |
+          python -c "
+          from PIL import Image
+          img = Image.open('assets/ManifoldIndex_1024.png')
+          img.save('assets/ManifoldIndex.ico', format='ICO',
+                   sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])
+          print('ManifoldIndex.ico generated')
+          "
+
+      # ── 6. Preflight check ───────────────────────────────────────
+      - name: Verify entry point importable
+        working-directory: v0.5
+        run: |
+          python -c "
+          import sys; sys.path.insert(0, 'src')
+          from manifold_index.app import launch_gui
+          print('launch_gui importable — OK')
+          "
+
+      # ── 7. PyInstaller build ─────────────────────────────────────
       - name: Build with PyInstaller
+        working-directory: v0.5
+        run: |
+          pyinstaller ManifoldIndex_win.spec --noconfirm --clean
+
+      # ── 8. Verify output ─────────────────────────────────────────
+      - name: Verify build output
+        working-directory: v0.5
         shell: bash
-        working-directory: ${{ steps.version.outputs.build_dir }}
         run: |
-          echo "Building Refined Index Calculator ${{ steps.version.outputs.version }}..."
-          pyinstaller ManifoldIndex.spec --noconfirm
-
-      - name: Create distributable zip and copy exe
-        shell: pwsh
-        working-directory: ${{ steps.version.outputs.build_dir }}
-        run: |
-          # Verify build was successful
-          if (-not (Test-Path "dist/ManifoldIndex")) {
-            Write-Error "Build failed - dist/ManifoldIndex not found"
+          if [ ! -f "dist/ManifoldIndex/ManifoldIndex.exe" ]; then
+            echo "ERROR: ManifoldIndex.exe not found in dist/"
             exit 1
-          }
+          fi
+          echo "ManifoldIndex.exe found — OK"
 
-          # Create zip
-          $zipPath = "dist/ManifoldIndex-windows.zip"
-          Compress-Archive -Path "dist/ManifoldIndex" -DestinationPath $zipPath -Force
-          Write-Output "Created: $zipPath"
+      # ── 9. Package zip ───────────────────────────────────────────
+      # Use Python zipfile — PowerShell Compress-Archive fails with
+      # file-lock errors on PyInstaller's base_library.zip.
+      - name: Package zip
+        working-directory: v0.5/dist
+        shell: python
+        run: |
+          import zipfile, pathlib, os
+          version = os.environ.get("BUILD_VERSION", "dev")
+          src = pathlib.Path("ManifoldIndex")
+          out = f"ManifoldIndex-{version}-windows.zip"
+          with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+              for f in src.rglob("*"):
+                  if f.is_file():
+                      zf.write(f, f)
+          size_mb = os.path.getsize(out) / 1024 / 1024
+          print(f"Created: {out} ({size_mb:.0f} MB)")
+        env:
+          BUILD_VERSION: ${{ steps.ver.outputs.version }}
 
-          # Copy exe to dist root for easier direct download
-          $exePath = "dist/ManifoldIndex.exe"
-          if (Test-Path "dist/ManifoldIndex/ManifoldIndex.exe") {
-            Copy-Item "dist/ManifoldIndex/ManifoldIndex.exe" $exePath
-            Write-Output "Copied exe to: $exePath"
-          }
-
-          # Get sizes
-          $zipSize = (Get-Item $zipPath).Length / 1MB
-          $exeSize = (Get-Item $exePath).Length / 1MB
-          Write-Output "Zip size: $([Math]::Round($zipSize, 2)) MB"
-          Write-Output "Exe size: $([Math]::Round($exeSize, 2)) MB"
-
-      - name: Upload to release
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
+      # ── 10. Upload artifact (always) ────────────────────────────
+      # Available in Actions tab even on manual/non-tag runs.
+      # This is the primary output when testing via workflow_dispatch.
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: |
-            ${{ steps.version.outputs.build_dir }}/dist/ManifoldIndex.exe
-            ${{ steps.version.outputs.build_dir }}/dist/ManifoldIndex-windows.zip
+          name: ManifoldIndex-${{ steps.ver.outputs.version }}-windows
+          path: v0.5/dist/ManifoldIndex-*-windows.zip
+          retention-days: 7
+
+      # ── 11. Upload to GitHub Release (tag pushes only) ───────────
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          files: v0.5/dist/ManifoldIndex-*-windows.zip
           body: |
-            **Windows Build for ${{ steps.version.outputs.version }}**
+            **Windows build — ${{ steps.ver.outputs.version }}**
 
-            This is the Windows 11/10 executable build.
+            1. Download `ManifoldIndex-${{ steps.ver.outputs.version }}-windows.zip`
+            2. Extract to any folder
+            3. Run `ManifoldIndex.exe`
 
-            **Quick Start:**
-            - Download `ManifoldIndex.exe` and run it directly
-            - Or download `ManifoldIndex-windows.zip` and extract to use
-
-            **Installation:**
-            1. Download either the `.exe` (standalone) or `.zip` (with dependencies packaged)
-            2. If using `.exe`, just run it
-            3. If using `.zip`, extract to a folder and run `ManifoldIndex.exe`
-
-            **Note:** Windows Defender may warn about the unsigned executable. Click "More info" → "Run anyway".
-          draft: false
-          prerelease: false
+            > Windows Defender may show an unknown publisher warning.
+            > Click **More info → Run anyway**.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
