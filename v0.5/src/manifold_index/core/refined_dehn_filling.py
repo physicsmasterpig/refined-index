@@ -2943,6 +2943,8 @@ def compute_multi_cusp_filled_refined_index(
     auto_precompute: bool = False,
     cache_iref: bool = False,
     manifold_name: str = "unknown",
+    m_unfilled: list | None = None,
+    e_unfilled: list | None = None,
 ) -> FilledRefinedResult:
     """Sequentially fill multiple cusps of a manifold.
 
@@ -2997,15 +2999,25 @@ def compute_multi_cusp_filled_refined_index(
             print(msg)
 
     if n_fills == 1:
-        # Single-cusp case: delegate directly
+        # Single-cusp case: delegate directly.
+        # Use provided unfilled-cusp charges when available.
         spec = fill_specs[0]
+        _m_other = list(m_unfilled) if m_unfilled is not None else [0] * (r - 1)
+        _e_other = list(e_unfilled) if e_unfilled is not None else [0] * (r - 1)
+        # Pad / trim to exactly r-1 elements in case of length mismatch
+        if len(_m_other) < r - 1:
+            _m_other += [0] * (r - 1 - len(_m_other))
+        if len(_e_other) < r - 1:
+            _e_other += [0] * (r - 1 - len(_e_other))
+        _m_other = _m_other[:r - 1]
+        _e_other = _e_other[:r - 1]
         _status(f"Filling cusp {spec.cusp_idx} with ({spec.P}, {spec.Q})…")
         result = compute_filled_refined_index(
             nz_data,
             cusp_idx=spec.cusp_idx,
             P=spec.P, Q=spec.Q,
-            m_other=[0] * (r - 1),
-            e_other=[0] * (r - 1),
+            m_other=_m_other,
+            e_other=_e_other,
             q_order_half=q_order_half,
             weyl_a=spec.weyl_a,
             weyl_b=spec.weyl_b,

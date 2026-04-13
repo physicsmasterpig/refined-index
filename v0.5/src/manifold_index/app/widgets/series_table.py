@@ -9,7 +9,9 @@ See BLUEPRINT §9.5 and §2.8.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QFile, QObject, Qt, QUrl, Signal, Slot
+import json as _json
+
+from PySide6.QtCore import QFile, QObject, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from manifold_index.app.theme import colors as C
@@ -49,6 +51,18 @@ class _SeriesTableBridge(QObject):
 class SeriesTable(QWidget):
     """Widget showing accumulated query results with KaTeX-rendered series.
 
+    Rendering strategy
+    ------------------
+    KaTeX is loaded once via ``setHtml()`` when the first row is added.
+    All subsequent updates inject new table content via ``runJavaScript()``
+    and call ``renderMathInElement`` on the table element directly — there
+    is no full page reload after the initial load, which eliminates both
+    the render flicker and the LaTeX flash-of-unstyled-content during
+    rapid computation updates.
+
+    A 50 ms debounce timer coalesces bursts of calls (e.g. progress
+    updates during a long computation) into a single DOM update.
+
     Signals
     -------
     row_removed(int)            — row index that was removed.
@@ -64,9 +78,19 @@ class SeriesTable(QWidget):
         # Internal data model: list of {m, e, series_latex, source, computing}
         self._rows: list[dict] = []
 
+        # Page lifecycle flags
+        self._page_ready = False   # True once loadFinished(ok=True) has fired
+        self._loading    = False   # True between setHtml() and loadFinished
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+
+        # Debounce timer — coalesces rapid _rebuild_html() calls into one update
+        self._rebuild_timer = QTimer(self)
+        self._rebuild_timer.setSingleShot(True)
+        self._rebuild_timer.setInterval(50)   # 50 ms
+        self._rebuild_timer.timeout.connect(self._do_rebuild)
 
         if _HAS_WEBENGINE:
             self._view: QWebEngineView | None = QWebEngineView()
@@ -100,10 +124,13 @@ class SeriesTable(QWidget):
             layout.addWidget(QLabel("WebEngine not available"))
 
     # ------------------------------------------------------------------
-    # Internal: re-initialise QWebChannel JS after every page reload
+    # Internal: page lifecycle
     # ------------------------------------------------------------------
 
     def _on_load_finished(self, ok: bool) -> None:
+        """Called when setHtml() finishes loading the KaTeX page."""
+        self._loading = False
+        self._page_ready = ok
         if ok and self._view is not None and self._qwc_js:
             js = (
                 self._qwc_js
@@ -111,6 +138,9 @@ class SeriesTable(QWidget):
                   " function(ch){window.bridge=ch.objects.bridge;});"
             )
             self._view.page().runJavaScript(js)
+        if ok:
+            # Flush any data changes that arrived while the page was loading
+            self._do_rebuild()
 
     # ------------------------------------------------------------------
     # Public API
@@ -150,6 +180,13 @@ class SeriesTable(QWidget):
             self._rows[row]["source"] = source
             self._rebuild_html()
 
+    def update_row_metadata(self, row: int, m: str, e: str = "") -> None:
+        """Update the m/e label columns of an existing row (e.g. after result is known)."""
+        if 0 <= row < len(self._rows):
+            self._rows[row]["m"] = str(m)
+            self._rows[row]["e"] = str(e)
+            self._rebuild_html()
+
     def clear_rows(self) -> None:
         """Remove all rows."""
         self._rows.clear()
@@ -166,13 +203,12 @@ class SeriesTable(QWidget):
         self._rebuild_html()
 
     def _rebuild_html(self) -> None:
-        if self._view is None:
-            return
-        if not self._rows:
-            self._view.setVisible(False)
-            return
+        """Schedule a debounced rebuild (coalesces rapid calls)."""
+        if not self._rebuild_timer.isActive():
+            self._rebuild_timer.start()
 
-        # Colour aliases for f-string readability
+    def _build_table_parts(self) -> tuple[str, str, str]:
+        """Return (css, thead_html, tbody_html) from current _rows data."""
         ac = C.ACCENT
         am = C.ACCENT_MUTED
         tm = C.TEXT_MUTED
@@ -181,21 +217,23 @@ class SeriesTable(QWidget):
         bs = C.BORDER_STRONG
         er = C.ERROR_BORDER
 
-        # Inline CSS — all f-strings: {{ / }} → literal { / }
         css = (
             f"<style>"
-            f".st{{border-collapse:collapse;width:100%}}"
-            f".st th{{font-size:11px;font-weight:600;text-transform:uppercase;"
+            f".st{{border-collapse:collapse;width:100%;font-size:11px}}"
+            f".st th{{font-weight:600;text-transform:uppercase;"
             f"color:{ts};border-bottom:1px solid {bs};"
-            f"padding:3px 8px;white-space:nowrap}}"
-            f".st td{{padding:4px 8px;border-bottom:1px solid {bd};"
-            f"vertical-align:middle}}"
+            f"padding:2px 4px;white-space:nowrap}}"
+            f".st td{{border-bottom:1px solid {bd};vertical-align:baseline;white-space:nowrap}}"
             f".st tr:hover td{{background:rgba(59,59,154,0.05)}}"
-            f".ic{{color:{tm};font-size:11px;width:24px;text-align:right}}"
-            f".nc{{text-align:center;width:40px}}"
-            f".sc{{word-break:break-all}}"
-            f".vc{{font-size:11px;color:{tm};white-space:nowrap}}"
-            f".ac{{white-space:nowrap;width:64px;text-align:right}}"
+            f".ic{{color:{tm};font-size:11px;width:20px;text-align:right;padding:3px 8px 3px 0}}"
+            f".i{{text-align:right;padding:3px 0}}"
+            f".al{{text-align:right;padding:3px 0}}"
+            f".bl{{text-align:left;padding:3px 0}}"
+            f".cp{{text-align:left;padding:3px 0}}"
+            f".eq{{text-align:center;padding:3px 4px}}"
+            f".sr{{text-align:left;padding:3px 4px}}"
+            f".vc{{font-size:11px;color:{tm};white-space:nowrap;padding:3px 4px}}"
+            f".ac{{white-space:nowrap;width:60px;text-align:right;padding:3px 4px}}"
             f"button.a{{background:transparent;border:none;cursor:pointer;"
             f"color:{ts};font-size:13px;padding:1px 4px;border-radius:2px}}"
             f"button.a:hover{{background:{am};color:{ac}}}"
@@ -210,42 +248,114 @@ class SeriesTable(QWidget):
             elif not row["series_latex"]:
                 sc = f"<span style='color:{tm}'>—</span>"
             else:
-                # series_latex already carries $…$ delimiters from the formatter
                 sc = row["series_latex"]
 
-            rows_html.append(
-                f"<tr>"
-                f"<td class='ic'>{i}</td>"
-                f"<td class='nc'><i>{row['m']}</i></td>"
-                f"<td class='nc'><i>{row['e']}</i></td>"
-                f"<td class='sc'>{sc}</td>"
-                f"<td class='vc'>{row['source']}</td>"
-                f"<td class='ac'>"
-                f"<button class='a'"
-                f" onclick=\"if(window.bridge)window.bridge.copyRow({i})\""
-                f" title='Copy LaTeX'>⧉</button>"
-                f"<button class='a r'"
-                f" onclick=\"if(window.bridge)window.bridge.removeRow({i})\""
-                f" title='Remove'>✕</button>"
-                f"</td>"
-                f"</tr>"
+            m_val = row['m']
+            is_html_notation = m_val.strip().startswith('<td')
+
+            if is_html_notation:
+                eq_val = row['e']
+                if eq_val.strip().startswith('<td'):
+                    eq_html = eq_val
+                else:
+                    eq_html = f"<td class='eq'>{eq_val}</td>" if eq_val.strip() else ""
+
+                row_content = (
+                    f"<tr>"
+                    f"<td class='ic'>{i}</td>"
+                    f"{m_val}"
+                    f"{eq_html}"
+                    f"<td class='sr'>{sc}</td>"
+                    f"<td class='vc'>{row['source']}</td>"
+                    f"<td class='ac'>"
+                    f"<button class='a'"
+                    f" onclick=\"if(window.bridge)window.bridge.copyRow({i})\""
+                    f" title='Copy LaTeX'>⧉</button>"
+                    f"<button class='a r'"
+                    f" onclick=\"if(window.bridge)window.bridge.removeRow({i})\""
+                    f" title='Remove'>✕</button>"
+                    f"</td>"
+                    f"</tr>"
+                )
+            else:
+                row_content = (
+                    f"<tr>"
+                    f"<td class='ic'>{i}</td>"
+                    f"<td class='nc'><i>{m_val}</i></td>"
+                    f"<td class='nc'><i>{row['e']}</i></td>"
+                    f"<td class='sc'>{sc}</td>"
+                    f"<td class='vc'>{row['source']}</td>"
+                    f"<td class='ac'>"
+                    f"<button class='a'"
+                    f" onclick=\"if(window.bridge)window.bridge.copyRow({i})\""
+                    f" title='Copy LaTeX'>⧉</button>"
+                    f"<button class='a r'"
+                    f" onclick=\"if(window.bridge)window.bridge.removeRow({i})\""
+                    f" title='Remove'>✕</button>"
+                    f"</td>"
+                    f"</tr>"
+                )
+            rows_html.append(row_content)
+
+        has_html_notation = any(row['m'].strip().startswith('<td') for row in self._rows)
+        if has_html_notation:
+            thead_html = "<th>#</th><th colspan='5'></th><th>Series</th><th>Source</th><th></th>"
+        else:
+            thead_html = "<th>#</th><th>$m$</th><th>$e$</th><th>Series</th><th>Source</th><th></th>"
+
+        return css, thead_html, "".join(rows_html)
+
+    def _do_rebuild(self) -> None:
+        """Perform the actual HTML update — called by the debounce timer."""
+        if self._view is None:
+            return
+        if not self._rows:
+            self._view.setVisible(False)
+            return
+
+        css, thead_html, tbody_html = self._build_table_parts()
+
+        if self._page_ready:
+            # Fast path: update DOM in place via JS — no page reload, no KaTeX flash.
+            # renderMathInElement re-renders only the table element.
+            js = (
+                "(function(){"
+                "var h=document.getElementById('st-head');"
+                "var b=document.getElementById('st-body');"
+                "if(!h||!b)return;"
+                f"h.innerHTML={_json.dumps(thead_html)};"
+                f"b.innerHTML={_json.dumps(tbody_html)};"
+                "var t=document.getElementById('st-tbl');"
+                "if(t&&typeof renderMathInElement!=='undefined'){"
+                "renderMathInElement(t,{"
+                "delimiters:["
+                "{left:'$$',right:'$$',display:true},"
+                "{left:'$',right:'$',display:false}"
+                "],"
+                "throwOnError:false"
+                "});}"
+                "})();"
             )
+            self._view.page().runJavaScript(js)
 
-        body = (
-            css
-            + "<table class='st'>"
-            "<thead><tr>"
-            "<th>#</th><th>$m$</th><th>$e$</th>"
-            "<th>Series</th><th>Source</th><th></th>"
-            "</tr></thead>"
-            "<tbody>"
-            + "".join(rows_html)
-            + "</tbody></table>"
-        )
+        elif not self._loading:
+            # Initial load: build the full KaTeX page with the table skeleton.
+            # After loadFinished, all further updates go through the JS path above.
+            body = (
+                css
+                + "<table class='st' id='st-tbl'>"
+                + "<thead><tr id='st-head'>" + thead_html + "</tr></thead>"
+                + "<tbody id='st-body'>" + tbody_html + "</tbody>"
+                + "</table>"
+            )
+            colors = sys_colors()
+            full_html = build_katex_html(body, **colors)
+            self._loading = True
+            self._page_ready = False
+            self._view.setHtml(full_html, QUrl("https://cdn.jsdelivr.net/"))
 
-        colors = sys_colors()
-        full_html = build_katex_html(body, **colors)
-        self._view.setHtml(full_html, QUrl("https://cdn.jsdelivr.net/"))
+        # else: page is currently loading — _on_load_finished will call _do_rebuild()
+
         self._view.setVisible(True)
 
 

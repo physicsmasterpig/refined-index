@@ -227,6 +227,8 @@ class FillingService:
         auto_precompute: bool = True,
         progress_fn: Callable | None = None,
         manifold_name: str = "unknown",
+        m_unfilled: list | None = None,
+        e_unfilled: list | None = None,
     ) -> tuple[list[dict], Any]:
         """Sequentially fill multiple cusps of a manifold (supports any number).
 
@@ -293,6 +295,8 @@ class FillingService:
             q_order_half=q_order_half,
             auto_precompute=auto_precompute,
             progress_callback=progress_fn,
+            m_unfilled=m_unfilled,
+            e_unfilled=e_unfilled,
         )
 
         # Best-effort I^ref cache save

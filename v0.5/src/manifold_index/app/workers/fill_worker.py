@@ -193,6 +193,8 @@ class MultiFillWorker(QThread):
         q_order_half: int,
         auto_precompute: bool = True,
         manifold_name: str = "unknown",
+        m_unfilled: list | None = None,
+        e_unfilled: list | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -201,6 +203,8 @@ class MultiFillWorker(QThread):
         self._q_order_half    = q_order_half
         self._auto_precompute = auto_precompute
         self._manifold_name   = manifold_name
+        self._m_unfilled      = m_unfilled  # charges for unfilled cusps (None → zeros)
+        self._e_unfilled      = e_unfilled
 
     def run(self) -> None:
         self.setPriority(QThread.Priority.LowPriority)
@@ -222,6 +226,8 @@ class MultiFillWorker(QThread):
                 auto_precompute= self._auto_precompute,
                 progress_fn    = _prog,
                 manifold_name  = self._manifold_name,
+                m_unfilled     = self._m_unfilled,
+                e_unfilled     = self._e_unfilled,
             )
             self.finished.emit({"cusp_specs": augmented, "result": result})
         except Exception as exc:

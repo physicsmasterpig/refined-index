@@ -105,19 +105,19 @@ def format_slope_latex(P: int, Q: int, a: str = r"\gamma", b: str = r"\delta") -
 
 
 def _alpha_latex(coeff: Fraction, cusp: int) -> str:
-    """Format a single alpha term like '0\\,\\alpha_1' or '-\\tfrac{1}{2}\\,\\alpha_2'."""
+    """Format a single alpha term like '0\\alpha_1' or '-\\tfrac{1}{2}\\alpha_2'."""
     c = Fraction(coeff)
     if c == 0:
-        return rf"0\,\alpha_{cusp + 1}"
-    return rf"{_frac_to_latex(c)}\,\alpha_{cusp + 1}"
+        return rf"0\alpha_{cusp + 1}"
+    return rf"{_frac_to_latex(c)}\alpha_{cusp + 1}"
 
 
 def _beta_latex(coeff: Fraction, cusp: int) -> str:
-    """Format a single beta term like '0\\,\\beta_1' or '1\\,\\beta_2'."""
+    """Format a single beta term like '0\\beta_1' or '1\\beta_2'."""
     c = Fraction(coeff)
     if c == 0:
-        return rf"0\,\beta_{cusp + 1}"
-    return rf"{_frac_to_latex(c)}\,\beta_{cusp + 1}"
+        return rf"0\beta_{cusp + 1}"
+    return rf"{_frac_to_latex(c)}\beta_{cusp + 1}"
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -455,6 +455,100 @@ def format_filled_series_latex(
     return f"${result_str}$"
 
 
+def format_refined_index_notation(m_ext: list, e_ext: list) -> tuple[str, str]:
+    """Convert (m, e) charge tuples to I(Aα + Bβ) notation.
+
+    Convention: e·α − (m/2)·β  →  alpha_coeff = e, beta_coeff = −m/2
+
+    For single-cusp (r=1):
+        m_ext = [m], e_ext = [e]
+        Returns: (HTML cells for I(eα - (m/2)β), "=") in proper LaTeX
+
+    For multi-cusp (r>1):
+        m_ext = [m₁, m₂, ...], e_ext = [e₁, e₂, ...]
+        Returns: (HTML cells for I(e₁α₁ - (m₁/2)β₁ + ...), "=") in proper LaTeX
+
+    Returns
+    -------
+    tuple[str, str]
+        (index_notation_html, equals_html)
+        where index_notation_html contains <td> elements for I, α, β, )
+        and equals_html contains <td class="eq">$=$</td>
+    """
+    if not m_ext or not e_ext:
+        index_html = '<td class="i">$\\mathcal{I}($</td><td class="al">$0$</td><td class="bl"></td><td class="cp">$)$</td>'
+        equals_html = '<td class="eq">$=$</td>'
+        return index_html, equals_html
+
+    r = len(m_ext)
+    alphas = [Fraction(e_ext[i]) if i < len(e_ext) else Fraction(0) for i in range(r)]
+    betas = [Fraction(-m_ext[i], 2) if i < len(m_ext) else Fraction(0) for i in range(r)]
+
+    # Build α column
+    if r == 1:
+        # Single cusp: just show α, not α₁
+        if alphas[0] == 0:
+            alpha_col = r"0\alpha"
+        elif alphas[0] == 1:
+            alpha_col = r"\alpha"
+        elif alphas[0] == -1:
+            alpha_col = r"-\alpha"
+        else:
+            alpha_col = rf"{_frac_to_latex(alphas[0])}\alpha"
+    else:
+        # Multi-cusp: show α₁, α₂, etc.
+        alpha_col = _alpha_latex(alphas[0], 0)
+        for i in range(1, r):
+            a = alphas[i]
+            if a < 0:
+                alpha_col += rf" -\; {_frac_to_latex(-a)}\alpha_{i + 1}"
+            else:
+                alpha_col += rf" +\; {_alpha_latex(a, i)}"
+
+    # Build β column with proper sign handling
+    beta_parts = []
+    for i in range(r):
+        b = betas[i]
+        cusp_idx = i if r > 1 else 0
+
+        if r == 1:
+            # Single cusp
+            if b < 0:
+                beta_parts.append(rf"-\; {_frac_to_latex(-b)}\beta")
+            elif b == 0:
+                beta_parts.append(r"+\; 0\beta")
+            elif b == 1:
+                beta_parts.append(r"+\; \beta")
+            else:
+                beta_parts.append(rf"+\; {_frac_to_latex(b)}\beta")
+        else:
+            # Multi-cusp
+            if i == 0:
+                if b < 0:
+                    beta_parts.append(rf"-\; {_frac_to_latex(-b)}\beta_{cusp_idx + 1}")
+                elif b == 0:
+                    beta_parts.append(rf"+\; 0\beta_{cusp_idx + 1}")
+                else:
+                    beta_parts.append(rf"+\; {_frac_to_latex(b)}\beta_{cusp_idx + 1}")
+            else:
+                if b < 0:
+                    beta_parts.append(rf"-\; {_frac_to_latex(-b)}\beta_{cusp_idx + 1}")
+                else:
+                    beta_parts.append(rf"+\; {_frac_to_latex(b)}\beta_{cusp_idx + 1}")
+
+    beta_col = " ".join(beta_parts)
+
+    # Combine as v0.4-style I(α + β) notation
+    index_html = (
+        f'<td class="i">$\\mathcal{{I}}($</td>'
+        f'<td class="al">${alpha_col}$</td>'
+        f'<td class="bl">${beta_col}$</td>'
+        f'<td class="cp">$)$</td>'
+    )
+    equals_html = '<td class="eq">$=$</td>'
+    return index_html, equals_html
+
+
 def format_filled_index_table_html(
     fill_queries: list,  # list[FillQuery]
     nc_info: str = "",
@@ -582,3 +676,105 @@ def format_unrefined_series_latex(
             result_str += " + " + t
 
     return f"${result_str}$"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Fill info panel  (NC cycle · transformed slope · HJ k-vector)
+# ─────────────────────────────────────────────────────────────────────────
+
+def format_fill_info_html(cusp_specs_aug: list, result) -> str:
+    """HTML for the fill-info panel shown above the result table.
+
+    For each filled cusp shows:
+      γ = P·α + Q·β  |  δ = R·α + S·β  |  Slope: p·γ + q·δ  |  k=[…], ℓ
+    """
+    if not cusp_specs_aug:
+        return ""
+
+    hj_ks: list = []
+    if result is not None and hasattr(result, "hj_ks"):
+        hj_ks = list(result.hj_ks)
+
+    rows: list = []
+    for spec in cusp_specs_aug:
+        nc_P = int(spec.get("nc_P", 1))
+        nc_Q = int(spec.get("nc_Q", 0))
+        p    = int(spec.get("p", 0))
+        q    = int(spec.get("q", 1))
+        ci   = spec.get("cusp_idx", 0)
+
+        R, S = _bezout_complement(nc_P, nc_Q)
+        gamma_str = format_slope_latex(nc_P, nc_Q, a=r"\alpha", b=r"\beta")
+        delta_str = format_slope_latex(R, S,    a=r"\alpha", b=r"\beta")
+        slope_str = format_slope_latex(p, q,    a=r"\gamma", b=r"\delta")
+
+        k_cell = ""
+        if hj_ks:
+            k_inner = ",\\,".join(str(k) for k in hj_ks)
+            k_cell = (
+                f"<td style='padding:2px 0;white-space:nowrap'>"
+                f"$\\mathbf{{k}}=[{k_inner}]$,&nbsp;$\\ell={len(hj_ks)}$"
+                f"</td>"
+            )
+
+        rows.append(
+            f"<tr>"
+            f"<td style='padding:2px 10px 2px 0;white-space:nowrap;font-weight:bold'>C{ci}</td>"
+            f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>$\\gamma={gamma_str}$</td>"
+            f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>$\\delta={delta_str}$</td>"
+            f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>Slope:&nbsp;${slope_str}$</td>"
+            f"{k_cell}"
+            f"</tr>"
+        )
+
+    css = "<style>body{font-size:11px;margin:4px 0}table{border-collapse:collapse}td{vertical-align:baseline}</style>"
+    return css + "<table>" + "".join(rows) + "</table>"
+
+
+def format_charge_as_alphabeta(m, e, cusp_idx=None) -> str:
+    """Format a single (m, e) charge as e·α − (m/2)·β in LaTeX (no $ delimiters)."""
+    A = Fraction(e).limit_denominator(1000)
+    B = Fraction(-int(round(float(m) * 2)), 2)
+
+    suffix = f"_{{{cusp_idx + 1}}}" if cusp_idx is not None else ""
+    return format_slope_latex(
+        int(A) if A.denominator == 1 else A,
+        int(B) if B.denominator == 1 else B,
+        a=rf"\alpha{suffix}",
+        b=rf"\beta{suffix}",
+    )
+
+
+def format_multi_fill_row_label(cusp_specs_aug: list, unfilled_charges: list, all_cusp_count: int) -> str:
+    """Build the 'm' column metadata for a multi-fill result row.
+
+    Filled cusps: NC cycle γ = P·α + Q·β and user slope.
+    Unfilled cusps: I(Aα + Bβ) charge notation.
+    """
+    filled_idxs = {s["cusp_idx"] for s in cusp_specs_aug}
+    unfilled_idxs = [i for i in range(all_cusp_count) if i not in filled_idxs]
+
+    parts: list = []
+    for spec in cusp_specs_aug:
+        nc_P, nc_Q = int(spec["nc_P"]), int(spec["nc_Q"])
+        user_P, user_Q = int(spec["user_P"]), int(spec["user_Q"])
+        p_val = spec.get("p")
+        q_val = spec.get("q")
+        ci = spec["cusp_idx"]
+        gamma = format_slope_latex(nc_P, nc_Q, a=r"\alpha", b=r"\beta")
+        slope = format_slope_latex(user_P, user_Q, a=r"\alpha", b=r"\beta")
+        line = f"C{ci}: $\\gamma={gamma}$, $={slope}$"
+        if p_val is not None and q_val is not None:
+            trans = format_slope_latex(int(p_val), int(q_val), a=r"\gamma", b=r"\delta")
+            line += f" → ${trans}$"
+        parts.append(line)
+
+    if unfilled_charges and unfilled_idxs:
+        charge_strs: list = []
+        for (m, e), uidx in zip(unfilled_charges, unfilled_idxs):
+            ab = format_charge_as_alphabeta(m, e, cusp_idx=uidx)
+            charge_strs.append(ab)
+        inner = ",\\,".join(charge_strs)
+        parts.append(f"$\\mathcal{{I}}({inner})$")
+
+    return "<br>".join(parts)

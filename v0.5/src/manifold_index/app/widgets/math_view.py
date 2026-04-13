@@ -12,7 +12,7 @@ Module-level helpers are preserved verbatim for use by formatters:
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtWidgets import (
     QApplication, QLabel, QSizePolicy, QStackedWidget,
     QTextEdit, QVBoxLayout, QWidget,
@@ -216,6 +216,13 @@ class MathView(QWidget):
         self._min_h = min_h
         self._current_body: str = ""
         self._loading: bool = False
+        self._pending_body: str | None = None  # body waiting for debounce
+
+        # Debounce timer — coalesces rapid set_html() calls into one setHtml()
+        self._render_timer = QTimer(self)
+        self._render_timer.setSingleShot(True)
+        self._render_timer.setInterval(50)   # 50 ms
+        self._render_timer.timeout.connect(self._flush_render)
 
         # Stack: page 0 = math view, page 1 = loading overlay
         self._stack = QStackedWidget(self)
@@ -252,9 +259,15 @@ class MathView(QWidget):
     # ------------------------------------------------------------------
 
     def set_html(self, body: str) -> None:
-        """Replace the entire math view content with *body* (HTML fragment)."""
+        """Replace the entire math view content with *body* (HTML fragment).
+
+        Calls are debounced at 50 ms so rapid updates during a computation
+        do not trigger repeated full page reloads and KaTeX re-renders.
+        """
         self._current_body = body
-        self._render(body)
+        self._pending_body = body
+        if not self._render_timer.isActive():
+            self._render_timer.start()
 
     def update_html(self, body: str) -> None:
         """Replace content — synonym of set_html for v0.4 API compat."""
@@ -279,6 +292,12 @@ class MathView(QWidget):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _flush_render(self) -> None:
+        """Called by the debounce timer — renders the latest pending body."""
+        if self._pending_body is not None:
+            self._render(self._pending_body)
+            self._pending_body = None
 
     def _render(self, body: str) -> None:
         colors = sys_colors()

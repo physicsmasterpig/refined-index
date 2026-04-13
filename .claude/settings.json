@@ -29,7 +29,21 @@
       "Bash(python -c \"from manifold_index.core._c_kernel._c_tet_index import tet_index_series; print\\('C ext OK'\\)\")",
       "Bash(python -m pytest tests/test_c_extension.py -v)",
       "Read(//Users/pmp/.claude/projects/-Users-pmp-Documents-Research-ultimate/2fe112ef-6204-4721-9341-7d0a049c2b8c/subagents/**)",
-      "Bash(python -m pytest tests/test_weyl_check.py tests/test_dehn_filling.py tests/test_kernel_cache.py -v)"
+      "Bash(python -m pytest tests/test_weyl_check.py tests/test_dehn_filling.py tests/test_kernel_cache.py -v)",
+      "Bash(open /Users/pmp/Documents/Research/ultimate/v0.5/dist/ManifoldIndex.app)",
+      "Bash(grep -n \"class FilledRefinedResult\\\\|hj_ks\\\\|hj_length\" /Users/pmp/Documents/Research/ultimate/v0.4/src/manifold_index/core/*.py)",
+      "Bash(grep -n \"class FilledRefinedResult\" /Users/pmp/Documents/Research/ultimate/v0.4/src/manifold_index/core/*.py)",
+      "Bash(grep -n 'return f\"\\\\${\\\\|return \"\\\\$0\\\\$\"\\\\|return f\"\\\\$result_str\\\\$\"' /Users/pmp/Documents/Research/ultimate/v0.5/src/manifold_index/formatters/filling_fmt_v2.py)",
+      "Bash(python3 -)",
+      "Bash(python3 -c ':*)",
+      "Bash(git fetch:*)",
+      "Bash(gh pr:*)",
+      "Bash(git remote:*)",
+      "Bash(git checkout:*)",
+      "Bash(gh workflow:*)",
+      "Bash(gh run:*)",
+      "Read(//private/tmp/**)",
+      "Read(//tmp/**)"
     ]
   }
 }

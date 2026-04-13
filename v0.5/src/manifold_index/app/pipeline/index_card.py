@@ -26,6 +26,7 @@ from manifold_index.services.compute_service import ComputeService
 from manifold_index.viewmodels.advisory import CardStatus
 from manifold_index.viewmodels.index_vm import build_index_query_vm, build_index_vm
 from manifold_index.formatters.index_fmt import format_series_latex
+from manifold_index.formatters.filling_fmt_v2 import format_refined_index_notation
 from manifold_index.app.widgets.collapsible_card import CollapsibleCard
 from manifold_index.app.widgets.series_table import SeriesTable
 from manifold_index.app.workers.index_worker import IndexWorker
@@ -436,13 +437,14 @@ class IndexCard(QWidget):
             for m_ext, e_ext, result in entries:
                 r_int = int(s.nz_data.r)
                 # Format charges as beautiful α/β notation
-                m_disp = _fmt_charges_as_alphabeta(m_ext, [0] * len(m_ext))
-                e_disp = _fmt_charges_as_alphabeta([0] * len(e_ext), e_ext)
+                # Format result using v0.4-style I(Aα + Bβ) notation
+                index_notation_html, equals_html = format_refined_index_notation(m_ext, e_ext)
                 try:
                     series_latex = format_series_latex(result, s.num_hard(), s.q_order_half)
                 except Exception:
                     series_latex = str(result) if result else "0"
-                row = self._results_table.add_row(m_disp, e_disp, series_latex, "cache")
+                # Pass HTML table row directly as metadata
+                row = self._results_table.add_row(index_notation_html, equals_html, series_latex, "cache")
                 iq = IndexQuery(
                     m_ext            = m_ext,
                     e_ext            = e_ext,
@@ -517,10 +519,9 @@ class IndexCard(QWidget):
             self._pending_grid.clear()
             first_item: tuple | None = None
             for idx, (m_ext, e_ext) in enumerate(grid_points):
-                # Format charges as beautiful α/β notation
-                m_disp = _fmt_charges_as_alphabeta(m_ext, [0] * len(m_ext))
-                e_disp = _fmt_charges_as_alphabeta([0] * len(e_ext), e_ext)
-                row = self._results_table.add_row(m_disp, e_disp, "", "—")
+                # Format as v0.4-style I(Aα + Bβ) notation
+                index_notation_html, equals_html = format_refined_index_notation(m_ext, e_ext)
+                row = self._results_table.add_row(index_notation_html, equals_html, "", "—")
                 self._results_table.set_row_computing(row)
                 if first_item is None:
                     first_item = (m_ext, e_ext, row, gen)
@@ -561,9 +562,11 @@ class IndexCard(QWidget):
             row = existing_row
             self._results_table.set_row_computing(row)
         else:
+            # Format as v0.4-style I(Aα + Bβ) notation
+            index_notation_html, equals_html = format_refined_index_notation(m_ext, e_ext)
             row = self._results_table.add_row(
-                m_ext[0] if r_int == 1 else _fmt_charges(m_ext),
-                str(e_ext[0]) if r_int == 1 else _fmt_charges(e_ext),
+                index_notation_html,
+                equals_html,
                 "",
                 "—",
             )
@@ -737,10 +740,10 @@ class IndexCard(QWidget):
         for iq in s.index_queries:
             if iq.result is None:
                 continue
-            m_disp = iq.m_ext[0] if r_int == 1 else _fmt_charges(iq.m_ext)
-            e_disp = str(iq.e_ext[0]) if r_int == 1 else _fmt_charges(iq.e_ext)
+            # Format result using v0.4-style I(Aα + Bβ) notation
+            index_notation_html, equals_html = format_refined_index_notation(iq.m_ext, iq.e_ext)
             latex  = self._project_latex(iq.result)
-            self._results_table.add_row(m_disp, e_disp, latex, iq.source)
+            self._results_table.add_row(index_notation_html, equals_html, latex, iq.source)
 
     def _refresh_series_display(self) -> None:
         """Re-project and re-render every table row after an active-edge toggle."""
