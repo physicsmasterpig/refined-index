@@ -48,7 +48,8 @@ def launch_gui() -> None:
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("ManifoldIndex")
-    app.setApplicationVersion("0.5.0")
+    from manifold_index import __version__
+    app.setApplicationVersion(__version__)
     app.setOrganizationName("physicsmasterpig")
 
     from manifold_index.app.window import MainWindow

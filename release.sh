@@ -130,6 +130,9 @@ do_sed "v0.5/ManifoldIndex.spec"    "APP_VERSION = \".*\""               "APP_VE
 do_sed "v0.5/ManifoldIndex_win.spec" "APP_VERSION = \".*\""              "APP_VERSION = \"${VERSION_NUM}\""
 do_sed "v0.5/build_app.sh"          "APP_VERSION=\".*\""                 "APP_VERSION=\"${VERSION_NUM}\""
 do_sed "v0.5/build_app.bat"         "set APP_VERSION=.*"                 "set APP_VERSION=${VERSION_NUM}"
+do_sed "v0.5/src/manifold_index/__init__.py" \
+  "__version__ = \"${CURRENT_VERSION}\"" \
+  "__version__ = \"${VERSION_NUM}\""
 
 # docs/index.html — URLs and version text
 do_sed "docs/index.html" \
@@ -188,6 +191,7 @@ git add \
   v0.5/ManifoldIndex_win.spec \
   v0.5/build_app.sh \
   v0.5/build_app.bat \
+  v0.5/src/manifold_index/__init__.py \
   docs/index.html
 
 if git diff --cached --quiet; then

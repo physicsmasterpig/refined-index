@@ -27,7 +27,8 @@ from manifold_index.app.pipeline.pipeline_view import PipelineView
 from manifold_index.app.datahub.datahub_view import DataHubView
 from manifold_index.app.theme.style import build_stylesheet
 
-_APP_TITLE = "Refined Index Calculator  v0.5"
+from manifold_index import __version__ as _VERSION
+_APP_TITLE = f"Refined Index Calculator  v{_VERSION}"
 
 
 class MainWindow(QMainWindow):
