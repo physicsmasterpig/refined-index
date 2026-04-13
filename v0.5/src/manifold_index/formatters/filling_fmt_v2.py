@@ -125,14 +125,15 @@ def _beta_latex(coeff: Fraction, cusp: int) -> str:
 # ─────────────────────────────────────────────────────────────────────────
 
 def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
-    """Return HTML table matching v0.4 style with γᵢ, δᵢ, and Weyl vectors.
+    """Return HTML table with γᵢ, δᵢ, Weyl vectors, and q¹ adjoint projection.
 
-    Columns (v0.4-style):
+    Columns:
     - # : cycle number
     - γᵢ : NC cycle (P, Q)
     - δᵢ : Bézout complement (R, S)
-    - Weyl a : Weyl vector a
-    - Weyl b : Weyl vector b
+    - aᵢ : Weyl a vector
+    - bᵢ : Weyl b vector
+    - q¹ : adjoint projection pass/fail (must equal −1 for filling compatibility)
     - Source : computed or cached
     """
     if not nc_cycles:
@@ -146,6 +147,7 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
         '  <th>$\\delta_i$</th>\n'
         '  <th>$a_i$</th>\n'
         '  <th>$b_i$</th>\n'
+        '  <th>$q^1$ proj.</th>\n'
         '  <th>Source</th>\n'
         '</tr>\n'
     )
@@ -168,6 +170,15 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
             weyl_a = "—"
             weyl_b = "—"
 
+        # q¹ adjoint projection result — show actual value, green if −1
+        adj_pass  = getattr(nc, "adjoint_proj_pass",  None)
+        adj_value = getattr(nc, "adjoint_proj_value", None)
+        if adj_value is None:
+            adj_cell = "<span style='color:#888'>—</span>"
+        else:
+            color = "#3fb950" if adj_pass else "#f85149"
+            adj_cell = f"<span style='color:{color}'>${_frac_to_latex(adj_value)}$</span>"
+
         html += (
             f'<tr>\n'
             f'  <td style="text-align: center;"><b>{i}</b></td>\n'
@@ -175,6 +186,7 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
             f'  <td style="text-align: center;">${delta_str}$</td>\n'
             f'  <td style="text-align: center;">{weyl_a}</td>\n'
             f'  <td style="text-align: center;">{weyl_b}</td>\n'
+            f'  <td style="text-align: center;">{adj_cell}</td>\n'
             f'  <td style="text-align: center;"><small>{nc.source}</small></td>\n'
             f'</tr>\n'
         )
@@ -303,7 +315,7 @@ def format_filled_series_latex(
     num_hard: int,
     has_cusp_eta: bool = False,
     num_cusp_eta: int = 0,
-    max_q_terms: int = 4,
+    max_q_terms: int = 9999,
 ) -> str:
     """Convert a filled I^ref series dict to a compact KaTeX ``$...$`` string.
 
@@ -366,13 +378,12 @@ def format_filled_series_latex(
             ce = eta_pows[pos]
             if ce == 0:
                 continue
-            coeff = 2 * ce
-            if coeff == 2:
-                parts.append(rf"\eta^{{2V_{ci}}}")
-            elif coeff == -2:
-                parts.append(rf"\eta^{{-2V_{ci}}}")
+            if ce == 1:
+                parts.append(rf"\eta^{{V_{ci}}}")
+            elif ce == -1:
+                parts.append(rf"\eta^{{-V_{ci}}}")
             else:
-                parts.append(rf"\eta^{{{coeff}V_{ci}}}")
+                parts.append(rf"\eta^{{{ce}V_{ci}}}")
         return "".join(parts)
 
     def _q_factor(qq: int) -> str:
@@ -600,7 +611,7 @@ def format_filled_index_table_html(
 
 def format_unrefined_series_latex(
     series: dict,
-    max_q_terms: int = 4,
+    max_q_terms: int = 9999,
 ) -> str:
     """Convert an unrefined (plain 3D) Dehn filled series to a KaTeX ``$...$`` string.
 
@@ -734,7 +745,7 @@ def format_fill_info_html(cusp_specs_aug: list, result) -> str:
 def format_charge_as_alphabeta(m, e, cusp_idx=None) -> str:
     """Format a single (m, e) charge as e·α − (m/2)·β in LaTeX (no $ delimiters)."""
     A = Fraction(e).limit_denominator(1000)
-    B = Fraction(-int(round(float(m) * 2)), 2)
+    B = Fraction(-int(round(float(m))), 2)
 
     suffix = f"_{{{cusp_idx + 1}}}" if cusp_idx is not None else ""
     return format_slope_latex(
@@ -778,3 +789,250 @@ def format_multi_fill_row_label(cusp_specs_aug: list, unfilled_charges: list, al
         parts.append(f"$\\mathcal{{I}}({inner})$")
 
     return "<br>".join(parts)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# SeriesTable row-cell builders  (html-notation mode)
+# ─────────────────────────────────────────────────────────────────────────
+
+def _alpha_chrg(A: Fraction) -> str:
+    """Format A·α for the right-aligned alpha cell."""
+    if A == 0:  return r"0\,\alpha"
+    if A == 1:  return r"\alpha"
+    if A == -1: return r"-\alpha"
+    return rf"{frac_to_latex(A)}\,\alpha"
+
+
+def _beta_chrg(B: Fraction) -> str:
+    """Format ±B·β with leading sign for the left-aligned beta cell."""
+    if B == 0:
+        return ""
+    absB = abs(B)
+    sign = "+" if B > 0 else "-"
+    if absB == 1:
+        return rf"{sign}\,\beta"
+    return rf"{sign}{frac_to_latex(absB)}\,\beta"
+
+
+def _charge_ab_strs(m_other: list, e_other: list) -> tuple[str, str]:
+    """Convert first unfilled-cusp (m, e) to (alpha_str, beta_str)."""
+    m_val = m_other[0] if m_other else 0
+    e_val = e_other[0] if e_other else Fraction(0)
+    A = Fraction(e_val).limit_denominator(1000)
+    B = Fraction(-int(round(float(m_val))), 2)   # −m/2
+    if A == 0 and B == 0:
+        return "0", ""
+    return _alpha_chrg(A), _beta_chrg(B)
+
+
+def _has_charge(m_other: list, e_other: list) -> bool:
+    """Return True when there is at least one non-zero unfilled-cusp charge."""
+    return bool(m_other) or bool(e_other)
+
+
+def _charge_cells_html(alpha_str: str, beta_str: str) -> str:
+    """Build the three middle <td> cells: (  Aα  +Bβ  )."""
+    beta_td = f"<td class='bl'>${beta_str}$</td>" if beta_str else "<td class='bl'></td>"
+    return (
+        f"<td class='al'>${alpha_str}$</td>"
+        f"{beta_td}"
+        f"<td class='cp'>$)$</td>"
+    )
+
+
+def build_fill_row_cells(
+    p: int, q: int,
+    m_other: list, e_other: list,
+    slope_a: str = r"\gamma",
+    slope_b: str = r"\delta",
+) -> tuple[str, str]:
+    r"""Build (m_td_cells, eq_td_cell) for SeriesTable html-notation.
+
+    * No unfilled cusps (m_other/e_other empty): 4 cells showing
+      ``\mathcal{I}^{pγ+qδ}`` with the three argument cells left blank.
+    * With unfilled cusps: 4 cells showing
+      ``\mathcal{I}^{pγ+qδ}(  Aα  +Bβ  )``.
+
+    Pass ``slope_a=r"\alpha", slope_b=r"\beta"`` for unrefined rows.
+    """
+    sup = format_slope_latex(p, q, a=slope_a, b=slope_b)
+    eq_cell = "<td class='eq'>$=$</td>"
+
+    if not _has_charge(m_other, e_other):
+        # No unfilled cusps — omit the (...) argument entirely
+        return (
+            f"<td class='i'>$\\mathcal{{I}}^{{{sup}}}$</td>"
+            "<td class='al'></td>"
+            "<td class='bl'></td>"
+            "<td class='cp'></td>"
+        ), eq_cell
+
+    prefix = rf"\mathcal{{I}}^{{{sup}}}("
+    alpha_str, beta_str = _charge_ab_strs(m_other, e_other)
+    return (
+        f"<td class='i'>${prefix}$</td>"
+        + _charge_cells_html(alpha_str, beta_str)
+    ), eq_cell
+
+
+def build_fill_placeholder_cells(m_other: list, e_other: list) -> tuple[str, str]:
+    r"""Placeholder row cells while the transformed slope is not yet known.
+
+    No-charge case: ``\mathcal{I}^{\ldots}``.
+    Charge case:    ``\mathcal{I}^{\ldots}(Aα + Bβ)``.
+    Updated via ``update_row_metadata`` once the worker payload arrives.
+    """
+    eq_cell = "<td class='eq'>$=$</td>"
+
+    if not _has_charge(m_other, e_other):
+        return (
+            r"<td class='i'>$\mathcal{I}^{\ldots}$</td>"
+            "<td class='al'></td>"
+            "<td class='bl'></td>"
+            "<td class='cp'></td>"
+        ), eq_cell
+
+    alpha_str, beta_str = _charge_ab_strs(m_other, e_other)
+    return (
+        r"<td class='i'>$\mathcal{I}^{\ldots}($</td>"
+        + _charge_cells_html(alpha_str, beta_str)
+    ), eq_cell
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Multi-fill row-cell builders  (cusp-subscripted γᵢ/δᵢ and αᵢ/βᵢ)
+# ─────────────────────────────────────────────────────────────────────────
+
+def _build_filled_superscript(cusp_specs: list) -> str:
+    """Build P'₁γ₁+Q'₁δ₁+P'₂γ₂+Q'₂δ₂ from filled cusp specs.
+
+    Each spec must have keys ``cusp_idx``, ``p``, ``q``.
+    """
+    sup = ""
+    for spec in cusp_specs:
+        ci = spec["cusp_idx"]
+        p  = spec.get("p", 0)
+        q  = spec.get("q", 0)
+        if p == 0 and q == 0:
+            continue
+        term = format_slope_latex(p, q, a=rf"\gamma_{{{ci}}}", b=rf"\delta_{{{ci}}}")
+        if sup and not term.startswith("-"):
+            sup += "+"
+        sup += term
+    return sup or "0"
+
+
+def _build_unfilled_charge_cells_html(unfilled_cusp_charges: list) -> str:
+    r"""Build 4x+(x-1) ``<td>`` cells for x unfilled cusps.
+
+    Each cusp contributes 4 cells: coeff_α | sym_α | coeff_β | sym_β
+    Separator between cusp groups: ``[+]_eq``  (x-1 of these)
+
+    Columns align vertically across rows:
+      [A₀]  [α₀]  [±B₀]  [β₀]   +   [A₁]  [α₁]  [±B₁]  [β₁]
+       al    sym    al     sym   eq    al    sym    al     sym
+    """
+    cells = ""
+    for idx, (ci, m, e) in enumerate(unfilled_cusp_charges):
+        A = Fraction(e).limit_denominator(1000)
+        B = Fraction(-int(round(float(m))), 2)
+
+        # Inter-cusp separator
+        if idx > 0:
+            cells += "<td class='eq'>$+$</td>"
+
+        # α coefficient (right-aligned, no forced leading sign)
+        a_coeff = frac_to_latex(A)
+        cells += f"<td class='al'>${a_coeff}$</td>"
+
+        # α symbol (left-aligned)
+        cells += f"<td class='sym'>$\\alpha_{{{ci}}}$</td>"
+
+        # β coefficient (right-aligned, always with explicit sign)
+        if B >= 0:
+            b_coeff = f"+{frac_to_latex(B)}"
+        else:
+            b_coeff = frac_to_latex(B)   # frac_to_latex already adds −
+        cells += f"<td class='al'>${b_coeff}$</td>"
+
+        # β symbol (left-aligned)
+        cells += f"<td class='sym'>$\\beta_{{{ci}}}$</td>"
+
+    return cells
+
+
+def build_multi_fill_row_cells(
+    cusp_specs: list,
+    unfilled_cusp_charges: list,   # [(cusp_idx, m, e), …]
+) -> tuple[str, str]:
+    r"""Build final row cells for a multi-cusp fill result.
+
+    m_val always has the structure:
+      [i: I^{…}(] + [3x-1 charge cells] + [cp: )]
+    = 3x+1 total cells, where x = len(unfilled_cusp_charges).
+
+    For x=0: [i: I^{…}] [al:] [bl:] [cp:] (4 cells, no argument).
+    """
+    sup     = _build_filled_superscript(cusp_specs)
+    eq_cell = "<td class='eq'>$=$</td>"
+
+    if not unfilled_cusp_charges:
+        return (
+            f"<td class='i'>$\\mathcal{{I}}^{{{sup}}}$</td>"
+            "<td class='al'></td>"
+            "<td class='bl'></td>"
+            "<td class='cp'></td>"
+        ), eq_cell
+
+    prefix       = rf"\mathcal{{I}}^{{{sup}}}("
+    charge_cells = _build_unfilled_charge_cells_html(unfilled_cusp_charges)
+    return (
+        f"<td class='i'>${prefix}$</td>"
+        + charge_cells
+        + "<td class='cp'>$)$</td>"
+    ), eq_cell
+
+
+def build_multi_fill_placeholder_cells(
+    cusp_specs: list,              # one dict per filled cusp (has user_P, user_Q, cusp_idx)
+    unfilled_cusp_charges: list,   # [(cusp_idx, m, e), …]
+) -> tuple[str, str]:
+    r"""Placeholder cells for multi-fill while p′/q′ are not yet known.
+
+    Uses user slopes (in α/β basis) as the superscript so that no ``\ldots``
+    ever appears; ``update_row_metadata`` will replace these with the true
+    γ/δ-transformed slopes once the worker finishes.
+    """
+    # Build superscript from user slopes (α/β basis, subscripted)
+    sup = ""
+    for spec in cusp_specs:
+        ci = spec.get("cusp_idx", 0)
+        uP = spec.get("user_P", 0)
+        uQ = spec.get("user_Q", 0)
+        if uP == 0 and uQ == 0:
+            continue
+        term = format_slope_latex(uP, uQ,
+                                  a=rf"\alpha_{{{ci}}}", b=rf"\beta_{{{ci}}}")
+        if sup and not term.startswith("-"):
+            sup += "+"
+        sup += term
+    if not sup:
+        sup = "?"
+
+    eq_cell = "<td class='eq'>$=$</td>"
+
+    if not unfilled_cusp_charges:
+        return (
+            f"<td class='i'>$\\mathcal{{I}}^{{{sup}}}$</td>"
+            "<td class='al'></td>"
+            "<td class='bl'></td>"
+            "<td class='cp'></td>"
+        ), eq_cell
+
+    charge_cells = _build_unfilled_charge_cells_html(unfilled_cusp_charges)
+    prefix = rf"\mathcal{{I}}^{{{sup}}}("
+    return (
+        f"<td class='i'>${prefix}$</td>"
+        + charge_cells
+        + "<td class='cp'>$)$</td>"
+    ), eq_cell

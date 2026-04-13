@@ -77,7 +77,7 @@ def format_filled_series_latex(
     num_hard: int,
     has_cusp_eta: bool = False,
     num_cusp_eta: int = 0,
-    max_q_terms: int = 4,
+    max_q_terms: int = 9999,
 ) -> str:
     """Convert a filled I^ref series dict to a compact KaTeX ``$...$`` string.
 
@@ -140,13 +140,12 @@ def format_filled_series_latex(
             ce = eta_pows[pos]
             if ce == 0:
                 continue
-            coeff = 2 * ce
-            if coeff == 2:
-                parts.append(rf"\eta^{{2V_{ci}}}")
-            elif coeff == -2:
-                parts.append(rf"\eta^{{-2V_{ci}}}")
+            if ce == 1:
+                parts.append(rf"\eta^{{V_{ci}}}")
+            elif ce == -1:
+                parts.append(rf"\eta^{{-V_{ci}}}")
             else:
-                parts.append(rf"\eta^{{{coeff}V_{ci}}}")
+                parts.append(rf"\eta^{{{ce}V_{ci}}}")
         return "".join(parts)
 
     def _q_factor(qq: int) -> str:
@@ -231,7 +230,7 @@ def format_filled_series_latex(
 
 def format_unrefined_series_latex(
     series: dict,
-    max_q_terms: int = 4,
+    max_q_terms: int = 9999,
 ) -> str:
     """Convert an unrefined (plain 3D) Dehn filled series to a KaTeX ``$...$`` string.
 
@@ -355,11 +354,13 @@ def format_nc_cycle_table_html(
         else:
             weyl_str = "—"
 
-        # Format q¹ projection result
+        # Format q¹ projection result (show actual value alongside pass/fail)
+        val = getattr(nc, "adjoint_proj_value", None)
+        val_str = f" = {val}" if val is not None else ""
         if nc.adjoint_proj_pass is True:
-            q1_str = "✓ Pass"
+            q1_str = f"✓ Pass{val_str}"
         elif nc.adjoint_proj_pass is False:
-            q1_str = "✗ Fail"
+            q1_str = f"✗ Fail{val_str}"
         else:
             q1_str = "—"
 

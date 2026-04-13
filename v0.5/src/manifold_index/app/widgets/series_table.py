@@ -154,13 +154,15 @@ class SeriesTable(QWidget):
         source: str,
     ) -> int:
         """Append a row and return its index."""
+        m_str = str(m)
         idx = len(self._rows)
         self._rows.append({
-            "m": str(m),
+            "m": m_str,
             "e": str(e),
             "series_latex": series_latex,
             "source": source,
             "computing": False,
+            "n_label": m_str.count("<td"),
         })
         self._rebuild_html()
         return idx
@@ -183,8 +185,10 @@ class SeriesTable(QWidget):
     def update_row_metadata(self, row: int, m: str, e: str = "") -> None:
         """Update the m/e label columns of an existing row (e.g. after result is known)."""
         if 0 <= row < len(self._rows):
-            self._rows[row]["m"] = str(m)
+            m_str = str(m)
+            self._rows[row]["m"] = m_str
             self._rows[row]["e"] = str(e)
+            self._rows[row]["n_label"] = m_str.count("<td")
             self._rebuild_html()
 
     def clear_rows(self) -> None:
@@ -225,12 +229,14 @@ class SeriesTable(QWidget):
             f"padding:2px 4px;white-space:nowrap}}"
             f".st td{{border-bottom:1px solid {bd};vertical-align:baseline;white-space:nowrap}}"
             f".st tr:hover td{{background:rgba(59,59,154,0.05)}}"
-            f".ic{{color:{tm};font-size:11px;width:20px;text-align:right;padding:3px 8px 3px 0}}"
-            f".i{{text-align:right;padding:3px 0}}"
-            f".al{{text-align:right;padding:3px 0}}"
-            f".bl{{text-align:left;padding:3px 0}}"
-            f".cp{{text-align:left;padding:3px 0}}"
-            f".eq{{text-align:center;padding:3px 4px}}"
+            f".ic{{color:{tm};font-size:11px;width:1px;text-align:right;padding:3px 8px 3px 0}}"
+            f".i{{width:1px;text-align:right;padding:3px 0}}"
+            f".al{{width:1px;text-align:right;padding:3px 0}}"
+            f".bl{{width:1px;text-align:left;padding:3px 0}}"
+            f".sym{{width:1px;text-align:left;padding:3px 6px 3px 0}}"
+            f".cp{{width:1px;text-align:left;padding:3px 4px 3px 0}}"
+            f".eq{{width:1px;text-align:center;padding:3px 4px}}"
+            f".nc{{text-align:left;padding:3px 4px}}"
             f".sr{{text-align:left;padding:3px 4px}}"
             f".vc{{font-size:11px;color:{tm};white-space:nowrap;padding:3px 4px}}"
             f".ac{{white-space:nowrap;width:60px;text-align:right;padding:3px 4px}}"
@@ -240,6 +246,20 @@ class SeriesTable(QWidget):
             f"button.a.r:hover{{background:#FFEEEE;color:{er}}}"
             f"</style>"
         )
+
+        has_html_notation = any(row['m'].strip().startswith('<td') for row in self._rows)
+        if has_html_notation:
+            max_n_label = max(
+                (row.get("n_label", 4) for row in self._rows
+                 if row["m"].strip().startswith("<td")),
+                default=4,
+            )
+            # +1 for the eq cell that lives in row['e']
+            colspan = max_n_label + 1
+            thead_html = f"<th>#</th><th colspan='{colspan}'></th><th>Series</th><th>Source</th><th></th>"
+        else:
+            max_n_label = 0
+            thead_html = "<th>#</th><th>$m$</th><th>$e$</th><th>Series</th><th>Source</th><th></th>"
 
         rows_html: list[str] = []
         for i, row in enumerate(self._rows):
@@ -260,10 +280,15 @@ class SeriesTable(QWidget):
                 else:
                     eq_html = f"<td class='eq'>{eq_val}</td>" if eq_val.strip() else ""
 
+                # Pad shorter rows so every html row spans the same columns
+                row_n = row.get("n_label", 4)
+                pad = "<td></td>" * (max_n_label - row_n)
+
                 row_content = (
                     f"<tr>"
                     f"<td class='ic'>{i}</td>"
                     f"{m_val}"
+                    f"{pad}"
                     f"{eq_html}"
                     f"<td class='sr'>{sc}</td>"
                     f"<td class='vc'>{row['source']}</td>"
@@ -296,12 +321,6 @@ class SeriesTable(QWidget):
                     f"</tr>"
                 )
             rows_html.append(row_content)
-
-        has_html_notation = any(row['m'].strip().startswith('<td') for row in self._rows)
-        if has_html_notation:
-            thead_html = "<th>#</th><th colspan='5'></th><th>Series</th><th>Source</th><th></th>"
-        else:
-            thead_html = "<th>#</th><th>$m$</th><th>$e$</th><th>Series</th><th>Source</th><th></th>"
 
         return css, thead_html, "".join(rows_html)
 

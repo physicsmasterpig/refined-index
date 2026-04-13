@@ -227,13 +227,13 @@ class IndexCard(QWidget):
         grid_layout.addWidget(QLabel("m:"))
         self._m_min_spin = QSpinBox()
         self._m_min_spin.setRange(-99, 99)
-        self._m_min_spin.setValue(-2)
+        self._m_min_spin.setValue(0)
         self._m_min_spin.setFixedWidth(60)
         grid_layout.addWidget(self._m_min_spin)
         grid_layout.addWidget(QLabel("to"))
         self._m_max_spin = QSpinBox()
         self._m_max_spin.setRange(-99, 99)
-        self._m_max_spin.setValue(2)
+        self._m_max_spin.setValue(1)
         self._m_max_spin.setFixedWidth(60)
         grid_layout.addWidget(self._m_max_spin)
         grid_layout.addWidget(QLabel("e:"))
@@ -241,7 +241,7 @@ class IndexCard(QWidget):
         self._e_min_spin.setRange(-49.5, 49.5)
         self._e_min_spin.setSingleStep(0.5)
         self._e_min_spin.setDecimals(1)
-        self._e_min_spin.setValue(-2.0)
+        self._e_min_spin.setValue(0.0)
         self._e_min_spin.setFixedWidth(70)
         grid_layout.addWidget(self._e_min_spin)
         grid_layout.addWidget(QLabel("to"))
@@ -249,7 +249,7 @@ class IndexCard(QWidget):
         self._e_max_spin.setRange(-49.5, 49.5)
         self._e_max_spin.setSingleStep(0.5)
         self._e_max_spin.setDecimals(1)
-        self._e_max_spin.setValue(2.0)
+        self._e_max_spin.setValue(0.5)
         self._e_max_spin.setFixedWidth(70)
         grid_layout.addWidget(self._e_max_spin)
         grid_layout.addStretch(1)
@@ -527,10 +527,6 @@ class IndexCard(QWidget):
                     first_item = (m_ext, e_ext, row, gen)
                 else:
                     self._pending_grid.append((m_ext, e_ext, row, gen))
-                # Yield to event loop every 100 rows to keep UI responsive during
-                # grid setup for heavy manifolds with many cusps/ranges.
-                if (idx + 1) % 100 == 0:
-                    QCoreApplication.processEvents()
 
             # Kick off only the first worker; _on_index_finished/_on_index_error
             # will drain _pending_grid one entry at a time.

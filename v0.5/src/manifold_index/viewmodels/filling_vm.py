@@ -60,6 +60,7 @@ class NCCycleViewModel:
     slope_latex: str
     weyl_compatible: "bool | None"
     adjoint_proj_pass: "bool | None"
+    adjoint_proj_value: "int | float | None" = None  # actual q¹ projected coefficient
     weyl_a: "list | None" = None
     weyl_b: "list | None" = None
     source: str = ""

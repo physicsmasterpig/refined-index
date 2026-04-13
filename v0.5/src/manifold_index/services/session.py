@@ -95,10 +95,12 @@ class MultiFillQuery:
     *cusp_specs* — per-cusp list of dicts with keys:
         cusp_idx, nc_P, nc_Q, user_P, user_Q, p, q
     *result* — FilledRefinedResult from compute_multi_cusp_filled_refined_index
+    *unfilled_charges* — list of (m, e) tuples for cusps not being filled
     """
     cusp_specs: list[dict]               # one dict per filled cusp
     q_order_half: int
     result: Any                          # FilledRefinedResult | None
+    unfilled_charges: list = field(default_factory=list)  # [(cusp_idx, m, e), …]
     timestamp: float = field(default_factory=time.time)
     source: str = "computed"             # "computed" | "cache"
 

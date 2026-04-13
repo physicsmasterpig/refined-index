@@ -1716,6 +1716,39 @@ class FilledRefinedResult:
             num_cusp_eta=self.num_cusp_eta,
         )
 
+    def collapse_cusp_etas(self, cusp_indices: list[int]) -> "FilledRefinedResult":
+        """Set η_{V_ci} = 1 for the given cusp-η indices.
+
+        For each cusp index ci in *cusp_indices*, the exponent at key position
+        1 + num_hard + ci is zeroed out and coefficients with identical
+        collapsed keys are summed.  Returns a new ``FilledRefinedResult``.
+        """
+        if not cusp_indices or not self.has_cusp_eta:
+            return self
+        positions = [1 + self.num_hard + ci for ci in cusp_indices
+                     if ci < self.num_cusp_eta]
+        if not positions:
+            return self
+        new_series: MultiEtaSeries = {}
+        for key, coeff in self.series.items():
+            if coeff == 0:
+                continue
+            new_key = list(key)
+            for pos in positions:
+                if pos < len(new_key):
+                    new_key[pos] = 0
+            new_key = tuple(new_key)
+            new_series[new_key] = new_series.get(new_key, 0) + coeff
+        new_series = {k: v for k, v in new_series.items() if v != 0}
+        return FilledRefinedResult(
+            P=self.P, Q=self.Q, cusp_idx=self.cusp_idx,
+            series=new_series, qq_order=self.qq_order,
+            eta_order=self.eta_order, hj_ks=self.hj_ks,
+            n_kernel_terms=self.n_kernel_terms,
+            num_hard=self.num_hard, has_cusp_eta=self.has_cusp_eta,
+            num_cusp_eta=self.num_cusp_eta,
+        )
+
     def eta1_series(self) -> dict[int, Fraction]:
         """Set all η variables to 1: pure qq-series."""
         result: dict[int, Fraction] = {}

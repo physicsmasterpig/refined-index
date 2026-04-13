@@ -43,7 +43,29 @@
       "Bash(gh workflow:*)",
       "Bash(gh run:*)",
       "Read(//private/tmp/**)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(gh api:*)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(a['id'], a['name'], a['size_in_bytes']\\) for a in d['artifacts']]\")",
+      "Bash(gh auth:*)",
+      "Bash(curl -L -H 'Authorization: token __TRACKED_VAR__' -H 'Accept: application/vnd.github+json' https://api.github.com/repos/physicsmasterpig/refined-index/actions/artifacts/6397310130/zip -o /tmp/win-build/ManifoldIndex-win.zip)",
+      "Bash(curl -sI \"https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.3/ManifoldIndex.exe\")",
+      "Bash(chmod +x /Users/pmp/Documents/Research/ultimate/release.sh)",
+      "Bash(python -c \"from src.manifold_index.core.refined_dehn_filling import FilledRefinedResult; print\\('OK'\\)\")",
+      "Bash(python -c \"from src.manifold_index.app.pipeline.filling_card import FillingCard; print\\('OK'\\)\")",
+      "Bash(python -c \"import manifold_index; print\\(manifold_index.__file__\\)\")",
+      "Bash(python -c \"from manifold_index.app import launch_gui; print\\('source run OK'\\)\")",
+      "Bash(grep -r \"m003\\\\|1/2.*filling\" /Users/pmp/Documents/Research/ultimate/*.md /Users/pmp/Documents/Research/ultimate/*.txt)",
+      "Bash(grep -n \"weyl\\\\|Weyl\\\\|nc_P\\\\|nc_Q\\\\|compute_filled\\\\|nc_cycle\\\\|user_P\\\\|user_Q\" /Users/pmp/Documents/Research/ultimate/v0.4/src/manifold_index/app/workers/*.py)",
+      "Bash(.venv/bin/python -)",
+      "Bash(.venv/bin/python -c ':*)",
+      "Bash(.venv/bin/python -c \"from manifold_index.app.widgets.collapsible_card import CollapsibleCard; print\\('OK'\\)\")",
+      "Bash(.venv/bin/python -c \"from manifold_index.app.pipeline.filling_card import FillingCard; print\\('OK'\\)\")",
+      "Bash(.venv/bin/python -c \"from manifold_index.app.widgets.series_table import SeriesTable; from manifold_index.app.pipeline.index_card import IndexCard; print\\('OK'\\)\")",
+      "Bash(find /Users/pmp/Documents/Research/ultimate/v0.5 -name \"*.pyc\" -path \"*/pipeline*\" -delete)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
     ]
   }
 }

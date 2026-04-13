@@ -87,13 +87,12 @@ def _latex_eta_factors_cusp(
             label = "V_0"
         else:
             label = f"V_{ci}"
-        coeff = 2 * cusp_exp
-        if coeff == 1:
+        if cusp_exp == 1:
             parts.append(rf"\eta^{{{label}}}")
-        elif coeff == -1:
+        elif cusp_exp == -1:
             parts.append(rf"\eta^{{-{label}}}")
         else:
-            parts.append(rf"\eta^{{{coeff}{label}}}")
+            parts.append(rf"\eta^{{{cusp_exp}{label}}}")
     return r" \, ".join(parts)
 
 

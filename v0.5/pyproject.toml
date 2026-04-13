@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "refined-index-calculator"
-version = "0.5.3"
+version = "0.5.4"
 description = "Refined Index Calculator — 3-manifold refined index, Dehn filling, and NC cycle analysis."
 readme = "README.md"
 requires-python = ">=3.10"
