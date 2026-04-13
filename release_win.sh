@@ -144,9 +144,9 @@ echo "  v0.5/build_app.bat"
 do_sed "docs/index.html" \
   "releases/download/v${CURRENT_VERSION}/ManifoldIndex\.zip" \
   "releases/download/${VERSION_TAG}/ManifoldIndex.zip"
-# Windows 다운로드 링크 (.exe → zip 파일명 형식 반영)
+# Windows 다운로드 링크 (zip 파일명 버전 업데이트)
 do_sed "docs/index.html" \
-  "releases/download/v${CURRENT_VERSION}/ManifoldIndex\.exe" \
+  "releases/download/v${CURRENT_VERSION}/ManifoldIndex-v${CURRENT_VERSION}-windows\.zip" \
   "releases/download/${VERSION_TAG}/ManifoldIndex-${VERSION_TAG}-windows.zip"
 # 버튼/heading의 버전 텍스트
 do_sed "docs/index.html" \
