@@ -156,12 +156,16 @@ a = Analysis(
 # ── PYZ ────────────────────────────────────────────────────────────
 pyz = PYZ(a.pure, cipher=None)
 
-# ── EXE ────────────────────────────────────────────────────────────
+# ── EXE (onefile) ──────────────────────────────────────────────────
+# All binaries and data are bundled into a single ManifoldIndex.exe.
+# Output: dist/ManifoldIndex.exe
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.datas,
     [],
-    exclude_binaries=True,
+    exclude_binaries=False,
     name="ManifoldIndex",
     debug=False,
     bootloader_ignore_signals=False,
@@ -174,15 +178,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(PROJECT / "assets" / "ManifoldIndex.ico"),
-)
-
-# ── COLLECT ────────────────────────────────────────────────────────
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name="ManifoldIndex",
 )

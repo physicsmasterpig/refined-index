@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version label for the zip (e.g. v0.5.3). Defaults to "dev".'
+        description: 'Version label (e.g. v0.5.3). Defaults to "dev".'
         required: false
         default: 'dev'
 
@@ -93,55 +93,33 @@ jobs:
         working-directory: v0.5
         shell: bash
         run: |
-          if [ ! -f "dist/ManifoldIndex/ManifoldIndex.exe" ]; then
-            echo "ERROR: ManifoldIndex.exe not found in dist/"
+          if [ ! -f "dist/ManifoldIndex.exe" ]; then
+            echo "ERROR: dist/ManifoldIndex.exe not found"
             exit 1
           fi
           echo "ManifoldIndex.exe found — OK"
 
-      # ── 9. Package zip ───────────────────────────────────────────
-      # Use Python zipfile — PowerShell Compress-Archive fails with
-      # file-lock errors on PyInstaller's base_library.zip.
-      - name: Package zip
-        working-directory: v0.5/dist
-        shell: python
-        run: |
-          import zipfile, pathlib, os
-          version = os.environ.get("BUILD_VERSION", "dev")
-          src = pathlib.Path("ManifoldIndex")
-          out = f"ManifoldIndex-{version}-windows.zip"
-          with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-              for f in src.rglob("*"):
-                  if f.is_file():
-                      zf.write(f, f)
-          size_mb = os.path.getsize(out) / 1024 / 1024
-          print(f"Created: {out} ({size_mb:.0f} MB)")
-        env:
-          BUILD_VERSION: ${{ steps.ver.outputs.version }}
-
-      # ── 10. Upload artifact (always) ────────────────────────────
+      # ── 9. Upload artifact (always) ─────────────────────────────
       # Available in Actions tab even on manual/non-tag runs.
-      # This is the primary output when testing via workflow_dispatch.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ManifoldIndex-${{ steps.ver.outputs.version }}-windows
-          path: v0.5/dist/ManifoldIndex-*-windows.zip
+          path: v0.5/dist/ManifoldIndex.exe
           retention-days: 7
 
-      # ── 11. Upload to GitHub Release (tag pushes only) ───────────
+      # ── 10. Upload to GitHub Release (tag pushes only) ──────────
       - name: Upload to Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.version }}
-          files: v0.5/dist/ManifoldIndex-*-windows.zip
+          files: v0.5/dist/ManifoldIndex.exe
           body: |
             **Windows build — ${{ steps.ver.outputs.version }}**
 
-            1. Download `ManifoldIndex-${{ steps.ver.outputs.version }}-windows.zip`
-            2. Extract to any folder
-            3. Run `ManifoldIndex.exe`
+            1. Download `ManifoldIndex.exe`
+            2. Run it — no installation needed
 
             > Windows Defender may show an unknown publisher warning.
             > Click **More info → Run anyway**.
