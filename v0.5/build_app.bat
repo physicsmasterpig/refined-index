@@ -13,7 +13,7 @@ setlocal enabledelayedexpansion
 
 set SPEC=ManifoldIndex.spec
 set EXE=dist\ManifoldIndex.exe
-set APP_VERSION=0.5.4
+set APP_VERSION=0.5.5
 
 REM ── Clean ─────────────────────────────────────────────────────────
 if "%1"=="--clean" (
