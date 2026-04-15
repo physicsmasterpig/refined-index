@@ -180,7 +180,7 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
             f'  <td style="text-align: center;"><b>{i}</b></td>\n'
             f'  <td style="text-align: center;">${gamma_str}$</td>\n'
             f'  <td style="text-align: center;">${delta_str}$</td>\n'
-            f'  <td style="text-align: left;">{snc_cell}</td>\n'
+            f'  <td style="text-align: center;">{snc_cell}</td>\n'
             f'  <td style="text-align: center;"><small>{nc.source}</small></td>\n'
             f'</tr>\n'
         )
