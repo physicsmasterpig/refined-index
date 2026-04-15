@@ -974,18 +974,18 @@ def build_fill_placeholder_cells(m_other: list, e_other: list) -> tuple[str, str
 # ─────────────────────────────────────────────────────────────────────────
 
 def _build_filled_superscript(cusp_specs: list) -> str:
-    """Build P'₁γ₁+Q'₁δ₁+P'₂γ₂+Q'₂δ₂ from filled cusp specs.
+    """Build P₁α₁+Q₁β₁+P₂α₂+Q₂β₂ from filled cusp specs.
 
-    Each spec must have keys ``cusp_idx``, ``p``, ``q``.
+    Each spec must have keys ``cusp_idx``, ``user_P``, ``user_Q``.
     """
     sup = ""
     for spec in cusp_specs:
         ci = spec["cusp_idx"]
-        p  = spec.get("p", 0)
-        q  = spec.get("q", 0)
+        p  = spec.get("user_P", 0)
+        q  = spec.get("user_Q", 0)
         if p == 0 and q == 0:
             continue
-        term = format_slope_latex(p, q, a=rf"\gamma_{{{ci}}}", b=rf"\delta_{{{ci}}}")
+        term = format_slope_latex(p, q, a=rf"\alpha_{{{ci}}}", b=rf"\beta_{{{ci}}}")
         if sup and not term.startswith("-"):
             sup += "+"
         sup += term

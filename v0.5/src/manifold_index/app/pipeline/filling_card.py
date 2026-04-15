@@ -1888,7 +1888,10 @@ class FillingCard(QWidget):
             except Exception:
                 pass
 
-        m_cells, eq_cell = build_fill_row_cells(p, q, m_other, e_other)
+        m_cells, eq_cell = build_fill_row_cells(
+            user_P, user_Q, m_other, e_other,
+            slope_a=r"\alpha", slope_b=r"\beta",
+        )
         self._fill_table.update_row_metadata(row, m_cells, eq_cell)
         self._fill_table.set_row_result(row, series_latex, "computed")
 
@@ -2345,7 +2348,10 @@ class FillingCard(QWidget):
                 slope_a=r"\alpha", slope_b=r"\beta",
             )
         else:
-            m_cells, eq_cell = build_fill_row_cells(fq.p, fq.q, fq.m_other, fq.e_other)
+            m_cells, eq_cell = build_fill_row_cells(
+                fq.user_P, fq.user_Q, fq.m_other, fq.e_other,
+                slope_a=r"\alpha", slope_b=r"\beta",
+            )
 
         self._fill_table.add_row(m_cells, eq_cell, series_latex, fq.source)
 
