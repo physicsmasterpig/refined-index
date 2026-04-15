@@ -136,7 +136,7 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
         '  <th>#</th>\n'
         '  <th>$\\gamma_i$</th>\n'
         '  <th>$\\delta_i$</th>\n'
-        '  <th>Unref. $q^1$</th>\n'
+        '  <th>$\\left.\\textrm{Coeff}_{q^1}(\\mathcal{I}^{\\vec{\gamma},\\vec{\delta}}(\\vec{m}=0,\\vec{u}))\\right|_{\\textrm{adj}\\,\\mathfrak{su}(2)_i}$</th>\n'
         '  <th>Source</th>\n'
         '</tr>\n'
     )
@@ -156,16 +156,11 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
         # "Marginal" label shown when proj ≥ 0.
         is_marginal = getattr(nc, 'is_marginal', None)
         snc_val     = getattr(nc, 'unrefined_q1_proj', None)
-        ci_idx      = getattr(nc, 'cusp_idx', 0)
-        lhs_snc = (
-            r"\left.\textrm{Coeff}_{q^1}\,"
-            r"\mathcal{I}^{(\vec{\gamma},\vec{\delta})}(\vec{m}=0,\vec{u})"
-            rf"\right|_{{(\textrm{{adj}}\,\mathfrak{{su}}(2)_{{{ci_idx}}})}}"
-        )
+        
         if is_marginal is None:
             snc_cell = (
                 f'<span style="white-space:nowrap;color:#888">'
-                f'${lhs_snc}$&nbsp;—'
+                f'&nbsp;—'
                 f'</span>'
             )
         else:
@@ -175,8 +170,7 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
             marginal_tag = '&nbsp;<span style="color:#f85149"><b>Marginal</b></span>' if is_marginal else ''
             snc_cell = (
                 f'<span style="white-space:nowrap">'
-                f'${lhs_snc}='
-                f'\\color{{{color}}}{{{val_latex}}}$'
+                f'$\\color{{{color}}}{{{val_latex}}}$'
                 f'{marginal_tag}'
                 f'</span>'
             )
@@ -186,7 +180,7 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
             f'  <td style="text-align: center;"><b>{i}</b></td>\n'
             f'  <td style="text-align: center;">${gamma_str}$</td>\n'
             f'  <td style="text-align: center;">${delta_str}$</td>\n'
-            f'  <td style="text-align: center;">{snc_cell}</td>\n'
+            f'  <td style="text-align: left;">{snc_cell}</td>\n'
             f'  <td style="text-align: center;"><small>{nc.source}</small></td>\n'
             f'</tr>\n'
         )
