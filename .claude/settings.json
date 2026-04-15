@@ -62,7 +62,18 @@
       "Bash(.venv/bin/python -c \"from manifold_index.app.widgets.collapsible_card import CollapsibleCard; print\\('OK'\\)\")",
       "Bash(.venv/bin/python -c \"from manifold_index.app.pipeline.filling_card import FillingCard; print\\('OK'\\)\")",
       "Bash(.venv/bin/python -c \"from manifold_index.app.widgets.series_table import SeriesTable; from manifold_index.app.pipeline.index_card import IndexCard; print\\('OK'\\)\")",
-      "Bash(find /Users/pmp/Documents/Research/ultimate/v0.5 -name \"*.pyc\" -path \"*/pipeline*\" -delete)"
+      "Bash(find /Users/pmp/Documents/Research/ultimate/v0.5 -name \"*.pyc\" -path \"*/pipeline*\" -delete)",
+      "Bash(python3 scripts/check_nc_q1_projection.py)",
+      "Bash(PYTHONUNBUFFERED=1 python3 -u scripts/check_nc_q1_projection.py)",
+      "Bash(kill 32800 32672 32710 32841)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('v0.5/src/manifold_index/app/pipeline/filling_card.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('v0.5/src/manifold_index/app/pipeline/filling_card.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(echo \"exit $?\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('v0.5/src/manifold_index/app/workers/weyl_worker.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(PYTHONUNBUFFERED=1 python3 -u scripts/check_refined_q1.py)",
+      "Bash(sed -i '' 's/strongly_nc_q1_value/unrefined_q1_proj/g; s/strongly_nc/is_marginal/g; s/Strongly NC/Unref. q\\\\^1/g; s/strongly-NC/non-marginal/g; s/strongly NC/non-marginal/g; s/STRONGLY NC/NON-MARGINAL/g' /Users/pmp/Documents/Research/ultimate/scripts/check_strongly_nc.py)",
+      "Bash(sed -i '' 's/proj == -1/proj <= -1/g; s/\\(proj == -1\\)/\\(proj <= -1\\)/g; s/\\(proj != -1\\)/\\(proj >= 0\\)/g' /Users/pmp/Documents/Research/ultimate/scripts/check_strongly_nc.py)",
+      "Bash(PYTHONUNBUFFERED=1 python3 -u scripts/check_strongly_nc.py)"
     ],
     "additionalDirectories": [
       "/tmp"

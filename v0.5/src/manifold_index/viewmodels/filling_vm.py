@@ -60,10 +60,15 @@ class NCCycleViewModel:
     slope_latex: str
     weyl_compatible: "bool | None"
     adjoint_proj_pass: "bool | None"
-    adjoint_proj_value: "int | float | None" = None  # actual q¹ projected coefficient
+    adjoint_proj_value: "int | float | None" = None  # refined q¹ projected coefficient
     weyl_a: "list | None" = None
     weyl_b: "list | None" = None
     source: str = ""
+    # Unrefined q^1 projection (no η, no Weyl shift).
+    # is_marginal = True when proj ≥ 0 → unrefined kernel used.
+    # is_marginal = False when proj ≤ -1 → refined kernel may be used.
+    is_marginal: "bool | None" = None
+    unrefined_q1_proj: "int | None" = None
 
 
 # ---------------------------------------------------------------------------

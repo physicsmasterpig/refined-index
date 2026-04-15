@@ -84,6 +84,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from fractions import Fraction
+from itertools import product as _itertools_product
 from typing import Sequence
 
 from manifold_index.core.refined_index import RefinedIndexResult
@@ -1249,6 +1250,187 @@ def check_adjoint_projection(
     )
 
 
+@dataclass
+class MultiCuspAdjointResult:
+    r"""Per-cusp adjoint su(2) projection results for d simultaneously filled cusps.
+
+    For each filled cusp n+I (I = 1 … d) the projection integrates:
+
+    * The adjoint character  :math:`\chi_{\mathrm{adj}}(u_{n+I}) = 1 + u_{n+I}^2 + u_{n+I}^{-2}`
+      on the *target* cusp I only.
+    * The SU(2) Haar measure  :math:`\tfrac{1}{2}(2 - u_{n+J}^2 - u_{n+J}^{-2})`
+      on **all** filled cusps J = 1 … d (including the target).
+    * Sets e_i = 0 for all unfilled cusps i = 1 … n.
+
+    Each result should equal −1 for a valid Dehn filling.
+
+    Attributes
+    ----------
+    results : list[AdjointProjectionResult]
+        One entry per filled cusp in *filled_cusp_indices* order.
+    filled_cusp_indices : list[int]
+        Which cusp indices were filled.
+    all_pass : bool
+        True iff every result is a pass (value = −1).
+    """
+    results: list[AdjointProjectionResult]
+    filled_cusp_indices: list[int]
+
+    @property
+    def all_pass(self) -> bool:
+        return all(r.is_pass for r in self.results)
+
+
+def check_adjoint_projection_multi_cusp(
+    entries: Sequence[tuple[list[int], list[Fraction], RefinedIndexResult]],
+    num_hard: int,
+    ab: ABVectors | None = None,
+    filled_cusp_indices: list[int] | None = None,
+) -> MultiCuspAdjointResult:
+    r"""Per-cusp adjoint projections for d simultaneously filled cusps.
+
+    For each target cusp n+I (I = 0 … d−1 in *filled_cusp_indices*) the
+    projection is:
+
+    .. math::
+
+        \text{result}_I =
+          \sum_{e_I \in \{-2,-1,+1,+2\}}
+          \sum_{\substack{e_J \in \{-1,0,+1\} \\ J \neq I}}
+          c_{e_1,\ldots,e_d} \cdot K_I(e_I) \cdot
+          \prod_{J \neq I} K_J(e_J)
+
+    where (using the doubled-fugacity convention  :math:`u^{2e}`)
+
+    .. math::
+
+        K_I(e) &= \tfrac{1}{2}\bigl(\delta_{e,-1} + \delta_{e,+1}
+                                   - \delta_{e,-2} - \delta_{e,+2}\bigr)
+                  \quad\text{[adjoint × Haar on cusp I]} \\
+        K_J(e) &= \delta_{e,0} - \tfrac{1}{2}\bigl(\delta_{e,-1}
+                                                    + \delta_{e,+1}\bigr)
+                  \quad\text{[pure Haar on cusp J ≠ I]}
+
+    and :math:`c_{e_1,\ldots,e_d}` is the Weyl-shifted :math:`(q^1, \eta^0)`
+    coefficient at :math:`m=0` with unfilled cusp charges zero.
+
+    For **d = 1** this reduces to the single-cusp formula
+    :math:`\tfrac{1}{2}(c_{-1}+c_{+1}-c_{-2}-c_{+2})`.
+
+    Parameters
+    ----------
+    entries : sequence of (m_ext, e_ext, result)
+        Full evaluation grid.  Must contain m=0 entries with filled-cusp
+        charges covering {−2,−1,+1,+2} for the target cusp and {−1,0,+1}
+        for all other filled cusps.
+    num_hard : int
+    ab : ABVectors or None
+    filled_cusp_indices : list[int]
+        Indices of the d filled cusps.
+
+    Returns
+    -------
+    MultiCuspAdjointResult
+    """
+    if not filled_cusp_indices:
+        return MultiCuspAdjointResult(results=[], filled_cusp_indices=[])
+
+    d = len(filled_cusp_indices)
+    filled_set = set(filled_cusp_indices)
+
+    # ---- Collect c(e_1,...,e_d): (q¹, η⁰) Weyl-shifted coefficients ----
+    # key = tuple of e values for filled cusps (in filled_cusp_indices order)
+    c_e: dict[tuple[Fraction, ...], Fraction] = {}
+
+    for m_ext, e_ext, result in entries:
+        if any(m != 0 for m in m_ext):
+            continue
+        if any(e_ext[i] != 0 for i in range(len(e_ext)) if i not in filled_set):
+            continue
+
+        key = tuple(Fraction(e_ext[ci]) for ci in filled_cusp_indices)
+
+        if ab is not None and num_hard > 0:
+            shift_x2 = ab.shift_x2(m_ext, e_ext)
+        else:
+            shift_x2 = [0] * num_hard
+
+        coeff = _extract_q1_eta0_coeff_shifted(result, num_hard, shift_x2)
+        c_e[key] = c_e.get(key, Fraction(0)) + coeff
+
+    # ---- Integration kernels ----
+    _E_TARGET = [Fraction(-2), Fraction(-1), Fraction(1), Fraction(2)]
+    _E_OTHER  = [Fraction(-1), Fraction(0),  Fraction(1)]
+
+    def _K_target(e: Fraction) -> Fraction:
+        """Adjoint × Haar kernel for the target cusp."""
+        if abs(e) == 1: return Fraction(1, 2)
+        if abs(e) == 2: return Fraction(-1, 2)
+        return Fraction(0)
+
+    def _K_other(e: Fraction) -> Fraction:
+        """Pure Haar kernel for non-target filled cusps."""
+        if e == 0:    return Fraction(1)
+        if abs(e) == 1: return Fraction(-1, 2)
+        return Fraction(0)
+
+    # ---- Compute result_I for each target cusp ----
+    per_cusp: list[AdjointProjectionResult] = []
+
+    for target_idx in range(d):
+        numerator = Fraction(0)
+        is_incomplete = False
+
+        for e_t in _E_TARGET:
+            for e_o_combo in _itertools_product(_E_OTHER, repeat=d - 1):
+                # Build key with target at position target_idx
+                key_list: list[Fraction] = []
+                o = 0
+                for j in range(d):
+                    if j == target_idx:
+                        key_list.append(e_t)
+                    else:
+                        key_list.append(e_o_combo[o])
+                        o += 1
+                key = tuple(key_list)
+
+                if key not in c_e:
+                    is_incomplete = True
+                    break
+
+                k = _K_target(e_t)
+                for e_j in e_o_combo:
+                    k *= _K_other(e_j)
+                numerator += k * c_e[key]
+
+            if is_incomplete:
+                break
+
+        if is_incomplete:
+            per_cusp.append(AdjointProjectionResult(
+                projected_value=None, is_pass=False, c_e={},
+                missing_e=list(_E_TARGET),
+            ))
+            continue
+
+        if numerator.denominator != 1:
+            per_cusp.append(AdjointProjectionResult(
+                projected_value=None, is_pass=False, c_e={}, missing_e=[],
+            ))
+            continue
+
+        projected = int(numerator)
+        per_cusp.append(AdjointProjectionResult(
+            projected_value=projected,
+            is_pass=(projected == -1),
+            c_e={},
+            missing_e=[],
+        ))
+
+    return MultiCuspAdjointResult(
+        results=per_cusp,
+        filled_cusp_indices=list(filled_cusp_indices),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1499,7 +1681,10 @@ class WeylCheckResult:
     "True iff every entry passes the Weyl-symmetry check."
 
     adjoint: AdjointProjectionResult | None
-    "Adjoint su(2) projection check result (eq 2.59–2.61)."
+    "Adjoint su(2) projection check result (eq 2.59–2.61). Single-cusp or d=1."
+
+    multi_cusp_adjoint: "MultiCuspAdjointResult | None" = field(default=None)
+    "Per-cusp adjoint results for d ≥ 1 simultaneous fillings.  None for per-cycle checks."
 
     def __str__(self) -> str:  # pragma: no cover
         lines = []
@@ -1532,6 +1717,7 @@ def run_weyl_checks(
     num_hard: int,
     cusp_idx: int = 0,
     q_order_half: int | None = None,
+    filled_cusp_indices: list[int] | None = None,
 ) -> WeylCheckResult:
     """
     Run all Weyl-symmetry prerequisite checks for Dehn filling.
@@ -1541,11 +1727,20 @@ def run_weyl_checks(
     entries : sequence of (m_ext, e_ext, result)
     num_hard : int
     cusp_idx : int
-        Which cusp to check for the adjoint projection.
+        Which cusp to check for the adjoint projection when filling a
+        single cusp.  Ignored when *filled_cusp_indices* is supplied.
     q_order_half : int or None
         Truncation order used for the refined index computation.
         Passed to :func:`check_weyl_symmetry` to exclude unreliable
         boundary terms.
+    filled_cusp_indices : list[int] or None
+        For multi-cusp Dehn filling: the indices of ALL cusps being
+        filled simultaneously (already expressed in the NC basis after
+        the appropriate basis changes).  When provided and ``len > 1``,
+        the adjoint check uses :func:`check_adjoint_projection_multi_cusp`
+        which integrates over all d filled-cusp fugacities jointly.
+        When ``None`` or length 1, falls back to the single-cusp
+        :func:`check_adjoint_projection`.
 
     Returns
     -------
@@ -1564,12 +1759,29 @@ def run_weyl_checks(
     all_weyl = all(weyl_sym.values()) if weyl_sym else False
 
     # Adjoint projection check (eq 2.59–2.61)
+    # For per-cycle NC checks (filled_cusp_indices is None): run the single-cusp
+    # check so existing callers still get an adjoint result in result.adjoint.
+    # For multi-cusp filling: run check_adjoint_projection_multi_cusp which gives
+    # one result per filled cusp; store in result.multi_cusp_adjoint.
+    adjoint_result: AdjointProjectionResult | None = None
+    multi_cusp_result: "MultiCuspAdjointResult | None" = None
+
     try:
-        adjoint_result = check_adjoint_projection(
-            entries, num_hard, ab=ab, cusp_idx=cusp_idx,
-        )
+        if filled_cusp_indices is not None and len(filled_cusp_indices) >= 1:
+            mc = check_adjoint_projection_multi_cusp(
+                entries, num_hard, ab=ab,
+                filled_cusp_indices=filled_cusp_indices,
+            )
+            multi_cusp_result = mc
+            # Also expose the first (or only) result through adjoint for backward compat
+            if mc.results:
+                adjoint_result = mc.results[0]
+        else:
+            adjoint_result = check_adjoint_projection(
+                entries, num_hard, ab=ab, cusp_idx=cusp_idx,
+            )
     except Exception:
-        adjoint_result = None
+        pass
 
     return WeylCheckResult(
         ab=ab,
@@ -1577,4 +1789,5 @@ def run_weyl_checks(
         weyl_symmetric=weyl_sym,
         all_weyl_symmetric=all_weyl,
         adjoint=adjoint_result,
+        multi_cusp_adjoint=multi_cusp_result,
     )

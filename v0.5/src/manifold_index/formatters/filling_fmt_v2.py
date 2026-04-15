@@ -51,32 +51,23 @@ def _extended_gcd(a: int, b: int) -> tuple[int, int, int]:
 
 
 def _bezout_complement(P: int, Q: int) -> tuple[int, int]:
-    """Compute Bézout complement (R, S) such that P·S - Q·R = 1.
+    """Return (c, d) = (−R, −S) matching the actual basis-change longitude.
 
-    Given a slope (P, Q) in the (α, β) basis, compute its dual (R, S)
-    such that P·S - Q·R = 1 (unimodular transformation).
+    The fill computation uses ``find_rs(P, Q)`` → (R, S) with R·Q − P·S = 1
+    and applies the SL(2,ℤ) basis change with matrix [[P, Q], [−R, −S]].
+    The new longitude is therefore δ = (−R)·α + (−S)·β.
 
-    This handles signs correctly: for any (P, Q) with gcd(P,Q)=1,
-    there exist unique integers (R, S) satisfying the equation.
+    This function returns exactly that (−R, −S) so the displayed δ matches
+    what the computation actually uses.
     """
     if P == 0 and Q == 0:
         return 0, 0
-
-    # Find (x, y) such that P·x + Q·y = gcd(P, Q)
-    gcd, x, y = _extended_gcd(P, Q)
-
-    if abs(gcd) != 1:
-        # Not coprime - shouldn't happen for valid NC cycles
-        # Return a default that won't cause division by zero
+    try:
+        from manifold_index.core.dehn_filling import find_rs as _find_rs
+        R, S = _find_rs(P, Q)
+        return -R, -S
+    except Exception:
         return 0, 1
-
-    # From P·x + Q·y = gcd, we want P·S - Q·R = 1
-    # If gcd = 1: set S = x, R = -y  →  P·x - Q·(-y) = 1  ✓
-    # If gcd = -1: set S = -x, R = y  →  P·(-x) - Q·y = -(P·x + Q·y) = -(-1) = 1  ✓
-    if gcd == 1:
-        return (-y, x)
-    else:
-        return (y, -x)
 
 
 def format_slope_latex(P: int, Q: int, a: str = r"\gamma", b: str = r"\delta") -> str:
@@ -125,16 +116,16 @@ def _beta_latex(coeff: Fraction, cusp: int) -> str:
 # ─────────────────────────────────────────────────────────────────────────
 
 def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
-    """Return HTML table with γᵢ, δᵢ, Weyl vectors, and q¹ adjoint projection.
+    """Return HTML table with γᵢ, δᵢ, Weyl vectors, and strongly-NC status.
 
     Columns:
-    - # : cycle number
-    - γᵢ : NC cycle (P, Q)
-    - δᵢ : Bézout complement (R, S)
-    - aᵢ : Weyl a vector
-    - bᵢ : Weyl b vector
-    - q¹ : adjoint projection pass/fail (must equal −1 for filling compatibility)
-    - Source : computed or cached
+    - #         : cycle number
+    - γᵢ        : NC cycle (P, Q)
+    - δᵢ        : Bézout complement (R, S)
+    - aᵢ        : Weyl a vector
+    - bᵢ        : Weyl b vector
+    - Unref. q^1: projection value; "Marginal" label when proj ≥ 0
+    - Source    : computed or cached
     """
     if not nc_cycles:
         return '<p class="muted">No non-closable cycles found.</p>\n'
@@ -145,9 +136,7 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
         '  <th>#</th>\n'
         '  <th>$\\gamma_i$</th>\n'
         '  <th>$\\delta_i$</th>\n'
-        '  <th>$a_i$</th>\n'
-        '  <th>$b_i$</th>\n'
-        '  <th>$q^1$ proj.</th>\n'
+        '  <th>Unref. $q^1$</th>\n'
         '  <th>Source</th>\n'
         '</tr>\n'
     )
@@ -160,33 +149,44 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
         R, S = _bezout_complement(nc.P, nc.Q)
         delta_str = format_slope_latex(R, S, r"\alpha", r"\beta")
 
-        # Weyl vectors
-        if nc.weyl_a and nc.weyl_b:
-            a_str = ", ".join(_frac_to_latex(a) for a in nc.weyl_a)
-            b_str = ", ".join(_frac_to_latex(b) for b in nc.weyl_b)
-            weyl_a = f"$({a_str})$"
-            weyl_b = f"$({b_str})$"
+        # Unrefined q^1 projection column.
+        # Notation: \left.\textrm{Coeff}_{q^1}\,
+        #               \mathcal{I}^{(\vec{\gamma},\vec{\delta})}(\vec{m}=0,\vec{u})
+        #           \right|_{(\textrm{adj}\,\mathfrak{su}(2)_i)}
+        # "Marginal" label shown when proj ≥ 0.
+        is_marginal = getattr(nc, 'is_marginal', None)
+        snc_val     = getattr(nc, 'unrefined_q1_proj', None)
+        ci_idx      = getattr(nc, 'cusp_idx', 0)
+        lhs_snc = (
+            r"\left.\textrm{Coeff}_{q^1}\,"
+            r"\mathcal{I}^{(\vec{\gamma},\vec{\delta})}(\vec{m}=0,\vec{u})"
+            rf"\right|_{{(\textrm{{adj}}\,\mathfrak{{su}}(2)_{{{ci_idx}}})}}"
+        )
+        if is_marginal is None:
+            snc_cell = (
+                f'<span style="white-space:nowrap;color:#888">'
+                f'${lhs_snc}$&nbsp;—'
+                f'</span>'
+            )
         else:
-            weyl_a = "—"
-            weyl_b = "—"
-
-        # q¹ adjoint projection result — show actual value, green if −1
-        adj_pass  = getattr(nc, "adjoint_proj_pass",  None)
-        adj_value = getattr(nc, "adjoint_proj_value", None)
-        if adj_value is None:
-            adj_cell = "<span style='color:#888'>—</span>"
-        else:
-            color = "#3fb950" if adj_pass else "#f85149"
-            adj_cell = f"<span style='color:{color}'>${_frac_to_latex(adj_value)}$</span>"
+            # Green when proj ≤ -1 (non-marginal), red + "Marginal" when proj ≥ 0
+            color     = "#f85149" if is_marginal else "#3fb950"
+            val_latex = _frac_to_latex(snc_val) if snc_val is not None else r"\cdot"
+            marginal_tag = '&nbsp;<span style="color:#f85149"><b>Marginal</b></span>' if is_marginal else ''
+            snc_cell = (
+                f'<span style="white-space:nowrap">'
+                f'${lhs_snc}='
+                f'\\color{{{color}}}{{{val_latex}}}$'
+                f'{marginal_tag}'
+                f'</span>'
+            )
 
         html += (
             f'<tr>\n'
             f'  <td style="text-align: center;"><b>{i}</b></td>\n'
             f'  <td style="text-align: center;">${gamma_str}$</td>\n'
             f'  <td style="text-align: center;">${delta_str}$</td>\n'
-            f'  <td style="text-align: center;">{weyl_a}</td>\n'
-            f'  <td style="text-align: center;">{weyl_b}</td>\n'
-            f'  <td style="text-align: center;">{adj_cell}</td>\n'
+            f'  <td style="text-align: center;">{snc_cell}</td>\n'
             f'  <td style="text-align: center;"><small>{nc.source}</small></td>\n'
             f'</tr>\n'
         )
@@ -693,11 +693,19 @@ def format_unrefined_series_latex(
 # Fill info panel  (NC cycle · transformed slope · HJ k-vector)
 # ─────────────────────────────────────────────────────────────────────────
 
-def format_fill_info_html(cusp_specs_aug: list, result) -> str:
-    """HTML for the fill-info panel shown above the result table.
+def format_fill_info_html(
+    cusp_specs_aug: list,
+    result,
+    adjoint_per_cusp: "list[dict] | None" = None,
+) -> str:
+    r"""HTML for the fill-info panel shown above the result table.
 
-    For each filled cusp shows:
-      γ = P·α + Q·β  |  δ = R·α + S·β  |  Slope: p·γ + q·δ  |  k=[…], ℓ
+    One row per filled cusp with columns:
+      C_i | γ = P·α+Q·β | δ = R·α+S·β | Slope: p·γ+q·δ | k=[…], ℓ
+      | \left.\mathcal{I}_{q^1}(\eta,\vec{u};\mathbf{a},\mathbf{b})
+             \right|_{\mathrm{adj}\,\mathfrak{su}(2)_{n+I}} = value ✓/✗
+
+    The adjoint column uses I = 1-based index among the filled cusps.
     """
     if not cusp_specs_aug:
         return ""
@@ -706,8 +714,14 @@ def format_fill_info_html(cusp_specs_aug: list, result) -> str:
     if result is not None and hasattr(result, "hj_ks"):
         hj_ks = list(result.hj_ks)
 
+    # Build cusp_idx → adjoint entry map for O(1) lookup per row
+    adj_map: dict = {}
+    if adjoint_per_cusp:
+        for entry in adjoint_per_cusp:
+            adj_map[entry.get("cusp_idx")] = entry
+
     rows: list = []
-    for spec in cusp_specs_aug:
+    for fill_idx, spec in enumerate(cusp_specs_aug, 1):   # I = 1, 2, …, d
         nc_P = int(spec.get("nc_P", 1))
         nc_Q = int(spec.get("nc_Q", 0))
         p    = int(spec.get("p", 0))
@@ -723,18 +737,80 @@ def format_fill_info_html(cusp_specs_aug: list, result) -> str:
         if hj_ks:
             k_inner = ",\\,".join(str(k) for k in hj_ks)
             k_cell = (
-                f"<td style='padding:2px 0;white-space:nowrap'>"
+                f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>"
                 f"$\\mathbf{{k}}=[{k_inner}]$,&nbsp;$\\ell={len(hj_ks)}$"
                 f"</td>"
             )
+
+        # ── Weyl a / b columns (for this filled cusp) ──────────────────
+        weyl_a = spec.get("weyl_a")
+        weyl_b = spec.get("weyl_b")
+        if weyl_a is not None:
+            a_str = ",\\,".join(_frac_to_latex(v) for v in weyl_a)
+            a_cell = (
+                f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>"
+                f"$a=({a_str})$</td>"
+            )
+        else:
+            a_cell = "<td style='padding:2px 12px 2px 0;color:#888'>—</td>"
+        if weyl_b is not None:
+            b_str = ",\\,".join(_frac_to_latex(v) for v in weyl_b)
+            b_cell = (
+                f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>"
+                f"$b=({b_str})$</td>"
+            )
+        else:
+            b_cell = "<td style='padding:2px 12px 2px 0;color:#888'>—</td>"
+
+        # ── Adjoint column ──────────────────────────────────────────────
+        # Notation: \left.\mathcal{I}_{q^1}(\eta,\vec{u};\mathbf{a},\mathbf{b})
+        #             \right|_{\mathrm{adj}\,\mathfrak{su}(2)_{n+I}}
+        # where I = fill_idx (1-based among filled cusps).
+        subscript = f"n+{fill_idx}" if fill_idx > 1 else "n+1"
+        lhs = (
+            r"\left.\mathcal{I}_{q^1}"
+            r"(\eta,\vec{u};\mathbf{a},\mathbf{b})"
+            rf"\right|_{{(\textrm{{adj}}\,\mathfrak{{su}}(2)_{{{subscript}}})}}"
+        )
+
+        entry = adj_map.get(ci)
+        if entry is None:
+            # No adjoint data yet (async worker not done)
+            adj_cell = (
+                f"<td style='padding:2px 0 2px 12px;white-space:nowrap;color:#888'>"
+                f"${lhs}$&nbsp;—"
+                f"</td>"
+            )
+        else:
+            val = entry.get("value")
+            ok  = entry.get("is_pass")
+            if val is None:
+                adj_cell = (
+                    f"<td style='padding:2px 0 2px 12px;white-space:nowrap;color:#888'>"
+                    f"${lhs}$&nbsp;—"
+                    f"</td>"
+                )
+            else:
+                color  = "#3fb950" if ok else "#f85149"
+                symbol = "✓" if ok else "✗"
+                adj_cell = (
+                    f"<td style='padding:2px 0 2px 12px;white-space:nowrap'>"
+                    f"${lhs}="
+                    f"\\color{{{color}}}{{{_frac_to_latex(val)}}}$"
+                    f"&nbsp;<span style='color:{color}'>{symbol}</span>"
+                    f"</td>"
+                )
 
         rows.append(
             f"<tr>"
             f"<td style='padding:2px 10px 2px 0;white-space:nowrap;font-weight:bold'>C{ci}</td>"
             f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>$\\gamma={gamma_str}$</td>"
             f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>$\\delta={delta_str}$</td>"
+            f"{a_cell}"
+            f"{b_cell}"
             f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>Slope:&nbsp;${slope_str}$</td>"
             f"{k_cell}"
+            f"{adj_cell}"
             f"</tr>"
         )
 

@@ -338,7 +338,6 @@ def format_nc_cycle_table_html(
         "<th>#</th>"
         "<th>Slope $\\gamma$</th>"
         "<th>Weyl Vectors (a, b)</th>"
-        "<th>q¹ Projection</th>"
         "<th>Source</th>"
         "</tr>\n"
     )
@@ -354,22 +353,12 @@ def format_nc_cycle_table_html(
         else:
             weyl_str = "—"
 
-        # Format q¹ projection result (show actual value alongside pass/fail)
-        val = getattr(nc, "adjoint_proj_value", None)
-        val_str = f" = {val}" if val is not None else ""
-        if nc.adjoint_proj_pass is True:
-            q1_str = f"✓ Pass{val_str}"
-        elif nc.adjoint_proj_pass is False:
-            q1_str = f"✗ Fail{val_str}"
-        else:
-            q1_str = "—"
-
-        # Overall compatibility
+        # Weyl-symmetry compatibility (condition 2 only — q¹ projection is
+        # shown at fill time after the full configuration is known)
         w = nc.weyl_compatible
-        a = nc.adjoint_proj_pass
-        if w is False or a is False:
+        if w is False:
             compat_class = 'style="color: #d00;"'
-        elif w is True and a is True:
+        elif w is True:
             compat_class = 'style="color: #0a0;"'
         else:
             compat_class = ''
@@ -379,7 +368,6 @@ def format_nc_cycle_table_html(
             f"<td>{i}</td>"
             f"<td>${nc.slope_latex}$</td>"
             f"<td><small>{weyl_str}</small></td>"
-            f"<td>{q1_str}</td>"
             f"<td>{nc.source}</td>"
             f"</tr>\n"
         )

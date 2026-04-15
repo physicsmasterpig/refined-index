@@ -215,6 +215,7 @@ class ComputeService:
         num_hard: int,
         q_order_half: int,
         cusp_idx: int = 0,
+        filled_cusp_indices: "list[int] | None" = None,
     ) -> Any | None:
         """Run the full Weyl-symmetry check on a collection of index entries.
 
@@ -224,6 +225,13 @@ class ComputeService:
         num_hard : int — number of hard edges (η variables).
         q_order_half : int — truncation order used when computing the entries.
         cusp_idx : int — which cusp to check for adjoint projection (default 0).
+            Ignored when *filled_cusp_indices* is supplied with more than one
+            entry.
+        filled_cusp_indices : list[int] or None — for multi-cusp Dehn filling,
+            the indices of ALL cusps being filled simultaneously.  When
+            provided and ``len > 1``, the adjoint check integrates over all
+            d filled-cusp fugacities jointly via
+            ``check_adjoint_projection_multi_cusp``.
 
         Returns
         -------
@@ -231,8 +239,13 @@ class ComputeService:
         """
         result = _wc_mod.run_weyl_checks(
             entries, num_hard, cusp_idx=cusp_idx, q_order_half=q_order_half,
+            filled_cusp_indices=filled_cusp_indices,
         )
-        ab = result.ab if (result.ab is not None and result.ab_valid) else None
+        # Return ab regardless of validity — ab_valid only controls whether
+        # edges are compatible with filling, but we always want to display
+        # the extracted (a, b) vectors.  Callers use ab.is_valid / ab.edge_compatible
+        # to decide which edges to zero out.
+        ab = result.ab  # may be None if extraction failed entirely
         adjoint_pass: "bool | None" = (
             result.adjoint.is_pass if result.adjoint is not None else None
         )

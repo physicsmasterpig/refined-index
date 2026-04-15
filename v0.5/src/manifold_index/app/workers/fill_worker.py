@@ -48,6 +48,7 @@ class FillWorker(QThread):
         q_order_half: int,
         weyl_a: list[Fraction] | None = None,
         weyl_b: list[Fraction] | None = None,
+        incompat_edges: list[int] | None = None,
         auto_precompute: bool = True,
         manifold_name: str = "unknown",
         parent=None,
@@ -64,6 +65,7 @@ class FillWorker(QThread):
         self._q_order_half    = q_order_half
         self._weyl_a          = weyl_a
         self._weyl_b          = weyl_b
+        self._incompat_edges  = incompat_edges
         self._auto_precompute = auto_precompute
         self._manifold_name   = manifold_name
 
@@ -94,8 +96,98 @@ class FillWorker(QThread):
                 q_order_half   = self._q_order_half,
                 weyl_a         = self._weyl_a,
                 weyl_b         = self._weyl_b,
+                incompat_edges = self._incompat_edges,
                 auto_precompute= self._auto_precompute,
                 progress_fn    = _prog,
+                manifold_name  = self._manifold_name,
+            )
+            self.finished.emit(
+                {
+                    "cusp_idx": self._cusp_idx,
+                    "nc_P":     self._nc_P,
+                    "nc_Q":     self._nc_Q,
+                    "user_P":   self._user_P,
+                    "user_Q":   self._user_Q,
+                    "p":        p,
+                    "q":        q,
+                    "result":   result,
+                }
+            )
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
+class UnrefinedKernelFillWorker(QThread):
+    """Unrefined K(P,Q) kernel applied to I^ref.
+
+    Used when q^1 adjoint projection fails: the refined IS-chain kernel is
+    replaced by K(P,Q;m,e), but I^ref with η variables is still used.
+    Incompat edges are projected to 1 pre-kernel (not post-hoc).
+    """
+
+    status   = Signal(str)
+    progress = Signal(int, int)
+    finished = Signal(object)
+    error    = Signal(str)
+
+    def __init__(
+        self,
+        nz_data: Any,
+        cusp_idx: int,
+        nc_P: int,
+        nc_Q: int,
+        user_P: int,
+        user_Q: int,
+        m_other: list[int] | None,
+        e_other: list[Fraction] | None,
+        q_order_half: int,
+        weyl_a: list[Fraction] | None = None,
+        weyl_b: list[Fraction] | None = None,
+        incompat_edges: list[int] | None = None,
+        manifold_name: str = "unknown",
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._nz_data        = nz_data
+        self._cusp_idx       = cusp_idx
+        self._nc_P           = nc_P
+        self._nc_Q           = nc_Q
+        self._user_P         = user_P
+        self._user_Q         = user_Q
+        self._m_other        = m_other
+        self._e_other        = e_other
+        self._q_order_half   = q_order_half
+        self._weyl_a         = weyl_a
+        self._weyl_b         = weyl_b
+        self._incompat_edges = incompat_edges
+        self._manifold_name  = manifold_name
+
+    def run(self) -> None:
+        self.setPriority(QThread.Priority.LowPriority)
+        try:
+            self.status.emit(
+                f"Computing filling — unrefined kernel "
+                f"(NC=({self._nc_P},{self._nc_Q}), "
+                f"slope=({self._user_P},{self._user_Q}))…"
+            )
+
+            def _prog(done: int, total: int) -> None:
+                time.sleep(0.005)
+                self.progress.emit(done, total)
+
+            p, q, result = FillingService.compute_unrefined_kernel_fill(
+                nz_data        = self._nz_data,
+                cusp_idx       = self._cusp_idx,
+                nc_P           = self._nc_P,
+                nc_Q           = self._nc_Q,
+                user_P         = self._user_P,
+                user_Q         = self._user_Q,
+                m_other        = self._m_other,
+                e_other        = self._e_other,
+                q_order_half   = self._q_order_half,
+                weyl_a         = self._weyl_a,
+                weyl_b         = self._weyl_b,
+                incompat_edges = self._incompat_edges,
                 manifold_name  = self._manifold_name,
             )
             self.finished.emit(

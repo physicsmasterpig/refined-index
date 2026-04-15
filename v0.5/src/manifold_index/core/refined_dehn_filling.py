@@ -1242,6 +1242,33 @@ def _apply_k1_factor_multi(
         return {k: v * scalar for k, v in series.items() if v * scalar != 0}
 
 
+def _collapse_iref_edges(
+    refined: RefinedIndexResult,
+    incompat_edges: list[int],
+) -> RefinedIndexResult:
+    """Project η_j to 1 for each j in incompat_edges.
+
+    Sets dimension (1+j) of every key to 0 and sums colliding entries.
+    This must be applied *before* the filling kernel sees I^ref, so that
+    the kernel operates on the already-projected series.
+    """
+    if not incompat_edges or not refined:
+        return refined
+    incompat_set = set(incompat_edges)
+    result: RefinedIndexResult = {}
+    for key, coeff in refined.items():
+        new_key = tuple(
+            0 if (i > 0 and (i - 1) in incompat_set) else v
+            for i, v in enumerate(key)
+        )
+        new_val = result.get(new_key, 0) + coeff
+        if new_val == 0:
+            result.pop(new_key, None)
+        else:
+            result[new_key] = new_val
+    return result
+
+
 def _apply_weyl_shift(
     refined: RefinedIndexResult,
     m_ext: list[int],
@@ -1874,6 +1901,7 @@ def compute_filled_refined_index(
     m1_range: int | None = None,
     weyl_a: list[Fraction] | None = None,
     weyl_b: list[Fraction] | None = None,
+    incompat_edges: list[int] | None = None,
     verbose: bool = False,
     n_workers: int = 1,
     auto_precompute: bool = False,
@@ -1961,6 +1989,20 @@ def compute_filled_refined_index(
     if m1_range is None:
         m1_range = 2 * q_order_half
 
+    # Zero Weyl shifts for incompat edges.  _collapse_iref_edges projects
+    # η_j → 1 in each I^ref term; if we still applied a non-zero Weyl shift
+    # for j, _apply_weyl_shift would re-introduce η_j (shift 0 → e or m).
+    # Zeroing a[j] and b[j] here ensures consistency: both the index and
+    # the shift treat incompat dimensions as identically 1.
+    if incompat_edges and weyl_a is not None:
+        weyl_a = list(weyl_a)
+        weyl_b = list(weyl_b) if weyl_b is not None else None
+        for j in incompat_edges:
+            if j < len(weyl_a):
+                weyl_a[j] = 0
+            if weyl_b is not None and j < len(weyl_b):
+                weyl_b[j] = 0
+
     # Auto-compute eta_order: the diamond truncation rule
     # (qq_power + |cusp_eta| ≤ qq_order) ensures that only terms with
     # |cusp_eta| ≤ qq_order survive in the output.  However, the IS
@@ -2023,6 +2065,11 @@ def compute_filled_refined_index(
             )
             if not refined:
                 continue
+            # Pre-project incompat η edges to 1 before the kernel sees I^ref
+            if incompat_edges:
+                refined = _collapse_iref_edges(refined, incompat_edges)
+                if not refined:
+                    continue
             n_terms += 1
 
             if verbose:
@@ -2101,6 +2148,7 @@ def compute_filled_refined_index(
             e_other=e_other,
             weyl_a=weyl_a,
             weyl_b=weyl_b,
+            incompat_edges=incompat_edges,
             qq_order=qq_order,
             verbose=verbose,
             n_workers=n_workers,
@@ -2170,6 +2218,7 @@ def compute_filled_refined_index(
             e_other=e_other,
             weyl_a=weyl_a,
             weyl_b=weyl_b,
+            incompat_edges=incompat_edges,
             qq_order=qq_order,
             verbose=verbose,
             n_workers=n_workers,
@@ -2234,6 +2283,11 @@ def compute_filled_refined_index(
             )
             if not refined:
                 continue
+            # Pre-project incompat η edges to 1 before the IS chain sees I^ref
+            if incompat_edges:
+                refined = _collapse_iref_edges(refined, incompat_edges)
+                if not refined:
+                    continue
             n_grid_terms += 1
 
             # Apply Weyl shift η^{b·m_I + a·e_I} before IS convolutions
@@ -2363,6 +2417,135 @@ def compute_filled_refined_index(
         num_hard=num_hard,
         has_cusp_eta=True,
         num_cusp_eta=1,
+    )
+
+
+def compute_unrefined_kernel_refined_index(
+    nz_data: NeumannZagierData,
+    cusp_idx: int,
+    P: int,
+    Q: int,
+    m_other: Sequence[int] | None = None,
+    e_other: Sequence[int | Fraction] | None = None,
+    q_order_half: int = 10,
+    incompat_edges: list[int] | None = None,
+    weyl_a: list[Fraction] | None = None,
+    weyl_b: list[Fraction] | None = None,
+    verbose: bool = False,
+) -> FilledRefinedResult:
+    """Unrefined kernel K(P,Q;m,e) applied to the refined index I^ref.
+
+    Used when the q^1 SU(2)-adjoint projection fails for cusp *cusp_idx*:
+    the IS-chain kernel K^ref is replaced by the ordinary unrefined kernel
+    K(P,Q;m,e), but the refined index I^ref (with η variables) is still used
+    so that hard-edge fugacity information is preserved.
+
+    Incompat edges (where a[j] ∉ ℤ or 2b[j] ∉ ℤ) are projected to η_j = 1
+    *before* the kernel is applied, not post-hoc.
+
+    Returns a FilledRefinedResult with has_cusp_eta=False (no cusp η since
+    the IS-chain is not used).
+    """
+    from manifold_index.core.dehn_filling import (   # noqa: PLC0415
+        find_rs,
+        enumerate_kernel_terms,
+        _summation_term_cache,
+    )
+
+    r = nz_data.r
+    num_hard = nz_data.num_hard
+    if m_other is None:
+        m_other = [0] * (r - 1)
+    if e_other is None:
+        e_other = [0] * (r - 1)
+
+    R, S = find_rs(P, Q)
+
+    # Zero Weyl shifts for incompat edges (same reason as in
+    # compute_filled_refined_index — prevent the Weyl shift from
+    # re-introducing η_j after _collapse_iref_edges sets it to 0).
+    if incompat_edges and weyl_a is not None:
+        weyl_a = list(weyl_a)
+        weyl_b = list(weyl_b) if weyl_b is not None else None
+        for j in incompat_edges:
+            if j < len(weyl_a):
+                weyl_a[j] = 0
+            if weyl_b is not None and j < len(weyl_b):
+                weyl_b[j] = 0
+
+    def _make_ext(m_i: int, e_i: Fraction):
+        m_ext: list[int] = []
+        e_ext: list[int | Fraction] = []
+        other_m_iter = iter(m_other)
+        other_e_iter = iter(e_other)
+        for k_idx in range(r):
+            if k_idx == cusp_idx:
+                m_ext.append(m_i)
+                e_ext.append(e_i)
+            else:
+                m_ext.append(next(other_m_iter))
+                e_ext.append(next(other_e_iter))
+        return m_ext, e_ext
+
+    # Enumerate unrefined K(P,Q) support — reuses the 3D-index pre-filter
+    # (zero 3D index ⟹ zero refined index, so the filter is safe here).
+    kernel_terms = enumerate_kernel_terms(
+        P, Q, R, S, nz_data, cusp_idx,
+        list(m_other), list(e_other), q_order_half,
+        _summation_cache=_summation_term_cache,
+    )
+
+    total: MultiEtaSeries = {}
+    n_terms = 0
+
+    for kt in kernel_terms:
+        m_ext, e_ext = _make_ext(kt.m, kt.e)
+        extra_q = abs(kt.phase) if kt.c == 0 else 0
+        refined = _cached_compute_refined_index(
+            nz_data, m_ext, e_ext, q_order_half=q_order_half + extra_q
+        )
+        if not refined:
+            continue
+        # Pre-project incompat η edges to 1
+        if incompat_edges:
+            refined = _collapse_iref_edges(refined, incompat_edges)
+            if not refined:
+                continue
+        # Apply Weyl shift before the kernel
+        if weyl_a is not None and weyl_b is not None:
+            refined = _apply_weyl_shift(
+                refined, m_ext, e_ext, weyl_a, weyl_b, num_hard,
+                cusp_idx=cusp_idx,
+            )
+        n_terms += 1
+        if verbose:
+            print(
+                f"[unrefined-k] term ({kt.m},{kt.e}) c={kt.c} "
+                f"phase={kt.phase} iref_entries={len(refined)}"
+            )
+        # Convert to MultiEtaSeries (no cusp η) and apply K factor
+        multi = _refined_to_multi(refined, append_cusp_eta=False)
+        contribution = _apply_k1_factor_multi(
+            multi, kt.c, kt.phase, kt.multiplicity, q_order_half
+        )
+        total = _multi_add(total, contribution)
+
+    if verbose:
+        print(
+            f"[unrefined-k] Done: {n_terms} terms, "
+            f"{len(total)} non-zero output entries"
+        )
+
+    return FilledRefinedResult(
+        P=P, Q=Q, cusp_idx=cusp_idx,
+        series=total,
+        qq_order=q_order_half,
+        eta_order=0,
+        hj_ks=[],
+        n_kernel_terms=n_terms,
+        num_hard=num_hard,
+        has_cusp_eta=False,
+        num_cusp_eta=0,
     )
 
 

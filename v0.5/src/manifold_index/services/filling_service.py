@@ -136,6 +136,7 @@ class FillingService:
         q_order_half: int,
         weyl_a: list[Fraction] | None,
         weyl_b: list[Fraction] | None,
+        incompat_edges: list[int] | None = None,
         auto_precompute: bool = True,
         progress_fn: Callable | None = None,
         manifold_name: str = "unknown",
@@ -207,6 +208,7 @@ class FillingService:
             q_order_half=q_order_half,
             weyl_a=weyl_a,
             weyl_b=weyl_b,
+            incompat_edges=incompat_edges,
             auto_precompute=auto_precompute,
         )
 
@@ -216,6 +218,61 @@ class FillingService:
             _kc_mod.save_iref_cache(nz_nc, manifold_name=manifold_name)
         except Exception:
             pass  # best-effort — never let a cache write break the result
+
+        return p, q, result
+
+    @staticmethod
+    def compute_unrefined_kernel_fill(
+        nz_data: Any,
+        cusp_idx: int,
+        nc_P: int,
+        nc_Q: int,
+        user_P: int,
+        user_Q: int,
+        m_other: list[int] | None,
+        e_other: list[Fraction] | None,
+        q_order_half: int,
+        weyl_a: list[Fraction] | None,
+        weyl_b: list[Fraction] | None,
+        incompat_edges: list[int] | None = None,
+        manifold_name: str = "unknown",
+    ) -> tuple[int, int, Any]:
+        """Apply basis change and compute filling with unrefined K(P,Q) kernel + I^ref.
+
+        Used when the q^1 SU(2)-adjoint projection fails: the refined IS-chain
+        kernel K^ref is replaced by the ordinary unrefined kernel K(P,Q;m,e),
+        but I^ref (with η variables) is still used so hard-edge fugacities are
+        preserved.  Incompat η edges are projected to 1 pre-kernel.
+
+        Returns
+        -------
+        (p, q, FilledRefinedResult)  — same shape as compute_filled_index.
+        """
+        R, S = _df_mod.find_rs(nc_P, nc_Q)
+        p = R * user_Q - S * user_P
+        q = nc_P * user_Q - nc_Q * user_P
+
+        nz_nc = _nz_mod.apply_general_cusp_basis_change(
+            nz_data, cusp_idx, a=nc_P, b=nc_Q, c=-R, d=-S
+        )
+
+        result = _rdf_mod.compute_unrefined_kernel_refined_index(
+            nz_nc,
+            cusp_idx=cusp_idx,
+            P=p,
+            Q=q,
+            m_other=m_other,
+            e_other=e_other,
+            q_order_half=q_order_half,
+            incompat_edges=incompat_edges,
+            weyl_a=weyl_a,
+            weyl_b=weyl_b,
+        )
+
+        try:
+            _kc_mod.save_iref_cache(nz_nc, manifold_name=manifold_name)
+        except Exception:
+            pass
 
         return p, q, result
 

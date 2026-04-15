@@ -1054,9 +1054,21 @@ def _enumerate_with_state(
             phase_base_x2, q_order_half, n, n_int
         )
 
-        # phase_base = phase_base_x2 / 2 (must be integer)
-        assert phase_base_x2 % 2 == 0, \
-            f"phase_base_x2={phase_base_x2} is odd; structural assumption violated"
+        # phase_base = phase_base_x2 / 2, which must be an integer.
+        #
+        # Odd phase_base_x2 arises for manifolds with half-integer ν_p (e.g.
+        # m008, ν_p[0] = −½) when the Dehn-filling kernel scans half-integer
+        # e values (e = t/2 for odd t).  In that case
+        #
+        #   Φ = phase_me − ν_x_int · e0 = ½ − integer = half-integer
+        #
+        # so the phase factor (−q^{1/2})^Φ lives in the q^{1/4} sector, not
+        # the physical q^{1/2} sector.  These contributions are formally zero
+        # in any series truncated to integer powers of q^{1/2}, so the entire
+        # pattern is skipped.  Note: the q^{1/2} sector itself is physical and
+        # appears whenever phase_base_x2 is even and phase_exp is odd.
+        if phase_base_x2 % 2 != 0:
+            continue
         phase_base = phase_base_x2 // 2
 
         for e0 in candidates:

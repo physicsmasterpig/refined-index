@@ -2603,6 +2603,7 @@ def apply_precomputed_kernel(
     e_other: Sequence[int | Fraction] | None = None,
     weyl_a: list[Fraction] | None = None,
     weyl_b: list[Fraction] | None = None,
+    incompat_edges: list[int] | None = None,
     qq_order: int | None = None,
     verbose: bool = False,
     n_workers: int = 1,
@@ -2654,6 +2655,7 @@ def apply_precomputed_kernel(
     from manifold_index.core.refined_dehn_filling import (
         _apply_weyl_shift,
         _cached_compute_refined_index,
+        _collapse_iref_edges,
     )
 
     r = nz_data.r
@@ -2671,6 +2673,17 @@ def apply_precomputed_kernel(
         m_other = [0] * (r - 1)
     if e_other is None:
         e_other = [0] * (r - 1)
+
+    # Zero Weyl shifts for incompat edges so they can't re-introduce η_j
+    # after _collapse_iref_edges has projected it to 1.
+    if incompat_edges and weyl_a is not None:
+        weyl_a = list(weyl_a)
+        weyl_b = list(weyl_b) if weyl_b is not None else None
+        for j in incompat_edges:
+            if j < len(weyl_a):
+                weyl_a[j] = 0
+            if weyl_b is not None and j < len(weyl_b):
+                weyl_b[j] = 0
 
     # Helper to build m_ext, e_ext
     def _make_ext(m_i, e_i):
@@ -2768,6 +2781,11 @@ def apply_precomputed_kernel(
         refined = iref_results.get((m_i, e_i), {})
         if not refined:
             continue
+        # Pre-project incompat η edges to 1 before the kernel sees I^ref
+        if incompat_edges:
+            refined = _collapse_iref_edges(refined, incompat_edges)
+            if not refined:
+                continue
 
         # Apply Weyl shift (manifold-dependent, hard-η only)
         if weyl_a is not None and weyl_b is not None:
