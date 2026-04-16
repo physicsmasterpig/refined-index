@@ -17,7 +17,7 @@ cd "$SCRIPT_DIR"
 SPEC="ManifoldIndex.spec"
 APP="dist/ManifoldIndex.app"
 ZIP="dist/ManifoldIndex.zip"
-APP_VERSION="0.5.13"
+APP_VERSION="0.5.14"
 
 # ── Clean ─────────────────────────────────────────────────────────
 if [[ "${1:-}" == "--clean" ]]; then
