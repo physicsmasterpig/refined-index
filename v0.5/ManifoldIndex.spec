@@ -34,7 +34,7 @@ SRC = PROJECT / "src"
 PKG = SRC / "manifold_index"
 
 # ── Version ────────────────────────────────────────────────────────
-APP_VERSION = "0.5.12"
+APP_VERSION = "0.5.13"
 
 # ── collect_all for snappy ecosystem and UI framework ────────────
 _snappy_datas, _snappy_bins, _snappy_hidden = collect_all("snappy")
@@ -104,6 +104,9 @@ datas += _pyside_datas  # PySide6 plugins, libraries, etc.
 
 # Our package data (data_packs.json, kernel caches, etc.)
 datas += collect_data_files("manifold_index", subdir="data")
+
+# KaTeX assets for offline math rendering
+datas += [(str(PROJECT / "src" / "manifold_index" / "data" / "katex"), "manifold_index/data/katex")]
 
 # ── Binaries ───────────────────────────────────────────────────────
 binaries = []

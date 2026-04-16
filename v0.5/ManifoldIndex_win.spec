@@ -25,7 +25,7 @@ from PyInstaller.utils.hooks import (
 # ── Paths ──────────────────────────────────────────────────────────
 PROJECT = Path(SPECPATH)
 SRC = PROJECT / "src"
-APP_VERSION = "0.5.12"
+APP_VERSION = "0.5.13"
 
 # ── conda vs pip auto-detection ────────────────────────────────────
 # conda environments have a Library/bin/ directory under sys.prefix
@@ -104,6 +104,8 @@ datas += _snappy_datas + _sm_datas + _sph_datas + _pl_datas
 datas += _cy_datas + _fx_datas + _kfh_datas + _li_datas
 datas += collect_data_files("scipy")
 datas += collect_data_files("manifold_index", subdir="data")
+datas += [(str(PROJECT / "src" / "manifold_index" / "data" / "katex"),
+           "manifold_index/data/katex")]
 
 # ── Binaries ───────────────────────────────────────────────────────
 binaries = []
