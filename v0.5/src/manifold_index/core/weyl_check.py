@@ -1114,12 +1114,17 @@ def _extract_q1_eta0_coeff_shifted(
     result: RefinedIndexResult,
     num_hard: int,
     shift_x2: list[int],
+    collapsed_edges: "set[int] | None" = None,
 ) -> int:
     """Extract the (q¹, all-η⁰) coefficient from a Weyl-shifted result.
 
     After applying the Weyl shift  η^{a·e + b·m}  to the raw index, the
     η⁰ component of the shifted series corresponds to the coefficient at
     ``η_x2[j] == -shift_x2[j]`` in the *unshifted* result.
+
+    For **collapsed edges** (incompatible with Dehn filling, W_j turned off),
+    we set η_j = 1, meaning we sum over ALL η_j powers rather than
+    extracting just η_j^0.
 
     Parameters
     ----------
@@ -1130,7 +1135,12 @@ def _extract_q1_eta0_coeff_shifted(
     shift_x2 : list[int]
         Doubled Weyl shift: ``2 * (a[j] * e + b[j] * m)`` for each
         hard edge j.  For m = 0 this simplifies to ``2 * a[j] * e``.
+    collapsed_edges : set[int] or None
+        Edge indices where W_j is turned off (η_j = 1).  For these edges
+        we sum over all η_j powers instead of extracting η_j^0.
     """
+    if collapsed_edges is None:
+        collapsed_edges = set()
     coeff = 0
     for key, val in result.items():
         if val == 0:
@@ -1138,8 +1148,16 @@ def _extract_q1_eta0_coeff_shifted(
         if key[0] != 2:          # not q¹
             continue
         # After shifting by +shift_x2, the new η = old η + shift_x2.
-        # We want new η = 0, so need old η = -shift_x2.
-        if all(key[1 + h] == -shift_x2[h] for h in range(num_hard)):
+        # We want new η = 0 for active edges, so need old η = -shift_x2.
+        # For collapsed edges, accept any η value (sum over all).
+        match = True
+        for h in range(num_hard):
+            if h in collapsed_edges:
+                continue  # sum over all η_h values
+            if key[1 + h] != -shift_x2[h]:
+                match = False
+                break
+        if match:
             coeff += val
     return coeff
 
@@ -1149,6 +1167,7 @@ def check_adjoint_projection(
     num_hard: int,
     ab: ABVectors | None = None,
     cusp_idx: int = 0,
+    collapsed_edges: set[int] | None = None,
 ) -> AdjointProjectionResult:
     r"""Check condition 2 of (2.59): adjoint-projected q¹ coefficient = −1.
 
@@ -1191,6 +1210,10 @@ def check_adjoint_projection(
     """
     # ---- Step 1: collect m=0 entries, extract c_e (Weyl-shifted) ----
     c_e: dict[Fraction, int] = {}
+
+    if collapsed_edges is None:
+        collapsed_edges = set()
+
     for m_ext, e_ext, result in entries:
         # All cusps must have m = 0
         if any(m != 0 for m in m_ext):
@@ -1213,7 +1236,8 @@ def check_adjoint_projection(
         else:
             shift_x2 = [0] * num_hard
 
-        coeff = _extract_q1_eta0_coeff_shifted(result, num_hard, shift_x2)
+        coeff = _extract_q1_eta0_coeff_shifted(result, num_hard, shift_x2,
+                                                collapsed_edges=collapsed_edges)
         c_e[e_val] = c_e.get(e_val, 0) + coeff
 
     # ---- Step 2: check we have the needed e-values ----
@@ -1286,6 +1310,7 @@ def check_adjoint_projection_multi_cusp(
     num_hard: int,
     ab: ABVectors | None = None,
     filled_cusp_indices: list[int] | None = None,
+    collapsed_edges: set[int] | None = None,
 ) -> MultiCuspAdjointResult:
     r"""Per-cusp adjoint projections for d simultaneously filled cusps.
 
@@ -1342,6 +1367,9 @@ def check_adjoint_projection_multi_cusp(
     # key = tuple of e values for filled cusps (in filled_cusp_indices order)
     c_e: dict[tuple[Fraction, ...], Fraction] = {}
 
+    if collapsed_edges is None:
+        collapsed_edges = set()
+
     for m_ext, e_ext, result in entries:
         if any(m != 0 for m in m_ext):
             continue
@@ -1355,7 +1383,9 @@ def check_adjoint_projection_multi_cusp(
         else:
             shift_x2 = [0] * num_hard
 
-        coeff = _extract_q1_eta0_coeff_shifted(result, num_hard, shift_x2)
+        coeff = _extract_q1_eta0_coeff_shifted(
+            result, num_hard, shift_x2, collapsed_edges=collapsed_edges,
+        )
         c_e[key] = c_e.get(key, Fraction(0)) + coeff
 
     # ---- Integration kernels ----
@@ -1414,8 +1444,9 @@ def check_adjoint_projection_multi_cusp(
             continue
 
         if numerator.denominator != 1:
+            # Non-integer projection — report the value (as float) but mark as fail
             per_cusp.append(AdjointProjectionResult(
-                projected_value=None, is_pass=False, c_e={}, missing_e=[],
+                projected_value=float(numerator), is_pass=False, c_e={}, missing_e=[],
             ))
             continue
 
@@ -1766,11 +1797,22 @@ def run_weyl_checks(
     adjoint_result: AdjointProjectionResult | None = None
     multi_cusp_result: "MultiCuspAdjointResult | None" = None
 
+    # Use filling-compatible ab (zero out edges where a∉ℤ or 2b∉ℤ)
+    # so the q¹ adjoint projection only sees compatible refinements.
+    ab_compat = ab.make_filling_compatible() if ab is not None else None
+
+    # Collapsed edges: use ORIGINAL ab to determine incompatibility
+    _collapsed: set[int] = set()
+    if ab is not None:
+        _compat = ab.edge_compatible
+        _collapsed = {j for j in range(num_hard) if not _compat[j]}
+
     try:
         if filled_cusp_indices is not None and len(filled_cusp_indices) >= 1:
             mc = check_adjoint_projection_multi_cusp(
-                entries, num_hard, ab=ab,
+                entries, num_hard, ab=ab_compat,
                 filled_cusp_indices=filled_cusp_indices,
+                collapsed_edges=_collapsed,
             )
             multi_cusp_result = mc
             # Also expose the first (or only) result through adjoint for backward compat
@@ -1778,10 +1820,13 @@ def run_weyl_checks(
                 adjoint_result = mc.results[0]
         else:
             adjoint_result = check_adjoint_projection(
-                entries, num_hard, ab=ab, cusp_idx=cusp_idx,
+                entries, num_hard, ab=ab_compat, cusp_idx=cusp_idx,
+                collapsed_edges=_collapsed,
             )
-    except Exception:
-        pass
+    except Exception as _adj_exc:
+        import traceback as _tb
+        print(f"[WEYL-CHECK] adjoint projection failed: {_adj_exc}")
+        _tb.print_exc()
 
     return WeylCheckResult(
         ab=ab,

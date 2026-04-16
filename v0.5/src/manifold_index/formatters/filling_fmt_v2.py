@@ -460,7 +460,7 @@ def format_filled_series_latex(
     return f"${result_str}$"
 
 
-def format_refined_index_notation(m_ext: list, e_ext: list) -> tuple[str, str]:
+def format_refined_index_notation(m_ext: list, e_ext: list, manifold_name: str = "") -> tuple[str, str]:
     """Convert (m, e) charge tuples to I(Aα + Bβ) notation.
 
     Convention: e·α − (m/2)·β  →  alpha_coeff = e, beta_coeff = −m/2
@@ -481,7 +481,11 @@ def format_refined_index_notation(m_ext: list, e_ext: list) -> tuple[str, str]:
         and equals_html contains <td class="eq">$=$</td>
     """
     if not m_ext or not e_ext:
-        index_html = '<td class="i">$\\mathcal{I}($</td><td class="al">$0$</td><td class="bl"></td><td class="cp">$)$</td>'
+        if manifold_name:
+            i_sym = rf'\mathcal{{I}}_{{{{{{{manifold_name}}}}}}}('
+        else:
+            i_sym = r'\mathcal{I}('
+        index_html = f'<td class="i">${i_sym}$</td><td class="al">$0$</td><td class="bl"></td><td class="cp">$)$</td>'
         equals_html = '<td class="eq">$=$</td>'
         return index_html, equals_html
 
@@ -544,8 +548,12 @@ def format_refined_index_notation(m_ext: list, e_ext: list) -> tuple[str, str]:
     beta_col = " ".join(beta_parts)
 
     # Combine as v0.4-style I(α + β) notation
+    if manifold_name:
+        i_sym = rf'\mathcal{{I}}_{{{{{{{manifold_name}}}}}}}('
+    else:
+        i_sym = r'\mathcal{I}('
     index_html = (
-        f'<td class="i">$\\mathcal{{I}}($</td>'
+        f'<td class="i">${i_sym}$</td>'
         f'<td class="al">${alpha_col}$</td>'
         f'<td class="bl">${beta_col}$</td>'
         f'<td class="cp">$)$</td>'
@@ -691,15 +699,25 @@ def format_fill_info_html(
     cusp_specs_aug: list,
     result,
     adjoint_per_cusp: "list[dict] | None" = None,
+    ab_vectors=None,
 ) -> str:
     r"""HTML for the fill-info panel shown above the result table.
 
-    One row per filled cusp with columns:
-      C_i | γ = P·α+Q·β | δ = R·α+S·β | Slope: p·γ+q·δ | k=[…], ℓ
-      | \left.\mathcal{I}_{q^1}(\eta,\vec{u};\mathbf{a},\mathbf{b})
-             \right|_{\mathrm{adj}\,\mathfrak{su}(2)_{n+I}} = value ✓/✗
+    Layout:
+      Table 1 — Per-cusp basis info: Cusp | γ | δ | Transformed slope | k-vector
+      Table 2 — Per-edge a/b vectors: Edge | a_I[j] per cusp | b_I[j] per cusp | compatible?
+      Table 3 — Per-cusp q¹ projection (with incompatible edges turned off)
 
-    The adjoint column uses I = 1-based index among the filled cusps.
+    Parameters
+    ----------
+    cusp_specs_aug : list[dict]
+        One dict per filled cusp.
+    result
+        FilledRefinedResult.
+    adjoint_per_cusp : list[dict] or None
+        Per-cusp adjoint projection results from MultiCuspNcCompatWorker.
+    ab_vectors : ABVectors or None
+        Full ABVectors with cusp_columns for multi-cusp edge display.
     """
     if not cusp_specs_aug:
         return ""
@@ -714,8 +732,21 @@ def format_fill_info_html(
         for entry in adjoint_per_cusp:
             adj_map[entry.get("cusp_idx")] = entry
 
-    rows: list = []
-    for fill_idx, spec in enumerate(cusp_specs_aug, 1):   # I = 1, 2, …, d
+    css = (
+        "<style>"
+        "body{font-size:11px;margin:4px 0}"
+        "table{border-collapse:collapse;margin-bottom:8px}"
+        "td,th{vertical-align:baseline;padding:2px 8px}"
+        "th{font-weight:bold;text-align:center;border-bottom:1px solid #444}"
+        ".compat{color:#3fb950} .incompat{color:#f85149}"
+        "</style>"
+    )
+
+    parts: list[str] = [css]
+
+    # ── Table 1: Per-cusp basis info ────────────────────────────────────
+    rows_basis: list[str] = []
+    for fill_idx, spec in enumerate(cusp_specs_aug, 1):
         nc_P = int(spec.get("nc_P", 1))
         nc_Q = int(spec.get("nc_Q", 0))
         p    = int(spec.get("p", 0))
@@ -730,86 +761,162 @@ def format_fill_info_html(
         k_cell = ""
         if hj_ks:
             k_inner = ",\\,".join(str(k) for k in hj_ks)
-            k_cell = (
-                f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>"
-                f"$\\mathbf{{k}}=[{k_inner}]$,&nbsp;$\\ell={len(hj_ks)}$"
-                f"</td>"
-            )
+            k_cell = f"<td>$\\mathbf{{k}}=[{k_inner}]$,&nbsp;$\\ell={len(hj_ks)}$</td>"
 
-        # ── Weyl a / b columns (for this filled cusp) ──────────────────
-        weyl_a = spec.get("weyl_a")
-        weyl_b = spec.get("weyl_b")
-        if weyl_a is not None:
-            a_str = ",\\,".join(_frac_to_latex(v) for v in weyl_a)
-            a_cell = (
-                f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>"
-                f"$a=({a_str})$</td>"
-            )
-        else:
-            a_cell = "<td style='padding:2px 12px 2px 0;color:#888'>—</td>"
-        if weyl_b is not None:
-            b_str = ",\\,".join(_frac_to_latex(v) for v in weyl_b)
-            b_cell = (
-                f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>"
-                f"$b=({b_str})$</td>"
-            )
-        else:
-            b_cell = "<td style='padding:2px 12px 2px 0;color:#888'>—</td>"
-
-        # ── Adjoint column ──────────────────────────────────────────────
-        # Notation: \left.\mathcal{I}_{q^1}(\eta,\vec{u};\mathbf{a},\mathbf{b})
-        #             \right|_{\mathrm{adj}\,\mathfrak{su}(2)_{n+I}}
-        # where I = fill_idx (1-based among filled cusps).
-        subscript = f"n+{fill_idx}" if fill_idx > 1 else "n+1"
-        lhs = (
-            r"\left.\mathcal{I}_{q^1}"
-            r"(\eta,\vec{u};\mathbf{a},\mathbf{b})"
-            rf"\right|_{{(\textrm{{adj}}\,\mathfrak{{su}}(2)_{{{subscript}}})}}"
-        )
-
-        entry = adj_map.get(ci)
-        if entry is None:
-            # No adjoint data yet (async worker not done)
-            adj_cell = (
-                f"<td style='padding:2px 0 2px 12px;white-space:nowrap;color:#888'>"
-                f"${lhs}$&nbsp;—"
-                f"</td>"
-            )
-        else:
-            val = entry.get("value")
-            ok  = entry.get("is_pass")
-            if val is None:
-                adj_cell = (
-                    f"<td style='padding:2px 0 2px 12px;white-space:nowrap;color:#888'>"
-                    f"${lhs}$&nbsp;—"
-                    f"</td>"
-                )
-            else:
-                color  = "#3fb950" if ok else "#f85149"
-                symbol = "✓" if ok else "✗"
-                adj_cell = (
-                    f"<td style='padding:2px 0 2px 12px;white-space:nowrap'>"
-                    f"${lhs}="
-                    f"\\color{{{color}}}{{{_frac_to_latex(val)}}}$"
-                    f"&nbsp;<span style='color:{color}'>{symbol}</span>"
-                    f"</td>"
-                )
-
-        rows.append(
+        rows_basis.append(
             f"<tr>"
-            f"<td style='padding:2px 10px 2px 0;white-space:nowrap;font-weight:bold'>C{ci}</td>"
-            f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>$\\gamma={gamma_str}$</td>"
-            f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>$\\delta={delta_str}$</td>"
-            f"{a_cell}"
-            f"{b_cell}"
-            f"<td style='padding:2px 12px 2px 0;white-space:nowrap'>Slope:&nbsp;${slope_str}$</td>"
+            f"<td style='font-weight:bold'>$\\textrm{{Cusp}}\\,{ci}$</td>"
+            f"<td>$\\gamma={gamma_str}$</td>"
+            f"<td>$\\delta={delta_str}$</td>"
+            f"<td>$\\textrm{{Slope:}}$&nbsp;${slope_str}$</td>"
             f"{k_cell}"
-            f"{adj_cell}"
             f"</tr>"
         )
+    parts.append("<table>" + "".join(rows_basis) + "</table>")
 
-    css = "<style>body{font-size:11px;margin:4px 0}table{border-collapse:collapse}td{vertical-align:baseline}</style>"
-    return css + "<table>" + "".join(rows) + "</table>"
+    # ── Table 2: Per-edge a/b vectors with compatibility ────────────────
+    # Collect per-edge data from ab_vectors (preferred) or fall back to
+    # cusp_specs_aug weyl_a/weyl_b.
+    num_cusps = len(cusp_specs_aug)
+    num_hard = 0
+    cusp_a_matrix: list[list] | None = None   # cusp_a_matrix[j][I]
+    cusp_b_matrix: list[list] | None = None
+    edge_compat: list[bool] | None = None
+
+    if ab_vectors is not None and hasattr(ab_vectors, 'cusp_columns') and ab_vectors.cusp_columns is not None:
+        num_hard = ab_vectors.num_hard
+        cusp_a_matrix = [
+            [col.a[j] for col in ab_vectors.cusp_columns]
+            for j in range(num_hard)
+        ]
+        cusp_b_matrix = [
+            [col.b[j] for col in ab_vectors.cusp_columns]
+            for j in range(num_hard)
+        ]
+        edge_compat = ab_vectors.edge_compatible
+    elif ab_vectors is not None and hasattr(ab_vectors, 'a'):
+        num_hard = ab_vectors.num_hard
+        cusp_a_matrix = [[ab_vectors.a[j]] for j in range(num_hard)]
+        cusp_b_matrix = [[ab_vectors.b[j]] for j in range(num_hard)]
+        edge_compat = ab_vectors.edge_compatible
+    else:
+        # Fallback: reconstruct from per-cusp weyl_a/weyl_b in specs
+        a_lists = [spec.get("weyl_a") for spec in cusp_specs_aug]
+        b_lists = [spec.get("weyl_b") for spec in cusp_specs_aug]
+        if any(a is not None for a in a_lists):
+            num_hard = max(len(a) for a in a_lists if a is not None)
+            cusp_a_matrix = []
+            cusp_b_matrix = []
+            for j in range(num_hard):
+                a_row = []
+                b_row = []
+                for I in range(num_cusps):
+                    a_row.append(Fraction(a_lists[I][j]) if a_lists[I] and j < len(a_lists[I]) else Fraction(0))
+                    b_row.append(Fraction(b_lists[I][j]) if b_lists[I] and j < len(b_lists[I]) else Fraction(0))
+                cusp_a_matrix.append(a_row)
+                cusp_b_matrix.append(b_row)
+
+    if cusp_a_matrix and cusp_b_matrix and num_hard > 0:
+        # Build edge compatibility if not already set
+        if edge_compat is None:
+            edge_compat = []
+            for j in range(num_hard):
+                a_ok = all(Fraction(v).denominator == 1 for v in cusp_a_matrix[j])
+                b_ok = all((Fraction(v) * 2).denominator == 1 for v in cusp_b_matrix[j])
+                edge_compat.append(a_ok and b_ok)
+
+        # Header
+        cusp_hdrs = "".join(f"<th>$C_{{{I}}}$</th>" for I in range(num_cusps)) if num_cusps > 1 else ""
+        if num_cusps > 1:
+            edge_hdr = (
+                "<table>"
+                f"<tr><th>Edge</th>"
+                f"<th colspan='{num_cusps}'>$a_{{I}}[j]$</th>"
+                f"<th colspan='{num_cusps}'>$b_{{I}}[j]$</th>"
+                f"<th>Status</th></tr>"
+                f"<tr><td></td>"
+                + "".join(f"<th>$C_{{{I}}}$</th>" for I in range(num_cusps))
+                + "".join(f"<th>$C_{{{I}}}$</th>" for I in range(num_cusps))
+                + "<td></td></tr>"
+            )
+        else:
+            edge_hdr = (
+                "<table>"
+                "<tr><th>Edge</th><th>$a_j$</th><th>$b_j$</th><th>Status</th></tr>"
+            )
+
+        edge_rows = ""
+        for j in range(num_hard):
+            ok = edge_compat[j]
+            if num_cusps > 1:
+                a_cells = "".join(f"<td style='text-align:center'>${_frac_to_latex(v)}$</td>" for v in cusp_a_matrix[j])
+                b_cells = "".join(f"<td style='text-align:center'>${_frac_to_latex(v)}$</td>" for v in cusp_b_matrix[j])
+            else:
+                a_cells = f"<td style='text-align:center'>${_frac_to_latex(cusp_a_matrix[j][0])}$</td>"
+                b_cells = f"<td style='text-align:center'>${_frac_to_latex(cusp_b_matrix[j][0])}$</td>"
+
+            status_cls = "compat" if ok else "incompat"
+            status_sym = "✓" if ok else "✗ off"
+            edge_rows += (
+                f"<tr>"
+                f"<td style='text-align:center;font-weight:bold'>$W_{{{j}}}$</td>"
+                f"{a_cells}{b_cells}"
+                f"<td class='{status_cls}' style='text-align:center'>{status_sym}</td>"
+                f"</tr>"
+            )
+
+        parts.append(
+            "<p style='margin:8px 0 4px;font-weight:bold'>Weyl vectors per edge</p>"
+            + edge_hdr + edge_rows + "</table>"
+        )
+    else:
+        parts.append(
+            "<p style='color:#888;margin:4px 0'>Weyl vectors not available</p>"
+        )
+
+    # ── Table 3: Per-cusp q¹ adjoint projection ────────────────────────
+    if adjoint_per_cusp:
+        parts.append(
+            "<p style='margin:8px 0 4px;font-weight:bold'>"
+            "$q^1$ adjoint projection per cusp "
+            "(incompatible edges turned off)</p>"
+        )
+        adj_rows = ""
+        for fill_idx, spec in enumerate(cusp_specs_aug, 1):
+            ci = spec.get("cusp_idx", 0)
+            subscript = f"n+{fill_idx}" if fill_idx > 1 else "n+1"
+            lhs = (
+                r"\left.\mathcal{I}_{q^1}"
+                r"(\eta,\vec{u};\mathbf{a},\mathbf{b})"
+                rf"\right|_{{(\textrm{{adj}}\,\mathfrak{{su}}(2)_{{{subscript}}})}}"
+            )
+            entry = adj_map.get(ci)
+            if entry is None:
+                val_cell = "<td style='color:#888'>—</td>"
+            else:
+                val = entry.get("value")
+                ok  = entry.get("is_pass")
+                if val is None:
+                    val_cell = "<td style='color:#888'>—</td>"
+                else:
+                    color  = "#3fb950" if ok else "#f85149"
+                    symbol = "✓" if ok else "✗"
+                    val_cell = (
+                        f"<td style='white-space:nowrap'>"
+                        f"${lhs}="
+                        f"\\color{{{color}}}{{{_frac_to_latex(val)}}}$"
+                        f"&nbsp;<span style='color:{color}'>{symbol}</span>"
+                        f"</td>"
+                    )
+            adj_rows += (
+                f"<tr>"
+                f"<td style='font-weight:bold'>$\\textrm{{Cusp}}\\,{ci}$</td>"
+                f"{val_cell}"
+                f"</tr>"
+            )
+        parts.append("<table>" + adj_rows + "</table>")
+
+    return "\n".join(parts) + "\n"
 
 
 def format_charge_as_alphabeta(m, e, cusp_idx=None) -> str:
@@ -915,29 +1022,36 @@ def build_fill_row_cells(
     m_other: list, e_other: list,
     slope_a: str = r"\gamma",
     slope_b: str = r"\delta",
+    manifold_name: str = "",
 ) -> tuple[str, str]:
     r"""Build (m_td_cells, eq_td_cell) for SeriesTable html-notation.
 
     * No unfilled cusps (m_other/e_other empty): 4 cells showing
-      ``\mathcal{I}^{pγ+qδ}`` with the three argument cells left blank.
+      ``\mathcal{I}_{(name)_{pγ+qδ}}`` with the three argument cells left blank.
     * With unfilled cusps: 4 cells showing
-      ``\mathcal{I}^{pγ+qδ}(  Aα  +Bβ  )``.
+      ``\mathcal{I}_{(name)_{pγ+qδ}}(  Aα  +Bβ  )``.
 
     Pass ``slope_a=r"\alpha", slope_b=r"\beta"`` for unrefined rows.
     """
     sup = format_slope_latex(p, q, a=slope_a, b=slope_b)
     eq_cell = "<td class='eq'>$=$</td>"
 
+    # Build subscript: (name)_{slope} or just slope if no name
+    if manifold_name:
+        subscript = rf"{{({manifold_name})}}_{{{sup}}}"
+    else:
+        subscript = sup
+
     if not _has_charge(m_other, e_other):
         # No unfilled cusps — omit the (...) argument entirely
         return (
-            f"<td class='i'>$\\mathcal{{I}}^{{{sup}}}$</td>"
+            f"<td class='i'>$\\mathcal{{I}}_{{{subscript}}}$</td>"
             "<td class='al'></td>"
             "<td class='bl'></td>"
             "<td class='cp'></td>"
         ), eq_cell
 
-    prefix = rf"\mathcal{{I}}^{{{sup}}}("
+    prefix = rf"\mathcal{{I}}_{{{subscript}}}("
     alpha_str, beta_str = _charge_ab_strs(m_other, e_other)
     return (
         f"<td class='i'>${prefix}$</td>"
@@ -945,18 +1059,23 @@ def build_fill_row_cells(
     ), eq_cell
 
 
-def build_fill_placeholder_cells(m_other: list, e_other: list) -> tuple[str, str]:
+def build_fill_placeholder_cells(m_other: list, e_other: list, manifold_name: str = "") -> tuple[str, str]:
     r"""Placeholder row cells while the transformed slope is not yet known.
 
-    No-charge case: ``\mathcal{I}^{\ldots}``.
-    Charge case:    ``\mathcal{I}^{\ldots}(Aα + Bβ)``.
+    No-charge case: ``\mathcal{I}_{(name)_{\ldots}}``.
+    Charge case:    ``\mathcal{I}_{(name)_{\ldots}}(Aα + Bβ)``.
     Updated via ``update_row_metadata`` once the worker payload arrives.
     """
     eq_cell = "<td class='eq'>$=$</td>"
 
+    if manifold_name:
+        subscript = rf"{{({manifold_name})}}_{{\ldots}}"
+    else:
+        subscript = r"\ldots"
+
     if not _has_charge(m_other, e_other):
         return (
-            r"<td class='i'>$\mathcal{I}^{\ldots}$</td>"
+            f"<td class='i'>$\\mathcal{{I}}_{{{subscript}}}$</td>"
             "<td class='al'></td>"
             "<td class='bl'></td>"
             "<td class='cp'></td>"
@@ -964,7 +1083,7 @@ def build_fill_placeholder_cells(m_other: list, e_other: list) -> tuple[str, str
 
     alpha_str, beta_str = _charge_ab_strs(m_other, e_other)
     return (
-        r"<td class='i'>$\mathcal{I}^{\ldots}($</td>"
+        f"<td class='i'>$\\mathcal{{I}}_{{{subscript}}}($</td>"
         + _charge_cells_html(alpha_str, beta_str)
     ), eq_cell
 
@@ -973,12 +1092,12 @@ def build_fill_placeholder_cells(m_other: list, e_other: list) -> tuple[str, str
 # Multi-fill row-cell builders  (cusp-subscripted γᵢ/δᵢ and αᵢ/βᵢ)
 # ─────────────────────────────────────────────────────────────────────────
 
-def _build_filled_superscript(cusp_specs: list) -> str:
-    """Build P₁α₁+Q₁β₁+P₂α₂+Q₂β₂ from filled cusp specs.
+def _build_filled_subscript(cusp_specs: list, manifold_name: str = "") -> str:
+    """Build (name)_{P₁α₁+Q₁β₁,P₂α₂+Q₂β₂} subscript from filled cusp specs.
 
     Each spec must have keys ``cusp_idx``, ``user_P``, ``user_Q``.
     """
-    sup = ""
+    slopes = ""
     for spec in cusp_specs:
         ci = spec["cusp_idx"]
         p  = spec.get("user_P", 0)
@@ -986,10 +1105,16 @@ def _build_filled_superscript(cusp_specs: list) -> str:
         if p == 0 and q == 0:
             continue
         term = format_slope_latex(p, q, a=rf"\alpha_{{{ci}}}", b=rf"\beta_{{{ci}}}")
-        if sup and not term.startswith("-"):
-            sup += "+"
-        sup += term
-    return sup or "0"
+        if slopes and not term.startswith("-"):
+            slopes += ","
+        elif slopes:
+            slopes += ","
+        slopes += term
+    slopes = slopes or "0"
+
+    if manifold_name:
+        return rf"{{({manifold_name})}}_{{{slopes}}}"
+    return slopes
 
 
 def _build_unfilled_charge_cells_html(unfilled_cusp_charges: list) -> str:
@@ -1034,27 +1159,28 @@ def _build_unfilled_charge_cells_html(unfilled_cusp_charges: list) -> str:
 def build_multi_fill_row_cells(
     cusp_specs: list,
     unfilled_cusp_charges: list,   # [(cusp_idx, m, e), …]
+    manifold_name: str = "",
 ) -> tuple[str, str]:
     r"""Build final row cells for a multi-cusp fill result.
 
     m_val always has the structure:
-      [i: I^{…}(] + [3x-1 charge cells] + [cp: )]
+      [i: I_{…}(] + [3x-1 charge cells] + [cp: )]
     = 3x+1 total cells, where x = len(unfilled_cusp_charges).
 
-    For x=0: [i: I^{…}] [al:] [bl:] [cp:] (4 cells, no argument).
+    For x=0: [i: I_{…}] [al:] [bl:] [cp:] (4 cells, no argument).
     """
-    sup     = _build_filled_superscript(cusp_specs)
+    sub     = _build_filled_subscript(cusp_specs, manifold_name=manifold_name)
     eq_cell = "<td class='eq'>$=$</td>"
 
     if not unfilled_cusp_charges:
         return (
-            f"<td class='i'>$\\mathcal{{I}}^{{{sup}}}$</td>"
+            f"<td class='i'>$\\mathcal{{I}}_{{{sub}}}$</td>"
             "<td class='al'></td>"
             "<td class='bl'></td>"
             "<td class='cp'></td>"
         ), eq_cell
 
-    prefix       = rf"\mathcal{{I}}^{{{sup}}}("
+    prefix       = rf"\mathcal{{I}}_{{{sub}}}("
     charge_cells = _build_unfilled_charge_cells_html(unfilled_cusp_charges)
     return (
         f"<td class='i'>${prefix}$</td>"
@@ -1066,15 +1192,16 @@ def build_multi_fill_row_cells(
 def build_multi_fill_placeholder_cells(
     cusp_specs: list,              # one dict per filled cusp (has user_P, user_Q, cusp_idx)
     unfilled_cusp_charges: list,   # [(cusp_idx, m, e), …]
+    manifold_name: str = "",
 ) -> tuple[str, str]:
     r"""Placeholder cells for multi-fill while p′/q′ are not yet known.
 
-    Uses user slopes (in α/β basis) as the superscript so that no ``\ldots``
+    Uses user slopes (in α/β basis) as the subscript so that no ``\ldots``
     ever appears; ``update_row_metadata`` will replace these with the true
     γ/δ-transformed slopes once the worker finishes.
     """
-    # Build superscript from user slopes (α/β basis, subscripted)
-    sup = ""
+    # Build subscript from user slopes (α/β basis, subscripted)
+    slopes = ""
     for spec in cusp_specs:
         ci = spec.get("cusp_idx", 0)
         uP = spec.get("user_P", 0)
@@ -1083,24 +1210,29 @@ def build_multi_fill_placeholder_cells(
             continue
         term = format_slope_latex(uP, uQ,
                                   a=rf"\alpha_{{{ci}}}", b=rf"\beta_{{{ci}}}")
-        if sup and not term.startswith("-"):
-            sup += "+"
-        sup += term
-    if not sup:
-        sup = "?"
+        if slopes:
+            slopes += ","
+        slopes += term
+    if not slopes:
+        slopes = "?"
+
+    if manifold_name:
+        sub = rf"{{({manifold_name})}}_{{{slopes}}}"
+    else:
+        sub = slopes
 
     eq_cell = "<td class='eq'>$=$</td>"
 
     if not unfilled_cusp_charges:
         return (
-            f"<td class='i'>$\\mathcal{{I}}^{{{sup}}}$</td>"
+            f"<td class='i'>$\\mathcal{{I}}_{{{sub}}}$</td>"
             "<td class='al'></td>"
             "<td class='bl'></td>"
             "<td class='cp'></td>"
         ), eq_cell
 
     charge_cells = _build_unfilled_charge_cells_html(unfilled_cusp_charges)
-    prefix = rf"\mathcal{{I}}^{{{sup}}}("
+    prefix = rf"\mathcal{{I}}_{{{sub}}}("
     return (
         f"<td class='i'>${prefix}$</td>"
         + charge_cells

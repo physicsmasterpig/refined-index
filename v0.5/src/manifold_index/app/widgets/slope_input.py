@@ -20,8 +20,10 @@ import math
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QSizePolicy, QSpinBox, QWidget,
+    QFrame, QHBoxLayout, QLabel, QSizePolicy, QWidget,
 )
+
+from manifold_index.app.widgets.no_scroll_spin import NoScrollSpinBox as QSpinBox
 
 from manifold_index.app.theme import colors as C
 

@@ -76,7 +76,8 @@
       "Bash(PYTHONUNBUFFERED=1 python3 -u scripts/check_strongly_nc.py)"
     ],
     "additionalDirectories": [
-      "/tmp"
+      "/tmp",
+      "/Users/pmp/Documents/Research/iref3d"
     ]
   }
 }

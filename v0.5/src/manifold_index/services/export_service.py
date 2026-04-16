@@ -106,16 +106,20 @@ class ExportService:
         dehn_results = _ExportService_build_dehn_results(session) if include_filling else None
         _exp_mod.write_mathematica(
             path=output_path,
-            manifold_data=session.manifold_data,
+            manifold_data=_ExportService_manifold_data(session),
             nz_data=session.nz_data,
             entries=entries,
             weyl_result=session.weyl_result,
-            dehn_results=dehn_results if include_filling else None,
+            dehn_results=dehn_results,
             q_order_half=session.q_order_half,
         )
 
     @staticmethod
-    def write_json(session: "Session", output_path) -> None:
+    def write_json(
+        session: "Session",
+        output_path,
+        include_filling: bool = True,
+    ) -> None:
         """Write a structured JSON file."""
         if session.nz_data is None:
             raise ValueError("No NZ data in session — load a manifold first")
@@ -124,20 +128,24 @@ class ExportService:
             for q in session.index_queries
             if q.result is not None
         ]
-        dehn_results = _ExportService_build_dehn_results(session)
+        dehn_results = _ExportService_build_dehn_results(session) if include_filling else None
         _exp_mod.write_json(
             path=output_path,
-            manifold_data=session.manifold_data,
+            manifold_data=_ExportService_manifold_data(session),
             easy_result=None,          # easy_result not stored in session
             nz_data=session.nz_data,
             entries=entries,
             weyl_result=session.weyl_result,
-            dehn_results=dehn_results or None,
+            dehn_results=dehn_results,
             q_order_half=session.q_order_half,
         )
 
     @staticmethod
-    def write_full_report(session: "Session", output_path) -> None:
+    def write_full_report(
+        session: "Session",
+        output_path,
+        include_filling: bool = True,
+    ) -> None:
         """Write a compilable LaTeX report with all sections."""
         if session.nz_data is None:
             raise ValueError("No NZ data in session — load a manifold first")
@@ -146,10 +154,10 @@ class ExportService:
             for q in session.index_queries
             if q.result is not None
         ]
-        dehn_results = _ExportService_build_dehn_results(session)
+        dehn_results = _ExportService_build_dehn_results(session) if include_filling else None
         _exp_mod.write_full_report(
             path=output_path,
-            manifold_data=session.manifold_data,
+            manifold_data=_ExportService_manifold_data(session),
             easy_result=None,          # easy_result not stored in session
             nz_data=session.nz_data,
             entries=entries,
@@ -186,8 +194,25 @@ class ExportService:
 
 
 # ---------------------------------------------------------------------------
-# Internal helper
+# Internal helpers
 # ---------------------------------------------------------------------------
+
+class _ManifoldDataStub:
+    """Minimal stand-in for ManifoldData when the live object is not available
+    (e.g. after a session restore from disk, where manifold_data is not
+    serialised).  Exporters only use .name and .gluing_matrix."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.gluing_matrix = None
+
+
+def _ExportService_manifold_data(session: "Session") -> Any:
+    """Return session.manifold_data, falling back to a lightweight stub."""
+    if session.manifold_data is not None:
+        return session.manifold_data
+    return _ManifoldDataStub(session.manifold_name or "unknown")
+
 
 def _ExportService_build_dehn_results(session: "Session") -> list:
     """Build a dehn_results list from FillQuery records.

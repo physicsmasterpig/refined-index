@@ -21,9 +21,14 @@ from fractions import Fraction
 
 from PySide6.QtCore import QCoreApplication, QTimer, Signal
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox,
+    QButtonGroup, QCheckBox, QComboBox, QGroupBox,
     QHBoxLayout, QLabel, QProgressBar, QPushButton, QRadioButton,
-    QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
+    QStackedWidget, QVBoxLayout, QWidget,
+)
+
+from manifold_index.app.widgets.no_scroll_spin import (
+    NoScrollDoubleSpinBox as QDoubleSpinBox,
+    NoScrollSpinBox as QSpinBox,
 )
 
 from manifold_index.services.session import (
@@ -134,6 +139,7 @@ class FillingCard(QWidget):
         self._last_fill_info_specs: list = []        # cusp_specs last passed to fill-info view
         self._last_fill_info_result = None           # last fill result
         self._last_adjoint_per_cusp: "list | None" = None  # latest per-cusp adjoint results
+        self._last_fill_info_ab = None               # ABVectors for per-edge a/b display
         self._nc_worker_progress: dict[int, tuple[int, int]] = {}
         self._fill_current_row: int | None = None
         self._fill_grid_total: int = 0
@@ -1117,6 +1123,15 @@ class FillingCard(QWidget):
             self._fill_edge_layout.addWidget(cb)
             self._fill_edge_checkboxes.append(cb)
 
+    def _reset_fill_edge_toggles(self) -> None:
+        """Re-enable and check all W checkboxes (called before each new fill)."""
+        for cb in self._fill_edge_checkboxes:
+            cb.blockSignals(True)
+            cb.setChecked(True)
+            cb.setEnabled(True)
+            cb.setToolTip("")
+            cb.blockSignals(False)
+
     def _rebuild_cusp_eta_toggles(self, n_cusp_eta: int) -> None:
         """Create per-cusp V checkboxes; called when first cusp-eta result arrives."""
         for cb in self._fill_cusp_checkboxes:
@@ -1261,15 +1276,11 @@ class FillingCard(QWidget):
             cusp_i = self._cusp_combo.findData(vm.cusp_idx)
             if cusp_i >= 0:
                 self._cusp_combo.setCurrentIndex(cusp_i)
-            # Suggest a fill slope ≠ NC cycle (filling at the NC cycle always
-            # gives series={} by definition).
-            self._suggest_fill_slope(vm)
+            # Do NOT auto-suggest a fill slope — let the user keep their input.
 
     def _on_cusp_nc_selected(self, combo: "QComboBox", slope_widget: "SlopeInput") -> None:
-        """Called when a per-cusp NC combo selection changes; suggests fill slope."""
-        vm_idx = combo.currentData()
-        if vm_idx is not None and 0 <= vm_idx < len(self._nc_cycle_vms):
-            self._suggest_fill_slope_for_widget(slope_widget, self._nc_cycle_vms[vm_idx])
+        """Called when a per-cusp NC combo selection changes."""
+        pass  # Do NOT auto-suggest a fill slope
 
     def _update_cusp_row_stack(self, row_dict: dict) -> None:
         """Switch stack to fill panel (0) or charge panel (1); enable/disable m/e."""
@@ -1496,6 +1507,7 @@ class FillingCard(QWidget):
                 self._last_fill_info_specs,
                 self._last_fill_info_result,
                 adjoint_per_cusp=self._last_adjoint_per_cusp,
+                ab_vectors=self._last_fill_info_ab,
             )
             if info_html:
                 self._fill_info_view.set_html(info_html)
@@ -1510,8 +1522,9 @@ class FillingCard(QWidget):
         self._joint_adjoint_worker = None
         per_cusp = payload.get("per_cusp_adjoint", [])
         adj_pass = payload.get("adjoint_is_pass")
-        print(f"[JOINT-ADJ] done: per_cusp={per_cusp}, overall_pass={adj_pass}")
+        print(f"[JOINT-ADJ] done: per_cusp={per_cusp}, overall_pass={adj_pass}", flush=True)
         self._last_adjoint_per_cusp = per_cusp if per_cusp else None
+        self._last_fill_info_ab = payload.get("ab_vectors")
         self._refresh_fill_info_view()
 
     def _on_joint_adjoint_error(self, msg: str, gen: int) -> None:
@@ -1519,7 +1532,7 @@ class FillingCard(QWidget):
         if gen != self._session_gen:
             return
         self._joint_adjoint_worker = None
-        print(f"[JOINT-ADJ] ERROR: {msg}")
+        print(f"[JOINT-ADJ] ERROR: {msg}", flush=True)
         # Show error as a degenerate adjoint row
         self._last_adjoint_per_cusp = [{"cusp_idx": "?", "value": None, "is_pass": False,
                                          "_error": msg}]
@@ -1610,9 +1623,12 @@ class FillingCard(QWidget):
 
         # Clear old results before starting new computation
         self._fill_table.clear_rows()
+        s.fill_queries.clear()
+        self._reset_fill_edge_toggles()
         self._last_fill_info_specs  = []
         self._last_fill_info_result = None
         self._last_adjoint_per_cusp = None
+        self._last_fill_info_ab = None
         self._fill_info_view.setVisible(False)
 
         # W_j compatible iff a[j]∈ℤ AND 2b[j]∈ℤ AND refined q^1 = -1.
@@ -1645,7 +1661,10 @@ class FillingCard(QWidget):
 
         gen = self._session_gen
         for m_other, e_other in charge_points:
-            m_cells, eq_cell = build_fill_placeholder_cells(list(m_other), list(e_other))
+            m_cells, eq_cell = build_fill_placeholder_cells(
+                list(m_other), list(e_other),
+                manifold_name=s.manifold_name or "",
+            )
             row = self._fill_table.add_row(m_cells, eq_cell, "", "—")
             self._fill_table.set_row_computing(row)
 
@@ -1686,9 +1705,12 @@ class FillingCard(QWidget):
         s = self._session
 
         self._fill_table.clear_rows()
+        s.fill_queries.clear()
+        self._reset_fill_edge_toggles()
         self._last_fill_info_specs  = []
         self._last_fill_info_result = None
         self._last_adjoint_per_cusp = None
+        self._last_fill_info_ab = None
         self._fill_info_view.setVisible(False)
 
         incompat_edges: list[int] = []
@@ -1718,7 +1740,10 @@ class FillingCard(QWidget):
 
         gen = self._session_gen
         for m_other, e_other in charge_points:
-            m_cells, eq_cell = build_fill_placeholder_cells(list(m_other), list(e_other))
+            m_cells, eq_cell = build_fill_placeholder_cells(
+                list(m_other), list(e_other),
+                manifold_name=s.manifold_name or "",
+            )
             row = self._fill_table.add_row(m_cells, eq_cell, "", "—")
             self._fill_table.set_row_computing(row)
 
@@ -1757,6 +1782,8 @@ class FillingCard(QWidget):
 
         # Clear old results before starting new computation
         self._fill_table.clear_rows()
+        s.fill_queries.clear()
+        self._reset_fill_edge_toggles()
 
         self._fill_btn.setEnabled(False)
         self._fill_stop_btn.setEnabled(True)
@@ -1780,7 +1807,10 @@ class FillingCard(QWidget):
 
         gen = self._session_gen
         for m_other, e_other in charge_points:
-            m_cells, eq_cell = build_fill_placeholder_cells(list(m_other), list(e_other))
+            m_cells, eq_cell = build_fill_placeholder_cells(
+                list(m_other), list(e_other),
+                manifold_name=s.manifold_name or "",
+            )
             row = self._fill_table.add_row(m_cells, eq_cell, "", "—")
             self._fill_table.set_row_computing(row)
 
@@ -1884,6 +1914,10 @@ class FillingCard(QWidget):
                 self._last_fill_info_specs  = [fake_spec]
                 self._last_fill_info_result = result
                 self._last_adjoint_per_cusp = self._adjoint_from_nc_vm(nc_P, nc_Q, cusp_idx)
+                # Store full ABVectors for per-edge display
+                cycle_key = (nc_P, nc_Q)
+                nc_weyl = self._nc_weyl_results.get(cycle_key, {})
+                self._last_fill_info_ab = nc_weyl.get("ab")
                 self._refresh_fill_info_view()
             except Exception:
                 pass
@@ -1891,6 +1925,7 @@ class FillingCard(QWidget):
         m_cells, eq_cell = build_fill_row_cells(
             user_P, user_Q, m_other, e_other,
             slope_a=r"\alpha", slope_b=r"\beta",
+            manifold_name=s.manifold_name or "",
         )
         self._fill_table.update_row_metadata(row, m_cells, eq_cell)
         self._fill_table.set_row_result(row, series_latex, "computed")
@@ -1921,6 +1956,18 @@ class FillingCard(QWidget):
             n_ce = result.num_cusp_eta
             if len(self._fill_cusp_checkboxes) != n_ce:
                 self._rebuild_cusp_eta_toggles(n_ce)
+
+        # Disable and uncheck W checkboxes for incompatible edges
+        if incompat_edges:
+            for j in incompat_edges:
+                if 0 <= j < len(self._fill_edge_checkboxes):
+                    cb = self._fill_edge_checkboxes[j]
+                    cb.setChecked(False)
+                    cb.setEnabled(False)
+                    cb.setToolTip(
+                        f"W{chr(0x2080 + j)} disabled: incompatible with Dehn filling "
+                        f"(a[{j}]∉ℤ or 2b[{j}]∉ℤ)"
+                    )
 
         self._card.set_status(CardStatus.DONE)
         self._update_summary()
@@ -1980,8 +2027,12 @@ class FillingCard(QWidget):
                 self._last_fill_info_specs  = [fake_spec]
                 self._last_fill_info_result = result
                 self._last_adjoint_per_cusp = self._adjoint_from_nc_vm(nc_P, nc_Q, cusp_idx)
+                cycle_key = (nc_P, nc_Q)
+                nc_weyl = self._nc_weyl_results.get(cycle_key, {})
+                self._last_fill_info_ab = nc_weyl.get("ab")
                 info_html = format_fill_info_html([fake_spec], result,
-                                                  adjoint_per_cusp=self._last_adjoint_per_cusp)
+                                                  adjoint_per_cusp=self._last_adjoint_per_cusp,
+                                                  ab_vectors=self._last_fill_info_ab)
                 if info_html:
                     self._fill_info_view.set_html(info_html)
                     self._fill_info_view.setVisible(True)
@@ -1991,6 +2042,7 @@ class FillingCard(QWidget):
         m_cells, eq_cell = build_fill_row_cells(
             user_P, user_Q, m_other, e_other,
             slope_a=r"\alpha", slope_b=r"\beta",
+            manifold_name=s.manifold_name or "",
         )
         self._fill_table.update_row_metadata(row, m_cells, eq_cell)
         self._fill_table.set_row_result(row, series_latex, "computed")
@@ -2095,6 +2147,34 @@ class FillingCard(QWidget):
                 "weyl_b": weyl_b,
             })
 
+        # ── Compute joint incompat_edges across ALL cusps ─────────────
+        # Edge j is incompatible if ANY cusp has a_I[j] ∉ ℤ or 2·b_I[j] ∉ ℤ.
+        num_hard = s.num_hard()
+        joint_incompat: set[int] = set()
+        for spec in cusp_specs:
+            wa = spec.get("weyl_a")
+            wb = spec.get("weyl_b")
+            if wa is not None and wb is not None:
+                for j in range(min(len(wa), len(wb))):
+                    a_val = wa[j]
+                    b_val = wb[j]
+                    try:
+                        a_int = (a_val == int(a_val))
+                    except (TypeError, ValueError, OverflowError):
+                        a_int = False
+                    try:
+                        b2_int = (2 * b_val == int(2 * b_val))
+                    except (TypeError, ValueError, OverflowError):
+                        b2_int = False
+                    if not a_int or not b2_int:
+                        joint_incompat.add(j)
+        joint_incompat_list = sorted(joint_incompat) if joint_incompat else None
+
+        # Attach incompat_edges to each cusp_spec so FillingService can zero them
+        if joint_incompat_list:
+            for spec in cusp_specs:
+                spec["incompat_edges"] = joint_incompat_list
+
         # Verify at least one cusp is selected for filling
         if not cusp_specs:
             from manifold_index.viewmodels.advisory import Advisories
@@ -2113,7 +2193,7 @@ class FillingCard(QWidget):
         # correct check integrates over ALL d filled-cusp fugacities and
         # must be done here, after the user has chosen the full filling
         # setup (which cusps to fill and which NC cycles to use).
-        if len(cusp_specs) >= 1 and s.index_queries:
+        if len(cusp_specs) >= 1:
             gen = self._session_gen
             if self._joint_adjoint_worker is not None:
                 try:
@@ -2183,6 +2263,7 @@ class FillingCard(QWidget):
         self._last_fill_info_specs  = []
         self._last_fill_info_result = None
         self._last_adjoint_per_cusp = None
+        self._last_fill_info_ab = None
         self._fill_info_view.setVisible(False)
         self._fill_btn.setEnabled(False)
         self._fill_stop_btn.setEnabled(True)
@@ -2210,7 +2291,7 @@ class FillingCard(QWidget):
                 (idx, m, e)
                 for idx, (m, e) in zip(unfilled_idxs, unfilled_charges)
             ]
-            m_cells, eq_cell = build_multi_fill_placeholder_cells(cusp_specs, uc_indexed)
+            m_cells, eq_cell = build_multi_fill_placeholder_cells(cusp_specs, uc_indexed, manifold_name=s.manifold_name or "")
             row = self._fill_table.add_row(m_cells, eq_cell, "", "—")
             self._fill_table.set_row_computing(row)
 
@@ -2274,7 +2355,7 @@ class FillingCard(QWidget):
         unfilled_idxs_f = [i for i in range(n_cusps) if i not in filled_set_f]
         uc_indexed = [(idx, m, e) for idx, (m, e) in zip(unfilled_idxs_f, uc)]
         try:
-            m_cells, eq_cell = build_multi_fill_row_cells(cusp_specs, uc_indexed)
+            m_cells, eq_cell = build_multi_fill_row_cells(cusp_specs, uc_indexed, manifold_name=s.manifold_name or "")
             self._fill_table.update_row_metadata(row, m_cells, eq_cell)
         except Exception:
             pass
@@ -2293,6 +2374,23 @@ class FillingCard(QWidget):
 
         if s.stage < PipelineStage.FILLED:
             s.stage = PipelineStage.FILLED
+
+        # Disable and uncheck W checkboxes for incompatible edges (multi-cusp)
+        joint_incompat: set[int] = set()
+        for spec in cusp_specs:
+            ie = spec.get("incompat_edges")
+            if ie:
+                joint_incompat.update(ie)
+        if joint_incompat:
+            for j in sorted(joint_incompat):
+                if 0 <= j < len(self._fill_edge_checkboxes):
+                    cb = self._fill_edge_checkboxes[j]
+                    cb.setChecked(False)
+                    cb.setEnabled(False)
+                    cb.setToolTip(
+                        f"W{chr(0x2080 + j)} disabled: incompatible with Dehn filling "
+                        f"(a[{j}]∉ℤ or 2b[{j}]∉ℤ for some cusp)"
+                    )
 
         # Rebuild V_i toggles on first cusp-eta result
         if result is not None and result.has_cusp_eta:
@@ -2346,11 +2444,13 @@ class FillingCard(QWidget):
             m_cells, eq_cell = build_fill_row_cells(
                 fq.user_P, fq.user_Q, fq.m_other, fq.e_other,
                 slope_a=r"\alpha", slope_b=r"\beta",
+                manifold_name=self._session.manifold_name or "",
             )
         else:
             m_cells, eq_cell = build_fill_row_cells(
                 fq.user_P, fq.user_Q, fq.m_other, fq.e_other,
                 slope_a=r"\alpha", slope_b=r"\beta",
+                manifold_name=self._session.manifold_name or "",
             )
 
         self._fill_table.add_row(m_cells, eq_cell, series_latex, fq.source)
@@ -2375,6 +2475,7 @@ class FillingCard(QWidget):
             series_latex = "$0$" if (mfq.result and mfq.result.is_zero) else "—"
 
         m_cells, eq_cell = build_multi_fill_row_cells(
-            mfq.cusp_specs, mfq.unfilled_charges   # [(cusp_idx, m, e), …]
+            mfq.cusp_specs, mfq.unfilled_charges,   # [(cusp_idx, m, e), …]
+            manifold_name=self._session.manifold_name or "",
         )
         self._fill_table.add_row(m_cells, eq_cell, series_latex, mfq.source)

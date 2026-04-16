@@ -212,12 +212,12 @@ class ExportCard(QWidget):
 
             if self._fmt_report.isChecked():
                 out_path = out_dir / f"{s.manifold_name or 'session'}_report.tex"
-                ExportService.write_full_report(s, str(out_path))
+                ExportService.write_full_report(s, str(out_path), include_filling)
                 exported.append(out_path.name)
 
             if self._fmt_json.isChecked():
                 out_path = out_dir / f"{s.manifold_name or 'session'}.json"
-                ExportService.write_json(s, str(out_path))
+                ExportService.write_json(s, str(out_path), include_filling)
                 exported.append(out_path.name)
 
             if exported:

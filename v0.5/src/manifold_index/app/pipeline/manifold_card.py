@@ -18,8 +18,10 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt, QCoreApplication, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QSizePolicy, QSpinBox, QVBoxLayout, QWidget,
+    QSizePolicy, QVBoxLayout, QWidget,
 )
+
+from manifold_index.app.widgets.no_scroll_spin import NoScrollSpinBox as QSpinBox
 
 from manifold_index.services.session import PipelineStage, Session
 from manifold_index.viewmodels.advisory import Advisory, AdvisoryLevel, CardStatus
@@ -402,13 +404,13 @@ class ManifoldCard(QWidget):
         colors = sys_colors()
         body_html = ""
         if nz_latex:
-            body_html += f"<h3>NZ Matrix</h3><p>{nz_latex}</p>"
+            body_html += f"<h3>$\\textrm{{NZ Matrix}}$</h3><p>{nz_latex}</p>"
         if gl_html:
-            body_html += f"<h3>Gluing Equations</h3>{gl_html}"
+            body_html += f"<h3>$\\textrm{{Gluing Equations}}$</h3>{gl_html}"
         if easy_html:
-            body_html += f"<h3>Easy Edges</h3>{easy_html}"
+            body_html += f"<h3>$\\textrm{{Easy Edges}}$</h3>{easy_html}"
         if hard_html:
-            body_html += f"<h3>Hard Edges</h3>{hard_html}"
+            body_html += f"<h3>$\\textrm{{Hard Edges}}$</h3>{hard_html}"
         if not body_html:
             body_html = (
                 f"<p><b>{session.manifold_name}</b> loaded — "

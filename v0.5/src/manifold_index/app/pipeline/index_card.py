@@ -16,9 +16,14 @@ from fractions import Fraction
 
 from PySide6.QtCore import Qt, QCoreApplication, QTimer, Signal
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
+    QButtonGroup, QCheckBox, QComboBox,
     QGroupBox, QHBoxLayout, QLabel, QProgressBar, QPushButton,
-    QRadioButton, QSpinBox, QVBoxLayout, QWidget,
+    QRadioButton, QVBoxLayout, QWidget,
+)
+
+from manifold_index.app.widgets.no_scroll_spin import (
+    NoScrollDoubleSpinBox as QDoubleSpinBox,
+    NoScrollSpinBox as QSpinBox,
 )
 
 from manifold_index.services.session import IndexQuery, PipelineStage, Session
@@ -438,7 +443,7 @@ class IndexCard(QWidget):
                 r_int = int(s.nz_data.r)
                 # Format charges as beautiful α/β notation
                 # Format result using v0.4-style I(Aα + Bβ) notation
-                index_notation_html, equals_html = format_refined_index_notation(m_ext, e_ext)
+                index_notation_html, equals_html = format_refined_index_notation(m_ext, e_ext, manifold_name=s.manifold_name or "")
                 try:
                     series_latex = format_series_latex(result, s.num_hard(), s.q_order_half)
                 except Exception:
@@ -520,7 +525,7 @@ class IndexCard(QWidget):
             first_item: tuple | None = None
             for idx, (m_ext, e_ext) in enumerate(grid_points):
                 # Format as v0.4-style I(Aα + Bβ) notation
-                index_notation_html, equals_html = format_refined_index_notation(m_ext, e_ext)
+                index_notation_html, equals_html = format_refined_index_notation(m_ext, e_ext, manifold_name=self._session.manifold_name or "")
                 row = self._results_table.add_row(index_notation_html, equals_html, "", "—")
                 self._results_table.set_row_computing(row)
                 if first_item is None:
@@ -559,7 +564,7 @@ class IndexCard(QWidget):
             self._results_table.set_row_computing(row)
         else:
             # Format as v0.4-style I(Aα + Bβ) notation
-            index_notation_html, equals_html = format_refined_index_notation(m_ext, e_ext)
+            index_notation_html, equals_html = format_refined_index_notation(m_ext, e_ext, manifold_name=s.manifold_name or "")
             row = self._results_table.add_row(
                 index_notation_html,
                 equals_html,
@@ -737,7 +742,7 @@ class IndexCard(QWidget):
             if iq.result is None:
                 continue
             # Format result using v0.4-style I(Aα + Bβ) notation
-            index_notation_html, equals_html = format_refined_index_notation(iq.m_ext, iq.e_ext)
+            index_notation_html, equals_html = format_refined_index_notation(iq.m_ext, iq.e_ext, manifold_name=s.manifold_name or "")
             latex  = self._project_latex(iq.result)
             self._results_table.add_row(index_notation_html, equals_html, latex, iq.source)
 

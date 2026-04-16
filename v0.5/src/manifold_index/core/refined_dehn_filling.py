@@ -74,7 +74,9 @@ pure integer q powers.
 from __future__ import annotations
 
 import functools
+import itertools
 import math
+import warnings
 from dataclasses import dataclass
 from fractions import Fraction
 from typing import Sequence
@@ -3074,6 +3076,14 @@ def _batched_first_filling(
     if not active_me:
         # Fall back: use all probed spectators
         active_me = probe_spectators
+        if not active_me:
+            warnings.warn(
+                f"[batched] Probe returned zero active spectator charges "
+                f"for cusp {next_cusp_idx} — filling will produce an "
+                f"empty result.  This may indicate an incorrect slope or "
+                f"basis, or that qq_order is too low."
+            )
+            return {}, 1  # ℓ ≥ 2 always adds one cusp η
 
     _status(
         f"[batched] ℓ={ell}: per-spectator filling cusp {cusp_idx} "
@@ -3150,6 +3160,266 @@ class MultiCuspFillSpec:
     incompat_edges: list[int] | None = None
 
 
+# -- Multi-spectator helpers for n_fills ≥ 3 ----------------------------
+
+# Type alias for multi-spectator intermediate:
+#   key = tuple of (m, e) pairs, one per remaining cusp
+#   value = MultiEtaSeries
+_MultiKey = tuple[tuple[int, Fraction], ...]
+
+
+def _batched_first_filling_multi_spectator(
+    nz_data: "NeumannZagierData",
+    first_spec: "MultiCuspFillSpec",
+    remaining_cusp_indices: list[int],
+    needed_me_per_cusp: list[set[tuple[int, Fraction]]],
+    qq_order: int,
+    verbose: bool = False,
+    progress_callback=None,
+    auto_precompute: bool = False,
+    cache_iref: bool = False,
+    manifold_name: str = "unknown",
+) -> tuple[dict[_MultiKey, "MultiEtaSeries"], int]:
+    """First filling with multiple spectator cusps (for n_fills ≥ 3).
+
+    Like ``_batched_first_filling`` but tracks charges for ALL remaining
+    cusps, not just the next one.  Intermediate keys are tuples of
+    ``(m, e)`` pairs — one per remaining cusp in the order given by
+    *remaining_cusp_indices*.
+
+    Parameters
+    ----------
+    remaining_cusp_indices : list[int]
+        Cusp indices of cusps yet to be filled (in filling order).
+    needed_me_per_cusp : list[set[(int, Fraction)]]
+        Per-remaining-cusp charge sets.  The Cartesian product gives
+        the full spectator grid.
+
+    Returns
+    -------
+    (intermediate, num_cusp_eta)
+    """
+    r = nz_data.r
+    cusp_idx = first_spec.cusp_idx
+    P, Q = first_spec.P, first_spec.Q
+    weyl_a, weyl_b = first_spec.weyl_a, first_spec.weyl_b
+    hj_ks = hj_continued_fraction(P, Q)
+    ell = len(hj_ks)
+    n_remaining = len(remaining_cusp_indices)
+
+    def _status(msg: str):
+        if progress_callback:
+            progress_callback(msg)
+        if verbose:
+            print(msg)
+
+    # Build Cartesian product of all remaining-cusp charge sets
+    per_cusp_sorted = [sorted(s) for s in needed_me_per_cusp]
+    total_combos = 1
+    for s in per_cusp_sorted:
+        total_combos *= len(s)
+
+    _MAX_COMBOS = 500_000
+    if total_combos > _MAX_COMBOS:
+        raise NotImplementedError(
+            f"Multi-spectator filling: {total_combos} charge combinations "
+            f"across {n_remaining} spectator cusps exceeds the limit of "
+            f"{_MAX_COMBOS}.  Consider reducing qq_order or filling fewer "
+            f"cusps simultaneously."
+        )
+
+    _status(
+        f"[batched-multi] ℓ={ell}: filling cusp {cusp_idx} ({P}/{Q}), "
+        f"{n_remaining} spectator cusps, {total_combos} charge combos…"
+    )
+
+    # For ℓ ≥ 2 with multiple spectators: probe each cusp independently
+    # to prune the Cartesian product before the expensive per-combo calls.
+    if ell >= 2:
+        pruned_per_cusp: list[set[tuple[int, Fraction]]] = []
+        _is_buffer = qq_order + 4
+        qq_internal = qq_order + _is_buffer
+        m_scan = 2 * qq_internal
+        e_scan = qq_internal
+
+        for sp_pos, sp_ci in enumerate(remaining_cusp_indices):
+            active: set[tuple[int, Fraction]] = set()
+            for m_sp in range(-m_scan, m_scan + 1):
+                for e_half in range(-2 * e_scan, 2 * e_scan + 1):
+                    e_sp = Fraction(e_half, 2)
+                    # Probe with other spectators at (0, 0)
+                    m_ext: list[int] = []
+                    e_ext: list[int | Fraction] = []
+                    for j in range(r):
+                        if j == cusp_idx:
+                            m_ext.append(0)
+                            e_ext.append(Fraction(0))
+                        elif j == sp_ci:
+                            m_ext.append(m_sp)
+                            e_ext.append(e_sp)
+                        else:
+                            m_ext.append(0)
+                            e_ext.append(Fraction(0))
+                    refined = _cached_compute_refined_index(
+                        nz_data, m_ext, e_ext, q_order_half=qq_internal
+                    )
+                    if refined:
+                        active.add((m_sp, e_sp))
+
+            _status(
+                f"[batched-multi] probe cusp {sp_ci}: "
+                f"{len(active)} active of "
+                f"{(2*m_scan+1)*(4*e_scan+1)}"
+            )
+
+            # Intersect with what the filling actually needs
+            needed = needed_me_per_cusp[sp_pos]
+            pruned = needed & active
+            if not pruned:
+                pruned = active
+                if not pruned:
+                    warnings.warn(
+                        f"[batched-multi] Probe for spectator cusp "
+                        f"{sp_ci} returned zero active charges — "
+                        f"result may be empty."
+                    )
+            pruned_per_cusp.append(pruned)
+
+        per_cusp_sorted = [sorted(s) for s in pruned_per_cusp]
+        total_combos = 1
+        for s in per_cusp_sorted:
+            total_combos *= len(s)
+        _status(
+            f"[batched-multi] after probe pruning: {total_combos} combos"
+        )
+
+    # Per-combo delegation
+    intermediate: dict[_MultiKey, "MultiEtaSeries"] = {}
+    n_done = 0
+
+    for combo in itertools.product(*per_cusp_sorted):
+        # combo is ((m2, e2), (m3, e3), ...)
+        # Build m_other / e_other for ALL non-filling cusps
+        m_other: list[int] = []
+        e_other: list[int | Fraction] = []
+        remaining_map = {ci: combo[idx]
+                         for idx, ci in enumerate(remaining_cusp_indices)}
+        for j in range(r):
+            if j == cusp_idx:
+                continue
+            if j in remaining_map:
+                m_other.append(remaining_map[j][0])
+                e_other.append(remaining_map[j][1])
+            else:
+                m_other.append(0)
+                e_other.append(Fraction(0))
+
+        result = compute_filled_refined_index(
+            nz_data,
+            cusp_idx=cusp_idx,
+            P=P, Q=Q,
+            m_other=m_other,
+            e_other=e_other,
+            q_order_half=qq_order,
+            weyl_a=weyl_a,
+            weyl_b=weyl_b,
+            verbose=False,
+            auto_precompute=auto_precompute,
+            cache_iref=cache_iref,
+            manifold_name=manifold_name,
+        )
+
+        if result.series:
+            series = result.series
+            if first_spec.incompat_edges:
+                collapsed = result.collapse_eta_edges(first_spec.incompat_edges)
+                series = collapsed.series
+            if series:
+                intermediate[combo] = series
+
+        n_done += 1
+        if n_done % 200 == 0 or n_done == total_combos:
+            _status(
+                f"[batched-multi] {n_done}/{total_combos} combos, "
+                f"{len(intermediate)} non-zero"
+            )
+
+    num_cusp_eta = 0 if ell == 1 else 1
+    _status(
+        f"[batched-multi] done: {len(intermediate)} non-zero "
+        f"intermediates from {total_combos} combos"
+    )
+    return intermediate, num_cusp_eta
+
+
+def _apply_filling_step_multi_spectator(
+    intermediate: dict[_MultiKey, "MultiEtaSeries"],
+    P: int,
+    Q: int,
+    qq_order: int,
+    num_hard: int,
+    num_cusp_eta_in: int,
+    verbose: bool = False,
+    incompat_edges: list[int] | None = None,
+    progress_callback=None,
+) -> tuple[dict[_MultiKey, "MultiEtaSeries"], int]:
+    """Apply a filling kernel to a multi-spectator intermediate.
+
+    The first position in each key tuple corresponds to the cusp being
+    filled.  The result has keys with that position removed (one fewer
+    spectator dimension).
+
+    Parameters
+    ----------
+    intermediate : multi-spectator intermediate dict
+    P, Q : slope for the cusp being filled
+    Returns (new_intermediate, num_cusp_eta_out)
+    """
+    # Regroup: for each remaining-key (positions 1..),
+    # collect sub-dict keyed by position 0 (the cusp being filled).
+    remaining_groups: dict[_MultiKey, dict[tuple[int, Fraction], "MultiEtaSeries"]] = {}
+    for key, series in intermediate.items():
+        fill_charge = key[0]   # (m, e) for the cusp being filled
+        rem_key = key[1:]      # remaining spectator charges
+        if rem_key not in remaining_groups:
+            remaining_groups[rem_key] = {}
+        remaining_groups[rem_key][fill_charge] = series
+
+    new_intermediate: dict[_MultiKey, "MultiEtaSeries"] = {}
+    num_cusp_eta_out = num_cusp_eta_in
+    n_done = 0
+    n_total = len(remaining_groups)
+
+    def _status(msg: str):
+        if progress_callback:
+            progress_callback(msg)
+        if verbose:
+            print(msg)
+
+    for rem_key, sub_dict in remaining_groups.items():
+        result = _apply_filling_kernel_to_intermediate(
+            sub_dict, P=P, Q=Q, qq_order=qq_order,
+            num_hard=num_hard, num_cusp_eta_in=num_cusp_eta_in,
+            verbose=False,
+        )
+        num_cusp_eta_out = result.num_cusp_eta
+
+        if incompat_edges:
+            result = result.collapse_eta_edges(incompat_edges)
+
+        if result.series:
+            new_intermediate[rem_key] = result.series
+
+        n_done += 1
+        if n_done % 50 == 0 or n_done == n_total:
+            _status(
+                f"[multi-fill-step] {n_done}/{n_total} spectator combos, "
+                f"{len(new_intermediate)} non-zero"
+            )
+
+    return new_intermediate, num_cusp_eta_out
+
+
 def compute_multi_cusp_filled_refined_index(
     nz_data: NeumannZagierData,
     fill_specs: list[MultiCuspFillSpec],
@@ -3172,17 +3442,19 @@ def compute_multi_cusp_filled_refined_index(
     ---------
     For a manifold with r cusps, filling cusps j_1, j_2, …, j_k:
 
-    1. Fill cusp j_1:
-       For each (m, e) grid point of the REMAINING cusps, compute
-       ``compute_filled_refined_index(nz, cusp_idx=j_1, P_1, Q_1,
-       m_other=[…], e_other=[…])``.
-       Store results keyed by the next cusp's (m, e).
+    **k = 1**: Delegate to ``compute_filled_refined_index``.
 
-    2. Fill cusp j_2:
-       Apply ``_apply_filling_kernel_to_intermediate(intermediate, P_2, Q_2)``
-       where intermediate maps (m_{j_2}, e_{j_2}) → MultiEtaSeries.
+    **k = 2**: (original batched algorithm)
+    1. ``_batched_first_filling`` fills cusp j_1, tracking cusp j_2's
+       charges as spectators → intermediate[(m₂, e₂)] → MultiEtaSeries.
+    2. ``_apply_filling_kernel_to_intermediate`` fills cusp j_2 → result.
 
-    3. Repeat for remaining cusps.
+    **k ≥ 3**: (multi-spectator algorithm)
+    1. ``_batched_first_filling_multi_spectator`` fills cusp j_1, tracking
+       ALL remaining cusps as spectators → intermediate[((m₂,e₂), …, (mₖ,eₖ))].
+    2. For cusps j_2 … j_{k-1}: ``_apply_filling_step_multi_spectator``
+       regroups by remaining spectators, applies kernel, reduces dimension by 1.
+    3. Final cusp j_k: unwrap single-element keys, apply kernel → result.
 
     Parameters
     ----------
@@ -3250,57 +3522,48 @@ def compute_multi_cusp_filled_refined_index(
     # Multi-cusp (n_fills >= 2): sequential filling via batched algorithm
     # ------------------------------------------------------------------
     first = fill_specs[0]
-    second = fill_specs[1] if n_fills > 1 else None
 
     if n_fills == 2:
+        # ── Two-cusp path (original, known-working) ──────────────────
+        second = fill_specs[1]
         next_cusp = second.cusp_idx
-    elif n_fills > 2:
-        next_cusp = second.cusp_idx
-    else:
-        # Should not reach here (n_fills == 1 is handled above)
-        raise ValueError("Invalid number of fill specs")
 
-    # Step 1: determine what (m, e) pairs the second filling needs
-    needed_me = _needed_spectator_charges(second, qq_order)
-    _status(
-        f"Step 1/{n_fills}: Batched filling cusp {first.cusp_idx} "
-        f"with ({first.P}, {first.Q}), "
-        f"{len(needed_me)} spectator charges for cusp {next_cusp}…"
-    )
-
-    # Step 2: batched first filling
-    intermediate, num_cusp_eta_accum = _batched_first_filling(
-        nz_data,
-        first_spec=first,
-        next_cusp_idx=next_cusp,
-        needed_me=needed_me,
-        qq_order=qq_order,
-        verbose=verbose,
-        progress_callback=progress_callback,
-        auto_precompute=auto_precompute,
-        cache_iref=cache_iref,
-        manifold_name=manifold_name,
-    )
-
-    _status(
-        f"Step 1/{n_fills} done: {len(intermediate)} non-zero "
-        f"intermediate entries, num_cusp_eta={num_cusp_eta_accum}"
-    )
-
-    # Step 3: sequential filling for cusps 1, 2, ..., n_fills-1
-    fill_result = None
-    for step_idx in range(1, n_fills):
-        spec = fill_specs[step_idx]
+        needed_me = _needed_spectator_charges(second, qq_order)
         _status(
-            f"Step {step_idx+1}/{n_fills}: Filling cusp {spec.cusp_idx} "
-            f"with ({spec.P}, {spec.Q}), "
-            f"|intermediate|={len(intermediate) if isinstance(intermediate, dict) else 'N/A'}, "
+            f"Step 1/{n_fills}: Batched filling cusp {first.cusp_idx} "
+            f"with ({first.P}, {first.Q}), "
+            f"{len(needed_me)} spectator charges for cusp {next_cusp}…"
+        )
+
+        intermediate, num_cusp_eta_accum = _batched_first_filling(
+            nz_data,
+            first_spec=first,
+            next_cusp_idx=next_cusp,
+            needed_me=needed_me,
+            qq_order=qq_order,
+            verbose=verbose,
+            progress_callback=progress_callback,
+            auto_precompute=auto_precompute,
+            cache_iref=cache_iref,
+            manifold_name=manifold_name,
+        )
+
+        _status(
+            f"Step 1/{n_fills} done: {len(intermediate)} non-zero "
+            f"intermediate entries, num_cusp_eta={num_cusp_eta_accum}"
+        )
+
+        # Final (2nd) filling
+        _status(
+            f"Step 2/{n_fills}: Filling cusp {second.cusp_idx} "
+            f"with ({second.P}, {second.Q}), "
+            f"|intermediate|={len(intermediate)}, "
             f"num_cusp_eta_so_far={num_cusp_eta_accum}…"
         )
 
         fill_result = _apply_filling_kernel_to_intermediate(
             intermediate,
-            P=spec.P, Q=spec.Q,
+            P=second.P, Q=second.Q,
             qq_order=qq_order,
             num_hard=num_hard,
             num_cusp_eta_in=num_cusp_eta_accum,
@@ -3308,19 +3571,114 @@ def compute_multi_cusp_filled_refined_index(
         )
         num_cusp_eta_accum = fill_result.num_cusp_eta
 
-        if spec.incompat_edges:
-            fill_result = fill_result.collapse_eta_edges(spec.incompat_edges)
+        if second.incompat_edges:
+            fill_result = fill_result.collapse_eta_edges(second.incompat_edges)
 
         _status(
-            f"Step {step_idx+1}/{n_fills} done: "
+            f"Step 2/{n_fills} done: "
             f"{len(fill_result.series)} entries in result, "
             f"num_cusp_eta={fill_result.num_cusp_eta}"
         )
+        return fill_result
 
-        # For next iteration: intermediate = fill_result (keyed by next cusp's charges)
-        if step_idx < n_fills - 1:
-            # Convert result to intermediate form for next cusp
-            # This is implicit: fill_result.series is already indexed by next cusp's (m, e)
-            intermediate = fill_result.series
+    # ── Three-or-more cusp path ──────────────────────────────────────
+    # Step 1: first filling with ALL remaining cusps as spectators.
+    remaining_cusp_indices = [fs.cusp_idx for fs in fill_specs[1:]]
+    needed_me_per_cusp = [
+        _needed_spectator_charges(fs, qq_order) for fs in fill_specs[1:]
+    ]
 
+    _status(
+        f"Step 1/{n_fills}: Multi-spectator filling cusp "
+        f"{first.cusp_idx} with ({first.P}, {first.Q}), "
+        f"{len(remaining_cusp_indices)} remaining cusps…"
+    )
+
+    multi_intermediate, num_cusp_eta_accum = (
+        _batched_first_filling_multi_spectator(
+            nz_data,
+            first_spec=first,
+            remaining_cusp_indices=remaining_cusp_indices,
+            needed_me_per_cusp=needed_me_per_cusp,
+            qq_order=qq_order,
+            verbose=verbose,
+            progress_callback=progress_callback,
+            auto_precompute=auto_precompute,
+            cache_iref=cache_iref,
+            manifold_name=manifold_name,
+        )
+    )
+
+    _status(
+        f"Step 1/{n_fills} done: {len(multi_intermediate)} non-zero "
+        f"intermediate entries, num_cusp_eta={num_cusp_eta_accum}"
+    )
+
+    # Steps 2 … n_fills-1: intermediate fillings
+    for step_idx in range(1, n_fills - 1):
+        spec = fill_specs[step_idx]
+        _status(
+            f"Step {step_idx+1}/{n_fills}: Filling cusp {spec.cusp_idx} "
+            f"with ({spec.P}, {spec.Q}), "
+            f"|intermediate|={len(multi_intermediate)}, "
+            f"num_cusp_eta_so_far={num_cusp_eta_accum}…"
+        )
+
+        multi_intermediate, num_cusp_eta_accum = (
+            _apply_filling_step_multi_spectator(
+                multi_intermediate,
+                P=spec.P, Q=spec.Q,
+                qq_order=qq_order,
+                num_hard=num_hard,
+                num_cusp_eta_in=num_cusp_eta_accum,
+                verbose=verbose,
+                incompat_edges=spec.incompat_edges,
+                progress_callback=progress_callback,
+            )
+        )
+
+        _status(
+            f"Step {step_idx+1}/{n_fills} done: "
+            f"{len(multi_intermediate)} non-zero intermediates, "
+            f"num_cusp_eta={num_cusp_eta_accum}"
+        )
+
+    # Final filling: intermediate keys are ((m_last, e_last),) — unwrap
+    last_spec = fill_specs[-1]
+    flat_intermediate: dict[tuple[int, Fraction], "MultiEtaSeries"] = {}
+    for key, series in multi_intermediate.items():
+        # key is a 1-tuple: ((m, e),)
+        if len(key) == 1:
+            flat_intermediate[key[0]] = series
+        else:
+            # Shouldn't happen, but be defensive
+            warnings.warn(
+                f"[multi-fill] Final intermediate has key length "
+                f"{len(key)}, expected 1 — dropping entry."
+            )
+
+    _status(
+        f"Step {n_fills}/{n_fills}: Final filling cusp "
+        f"{last_spec.cusp_idx} with ({last_spec.P}, {last_spec.Q}), "
+        f"|intermediate|={len(flat_intermediate)}, "
+        f"num_cusp_eta_so_far={num_cusp_eta_accum}…"
+    )
+
+    fill_result = _apply_filling_kernel_to_intermediate(
+        flat_intermediate,
+        P=last_spec.P, Q=last_spec.Q,
+        qq_order=qq_order,
+        num_hard=num_hard,
+        num_cusp_eta_in=num_cusp_eta_accum,
+        verbose=verbose,
+    )
+
+    if last_spec.incompat_edges:
+        fill_result = fill_result.collapse_eta_edges(last_spec.incompat_edges)
+
+    _status(
+        f"Step {n_fills}/{n_fills} done: "
+        f"{len(fill_result.series)} entries in result, "
+        f"num_cusp_eta={fill_result.num_cusp_eta}"
+    )
     return fill_result

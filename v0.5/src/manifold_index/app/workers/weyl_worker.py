@@ -180,8 +180,23 @@ class NcCompatWorker(QThread):
                 return
 
             ab_vectors, adjoint_is_pass, adjoint_value = ComputeService.run_weyl_check(
-                entries_nc, self._num_hard, self._q_order_half, 0,
+                entries_nc, self._num_hard, self._q_order_half, self._cusp_idx,
             )
+
+            # For multi-cusp manifolds, ab.a/b default to cusp 0's column.
+            # Extract the correct cusp's column so callers get the right values.
+            if (ab_vectors is not None
+                    and ab_vectors.cusp_columns is not None
+                    and self._cusp_idx < len(ab_vectors.cusp_columns)):
+                col = ab_vectors.cusp_columns[self._cusp_idx]
+                ab_vectors = type(ab_vectors)(
+                    a=list(col.a),
+                    b=list(col.b),
+                    num_hard=ab_vectors.num_hard,
+                    num_cusps=ab_vectors.num_cusps,
+                    cusp_columns=ab_vectors.cusp_columns,
+                    warnings=ab_vectors.warnings,
+                )
 
             # ── Unrefined q^1 projection (marginal check) ───────────────
             # Compute I^{3D}(m=0, e) = I^ref(m,e; η=1) directly.
@@ -226,7 +241,13 @@ class NcCompatWorker(QThread):
                         unrefined_q1_proj = None
                     else:
                         unrefined_q1_proj = num // 2
-                        is_marginal = (unrefined_q1_proj >= 0)
+                        # If the index is u-independent (all e-values give
+                        # the same q^1 coeff), it is NOT marginal even
+                        # though the projection is 0.  Torus knots (3_1,
+                        # 5_1, 7_1, …) fall into this category.
+                        vals = list(c_e_snc.values())
+                        u_independent = all(v == vals[0] for v in vals)
+                        is_marginal = False if u_independent else (unrefined_q1_proj >= 0)
             except Exception:
                 is_marginal      = None
                 unrefined_q1_proj = None
@@ -412,7 +433,8 @@ class MultiCuspNcCompatWorker(QThread):
                 filled_cusp_indices=filled_cusp_indices,
             )
 
-            ab = wc.ab if (wc.ab is not None and wc.ab_valid) else None
+            ab = wc.ab  # Return ab even if some edges are incompatible;
+            # callers use ab.edge_compatible / make_filling_compatible().
 
             # Build per-cusp adjoint summary for the UI
             per_cusp: list[dict] = []

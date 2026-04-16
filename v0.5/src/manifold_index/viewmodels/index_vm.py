@@ -220,15 +220,17 @@ def build_weyl_vm(
         cusp_a = [[col.a[j] for col in ab_result.cusp_columns] for j in range(n_edges)]
         cusp_b = [[col.b[j] for col in ab_result.cusp_columns] for j in range(n_edges)]
 
-    # Edge compatibility: b_j should be a half-integer (denominator 1 or 2)
-    edge_compat: list[bool] = []
-    incompat_edges: list[int] = []
-    for j, bv in enumerate(b_vecs):
-        frac = Fraction(bv)
-        compat = (frac.denominator in (1, 2))
-        edge_compat.append(compat)
-        if not compat:
-            incompat_edges.append(j)
+    # Edge compatibility: a_j ∈ ℤ AND 2b_j ∈ ℤ (across all cusps)
+    # Use ABVectors.edge_compatible which handles multi-cusp correctly.
+    if hasattr(ab_result, 'edge_compatible'):
+        edge_compat = list(ab_result.edge_compatible)
+    else:
+        edge_compat = []
+        for j, (av, bv) in enumerate(zip(a_vecs, b_vecs)):
+            a_ok = Fraction(av).denominator == 1
+            b_ok = (Fraction(bv) * 2).denominator == 1
+            edge_compat.append(a_ok and b_ok)
+    incompat_edges = [j for j, ok in enumerate(edge_compat) if not ok]
 
     if incompat_edges:
         advisories.append(Advisories.B4(incompat_edges))

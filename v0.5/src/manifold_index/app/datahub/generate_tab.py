@@ -16,9 +16,11 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QGroupBox, QHBoxLayout, QLabel,
     QProgressBar, QPushButton, QRadioButton, QButtonGroup,
-    QSizePolicy, QSpinBox, QSplitter, QStackedWidget,
+    QSizePolicy, QSplitter, QStackedWidget,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
+
+from manifold_index.app.widgets.no_scroll_spin import NoScrollSpinBox as QSpinBox
 
 from manifold_index.services.datahub_service import DataHubService
 from manifold_index.app.workers.generate_worker import GenerateWorker
