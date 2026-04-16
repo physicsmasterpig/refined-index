@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from manifold_index.app.theme import colors as C
 from manifold_index.app.widgets.math_view import build_katex_html, sys_colors
+from manifold_index.app.widgets.katex_assets import katex_base_url
 
 # ---------------------------------------------------------------------------
 # WebEngine / WebChannel availability guard
@@ -371,7 +372,7 @@ class SeriesTable(QWidget):
             full_html = build_katex_html(body, **colors)
             self._loading = True
             self._page_ready = False
-            self._view.setHtml(full_html, QUrl("https://cdn.jsdelivr.net/"))
+            self._view.setHtml(full_html, katex_base_url())
 
         # else: page is currently loading — _on_load_finished will call _do_rebuild()
 

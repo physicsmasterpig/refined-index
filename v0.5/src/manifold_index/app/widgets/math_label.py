@@ -17,8 +17,7 @@ except ImportError:
     _HAS_WEBENGINE = False
 
 from manifold_index.app.widgets.math_view import build_katex_html, sys_colors
-
-KATEX_VERSION = "0.16.21"
+from manifold_index.app.widgets.katex_assets import katex_base_url, katex_head_tags
 
 
 class MathLabel(QWidget):
@@ -101,19 +100,12 @@ class MathLabel(QWidget):
         }}
         """
 
+        tags = katex_head_tags()
         full_html = f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<link rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/katex@{KATEX_VERSION}/dist/katex.min.css"
-      crossorigin="anonymous">
-<script defer
-        src="https://cdn.jsdelivr.net/npm/katex@{KATEX_VERSION}/dist/katex.min.js"
-        crossorigin="anonymous"></script>
-<script defer
-        src="https://cdn.jsdelivr.net/npm/katex@{KATEX_VERSION}/dist/contrib/auto-render.min.js"
-        crossorigin="anonymous"></script>
+{tags}
 <style>{css}</style>
 </head>
 <body>
@@ -132,7 +124,7 @@ document.addEventListener("DOMContentLoaded", function() {{
 </body>
 </html>"""
 
-        self._view.setHtml(full_html, QUrl("https://cdn.jsdelivr.net/"))
+        self._view.setHtml(full_html, katex_base_url())
 
     def set_latex(self, latex: str) -> None:
         """Update the LaTeX expression."""

@@ -183,6 +183,28 @@ class NcCompatWorker(QThread):
                 entries_nc, self._num_hard, self._q_order_half, self._cusp_idx,
             )
 
+            # ── u-independence override for adjoint check ────────────────
+            # If I(m=0, e≠0) = 0 for all a-probe entries, the index is
+            # u-independent and the adjoint check passes automatically.
+            try:
+                a_probe_all_zero = True
+                for m_ext_p, e_ext_p, res_p in entries_nc:
+                    # a-probe entries: m=0 at all cusps, e≠0 at target cusp
+                    if all(mv == 0 for mv in m_ext_p):
+                        e_at_cusp = e_ext_p[self._cusp_idx] if self._cusp_idx < len(e_ext_p) else _Frac(0)
+                        if e_at_cusp != 0 and res_p is not None:
+                            if hasattr(res_p, 'coeffs'):
+                                if any(c != 0 for c in res_p.coeffs):
+                                    a_probe_all_zero = False
+                                    break
+                            elif res_p:  # non-zero result
+                                a_probe_all_zero = False
+                                break
+                if a_probe_all_zero and not adjoint_is_pass:
+                    adjoint_is_pass = True
+            except Exception:
+                pass
+
             # For multi-cusp manifolds, ab.a/b default to cusp 0's column.
             # Extract the correct cusp's column so callers get the right values.
             if (ab_vectors is not None
@@ -213,6 +235,8 @@ class NcCompatWorker(QThread):
                 n_cusps = nz_nc.r
                 c_e_snc: dict[_Frac, int] = {}
                 needed = [_Frac(-2), _Frac(-1), _Frac(1), _Frac(2)]
+                # Track whether the full series is zero for each nonzero e
+                all_nonzero_e_vanish = True
                 for e_val in needed:
                     m_ext_s = [0] * n_cusps
                     e_ext_s = [_Frac(0)] * n_cusps
@@ -220,6 +244,9 @@ class NcCompatWorker(QThread):
                     r3d = compute_index_3d_python(
                         nz_nc, m_ext_s, e_ext_s, self._q_order_half
                     )
+                    # Check if the entire series is zero for this e≠0
+                    if any(c != 0 for c in r3d.coeffs):
+                        all_nonzero_e_vanish = False
                     # q^1 = qq^2; account for min_power offset
                     idx = 2 - r3d.min_power
                     q1_coeff = (
@@ -241,13 +268,10 @@ class NcCompatWorker(QThread):
                         unrefined_q1_proj = None
                     else:
                         unrefined_q1_proj = num // 2
-                        # If the index is u-independent (all e-values give
-                        # the same q^1 coeff), it is NOT marginal even
-                        # though the projection is 0.  Torus knots (3_1,
-                        # 5_1, 7_1, …) fall into this category.
-                        vals = list(c_e_snc.values())
-                        u_independent = all(v == vals[0] for v in vals)
-                        is_marginal = False if u_independent else (unrefined_q1_proj >= 0)
+                        # If I(m=0, e) = 0 for all sampled e≠0, the index
+                        # is u-independent → NOT marginal.  Torus knots
+                        # (3_1, 5_1, 7_1, …) fall into this category.
+                        is_marginal = False if all_nonzero_e_vanish else (unrefined_q1_proj >= 0)
             except Exception:
                 is_marginal      = None
                 unrefined_q1_proj = None

@@ -236,8 +236,8 @@ fi
 # ── Push tag → trigger Windows CI ─────────────────────────────────────────────
 header "[ 6/6 ]  Windows build (GitHub Actions)"
 
-git tag "$VERSION_TAG"
-git push origin "$VERSION_TAG"
+git tag -f "$VERSION_TAG"
+git push origin "$VERSION_TAG" --force
 ok "Tag '${VERSION_TAG}' pushed — Windows CI triggered"
 
 info "Waiting for build to finish (Ctrl+C to detach)…"

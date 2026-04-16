@@ -28,7 +28,7 @@ try:
 except ImportError:
     pass
 
-KATEX_VERSION = "0.16.21"
+from manifold_index.app.widgets.katex_assets import katex_base_url, katex_head_tags
 
 
 # ---------------------------------------------------------------------------
@@ -145,19 +145,12 @@ def build_katex_html(
 ) -> str:
     """Wrap *body* in a complete KaTeX-enabled HTML page."""
     css = _PAGE_CSS.format(bg=bg, fg=fg, border=border, muted=muted, accent=accent)
+    tags = katex_head_tags()
     return f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<link rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/katex@{KATEX_VERSION}/dist/katex.min.css"
-      crossorigin="anonymous">
-<script defer
-        src="https://cdn.jsdelivr.net/npm/katex@{KATEX_VERSION}/dist/katex.min.js"
-        crossorigin="anonymous"></script>
-<script defer
-        src="https://cdn.jsdelivr.net/npm/katex@{KATEX_VERSION}/dist/contrib/auto-render.min.js"
-        crossorigin="anonymous"></script>
+{tags}
 <style>
 {css}
 </style>
@@ -303,7 +296,7 @@ class MathView(QWidget):
         colors = sys_colors()
         full_html = build_katex_html(body, **colors)
         if _HAS_WEBENGINE and isinstance(self._view, QWebEngineView):
-            self._view.setHtml(full_html, QUrl("https://cdn.jsdelivr.net/"))
+            self._view.setHtml(full_html, katex_base_url())
         elif isinstance(self._view, QTextEdit):
             # Fallback: strip HTML to plain text for readability
             self._view.setHtml(full_html)

@@ -183,8 +183,8 @@ echo "[ 4/5 ] 푸시 및 태그 생성..."
 git push origin "$BRANCH"
 echo "  브랜치 '$BRANCH' 푸시 완료"
 
-git tag "$VERSION_TAG"
-git push origin "$VERSION_TAG"
+git tag -f "$VERSION_TAG"
+git push origin "$VERSION_TAG" --force
 echo "  태그 '$VERSION_TAG' 푸시 완료"
 echo "  → GitHub Actions 'Build Windows' 자동 트리거됨"
 
