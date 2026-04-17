@@ -168,6 +168,25 @@ class NcCompatWorker(QThread):
                     if result_nc is not None:
                         seen.add(key)
                         entries_nc.append((m_ext, e_ext, result_nc))
+            # Cross-cusp a-probe (multi-cusp only): m=0 everywhere,
+            # e≠0 at each OTHER cusp.  Needed for the u-independence
+            # condition I(m=0, e) = 0 for ALL e ≠ 0.
+            if n_cusps > 1:
+                for ci in range(n_cusps):
+                    if ci == self._cusp_idx:
+                        continue
+                    for e_val in (_Frac(-1), _Frac(1)):
+                        m_ext = [0] * n_cusps
+                        e_ext = [_Frac(0)] * n_cusps
+                        e_ext[ci] = e_val
+                        key = (tuple(m_ext), tuple(e_ext))
+                        if key not in seen:
+                            result_nc = ComputeService.compute_refined_index(
+                                nz_nc, m_ext, e_ext, self._q_order_half
+                            )
+                            if result_nc is not None:
+                                seen.add(key)
+                                entries_nc.append((m_ext, e_ext, result_nc))
 
             if not entries_nc:
                 self.finished.emit({
@@ -184,15 +203,15 @@ class NcCompatWorker(QThread):
             )
 
             # ── u-independence override for adjoint check ────────────────
-            # If I(m=0, e≠0) = 0 for all a-probe entries, the index is
+            # If I(m=0, e) = 0 for all e ≠ 0 (at ANY cusp), the index is
             # u-independent and the adjoint check passes automatically.
+            # For multi-cusp: e≠0 means any component of the e-vector is nonzero.
             try:
                 a_probe_all_zero = True
                 for m_ext_p, e_ext_p, res_p in entries_nc:
-                    # a-probe entries: m=0 at all cusps, e≠0 at target cusp
+                    # a-probe entries: m=0 at all cusps, e≠0 at any cusp
                     if all(mv == 0 for mv in m_ext_p):
-                        e_at_cusp = e_ext_p[self._cusp_idx] if self._cusp_idx < len(e_ext_p) else _Frac(0)
-                        if e_at_cusp != 0 and res_p is not None:
+                        if any(ev != 0 for ev in e_ext_p) and res_p is not None:
                             if hasattr(res_p, 'coeffs'):
                                 if any(c != 0 for c in res_p.coeffs):
                                     a_probe_all_zero = False
@@ -255,6 +274,25 @@ class NcCompatWorker(QThread):
                         else 0
                     )
                     c_e_snc[e_val] = q1_coeff
+
+                # Multi-cusp: also check cross-cusp e directions
+                # I(m=0, e) must be 0 for e≠0 at ANY cusp, not just target.
+                if n_cusps > 1 and all_nonzero_e_vanish:
+                    for ci in range(n_cusps):
+                        if ci == self._cusp_idx:
+                            continue
+                        for e_val in (_Frac(-1), _Frac(1)):
+                            m_ext_s = [0] * n_cusps
+                            e_ext_s = [_Frac(0)] * n_cusps
+                            e_ext_s[ci] = e_val
+                            r3d = compute_index_3d_python(
+                                nz_nc, m_ext_s, e_ext_s, self._q_order_half
+                            )
+                            if any(c != 0 for c in r3d.coeffs):
+                                all_nonzero_e_vanish = False
+                                break
+                        if not all_nonzero_e_vanish:
+                            break
 
                 missing = [e for e in needed if e not in c_e_snc]
                 if missing:

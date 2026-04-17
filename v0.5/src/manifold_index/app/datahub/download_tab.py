@@ -34,6 +34,9 @@ class DownloadTab(QWidget):
         super().__init__(parent)
         self._registry = None
         self._worker: DownloadWorker | None = None
+        self._pending_packs: list = []   # queue of packs left to download
+        self._installed_names: list[str] = []
+        self._total_packs: int = 0
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -204,11 +207,22 @@ class DownloadTab(QWidget):
         self._download_btn.setEnabled(False)
         self._progress.setVisible(True)
         self._progress.setValue(0)
-        self._dl_status.setText(f"Downloading {len(packs)} pack(s)…")
         self._dl_status.setVisible(True)
 
-        # Download first queued pack (sequential)
-        pack = packs[0]
+        self._pending_packs = list(packs)
+        self._installed_names = []
+        self._total_packs = len(packs)
+        self._start_next_download()
+
+    def _start_next_download(self) -> None:
+        if not self._pending_packs:
+            self._finalize_download_batch()
+            return
+        pack = self._pending_packs.pop(0)
+        idx = self._total_packs - len(self._pending_packs)
+        name = getattr(pack, "name", "")
+        self._dl_status.setText(f"Downloading {idx}/{self._total_packs}: {name}…")
+        self._progress.setValue(0)
         self._worker = DownloadWorker(
             registry    = self._registry,
             pack        = pack,
@@ -223,18 +237,29 @@ class DownloadTab(QWidget):
         self._worker.start()
 
     def _on_download_finished(self, payload: dict) -> None:
-        self._download_btn.setEnabled(True)
-        self._progress.setVisible(False)
         pack_name = payload.get("pack_name", "")
-        n = payload.get("files_count", 0)
-        self._dl_status.setText(f"✅ {pack_name} installed ({n} files)")
-        self._load_registry(use_remote=False)
-        self.download_finished.emit(pack_name)
+        if pack_name:
+            self._installed_names.append(pack_name)
+            self.download_finished.emit(pack_name)
+        self._start_next_download()
 
     def _on_download_error(self, msg: str) -> None:
+        # Abort the remaining queue on first error.
+        self._pending_packs = []
         self._download_btn.setEnabled(True)
         self._progress.setVisible(False)
         self._dl_status.setText(f"Error: {msg}")
+        self._load_registry(use_remote=False)
+
+    def _finalize_download_batch(self) -> None:
+        self._download_btn.setEnabled(True)
+        self._progress.setVisible(False)
+        n = len(self._installed_names)
+        if n == 1:
+            self._dl_status.setText(f"✅ {self._installed_names[0]} installed")
+        elif n > 1:
+            self._dl_status.setText(f"✅ {n} packs installed")
+        self._load_registry(use_remote=False)
 
     def _on_remove(self) -> None:
         items = self._tree.selectedItems()

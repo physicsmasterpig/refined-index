@@ -132,7 +132,7 @@ class ManifoldCard(QWidget):
         body_layout.addWidget(self._status_label)
 
         # MathView for NZ matrix + gluing table
-        self._math_view = MathView(min_h=450)
+        self._math_view = MathView(min_h=450, auto_fit=True)
         body_layout.addWidget(self._math_view)
 
         self._card.set_body(body)

@@ -81,9 +81,8 @@ class GenerateWorker(QThread):
             def _status(msg: str) -> None:
                 self.status.emit(msg)
 
-            def _progress(msg: str) -> None:
-                # progress_fn in iref/nc passes a string; wrap as (0,0)
-                self.status.emit(msg)
+            def _progress_int(done: int, total: int) -> None:
+                self.progress.emit(done, total)
 
             def _cancel_fn() -> bool:
                 # Honour pause: block until event is cleared
@@ -101,6 +100,7 @@ class GenerateWorker(QThread):
                     qq            = p["qq"],
                     n_workers     = p.get("n_workers", 1),
                     skip_existing = p.get("skip_existing", True),
+                    progress_fn   = _progress_int,
                     status_fn     = _status,
                     cancel_fn     = _cancel_fn,
                 )
@@ -113,8 +113,9 @@ class GenerateWorker(QThread):
                     e_max          = p.get("e_max", 0),
                     n_workers      = p.get("n_workers", 1),
                     skip_existing  = p.get("skip_existing", True),
-                    progress_fn    = _progress,
+                    progress_fn    = _progress_int,
                     status_fn      = _status,
+                    cancel_fn      = _cancel_fn,
                 )
 
             elif self._task == "nc":
@@ -125,8 +126,9 @@ class GenerateWorker(QThread):
                     q_max          = p.get("q_max", 5),
                     n_workers      = p.get("n_workers", 1),
                     skip_existing  = p.get("skip_existing", True),
-                    progress_fn    = _progress,
+                    progress_fn    = _progress_int,
                     status_fn      = _status,
+                    cancel_fn      = _cancel_fn,
                 )
 
             else:

@@ -328,7 +328,11 @@ class PipelineView(QWidget):
             self._stepper.set_step_status(3, CardStatus.LOCKED)
 
         # Card ④ — Export
-        if s.export_path:
+        # Mirror the card's own status: it transitions to DONE only after an
+        # actual export action. `s.export_path` is just the chosen output
+        # directory and persists across sessions, so it can't be used as a
+        # "did export happen" marker.
+        if self._export_card._card.get_status() == CardStatus.DONE:
             self._stepper.set_step_status(4, CardStatus.DONE)
         elif s.has_any_results():
             self._stepper.set_step_status(4, CardStatus.READY)

@@ -383,7 +383,7 @@ class FillingCard(QWidget):
         self._fill_refresh_timer.timeout.connect(self._do_refresh_fill_display)
 
         # ── Fill info panel (NC cycle, transformed slope, HJ k-vector) ─────
-        self._fill_info_view = MathView(min_h=200)
+        self._fill_info_view = MathView(min_h=200, auto_fit=True)
         self._fill_info_view.setVisible(False)
         bl.addWidget(self._fill_info_view)
 
@@ -641,7 +641,7 @@ class FillingCard(QWidget):
             self._nc_table_layout.addWidget(lbl)
             self._nc_table_labels.append(lbl)
 
-            mv = MathView(min_h=80)
+            mv = MathView(min_h=80, auto_fit=True)
             mv.set_html(html)
             self._nc_table_layout.addWidget(mv)
             self._nc_table_views.append(mv)
@@ -1359,10 +1359,12 @@ class FillingCard(QWidget):
         is_marginal = None
         if 0 <= nc_idx < len(self._nc_cycle_vms):
             vm = self._nc_cycle_vms[nc_idx]
+            # Always read adj_pass / is_marginal — they are valid even when
+            # AB vectors are None (u-independent indices like torus knots).
+            adj_pass    = vm.adjoint_proj_pass     # refined q^1 → W_i compat
+            is_marginal = vm.is_marginal           # unrefined q^1 → kernel choice
             if vm.weyl_a is not None and vm.weyl_b is not None:
-                ab          = type('obj', (object,), {'a': vm.weyl_a, 'b': vm.weyl_b})()
-                adj_pass    = vm.adjoint_proj_pass     # refined q^1 → W_i compat
-                is_marginal = vm.is_marginal           # unrefined q^1 → kernel choice
+                ab = type('obj', (object,), {'a': vm.weyl_a, 'b': vm.weyl_b})()
 
         print(
             f"[FILL] NC idx={nc_idx}, ab={'present' if ab else 'None'}, "
@@ -1577,6 +1579,16 @@ class FillingCard(QWidget):
 
         cusp_idx = self._cusp_combo.currentData() or 0
         charge_points = self._other_charge_points(n_cusps)
+
+        # u-independent indices (torus knots): AB extraction returns None
+        # because I(m=0,e≠0) = 0, but adj_pass is overridden to True.
+        # Synthesise all-zero AB vectors so that all edges are compatible.
+        if ab is None and adj_pass is True:
+            num_hard = s.num_hard()
+            ab = type('obj', (object,), {
+                'a': [0] * num_hard,
+                'b': [0] * num_hard,
+            })()
 
         use_refined_index  = ab is not None
         # Kernel: refined K^ref iff NOT marginal (unrefined q^1 proj ≤ -1).

@@ -203,10 +203,12 @@ class MathView(QWidget):
         view.scroll_to_bottom()
     """
 
-    def __init__(self, min_h: int = 100, parent: QWidget | None = None) -> None:
+    def __init__(self, min_h: int = 100, auto_fit: bool = False,
+                 parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
         self._min_h = min_h
+        self._auto_fit = auto_fit
         self._current_body: str = ""
         self._loading: bool = False
         self._pending_body: str | None = None  # body waiting for debounce
@@ -297,9 +299,34 @@ class MathView(QWidget):
         full_html = build_katex_html(body, **colors)
         if _HAS_WEBENGINE and isinstance(self._view, QWebEngineView):
             self._view.setHtml(full_html, katex_base_url())
+            if self._auto_fit:
+                # After load finishes, measure content and resize widget
+                self._view.loadFinished.connect(self._adjust_height)
         elif isinstance(self._view, QTextEdit):
             # Fallback: strip HTML to plain text for readability
             self._view.setHtml(full_html)
+
+    def _adjust_height(self, ok: bool = True) -> None:
+        """Resize the view to fit its rendered content (no scrollbar)."""
+        if not (ok and _HAS_WEBENGINE and isinstance(self._view, QWebEngineView)):
+            return
+        # Disconnect so we only fire once per render
+        try:
+            self._view.loadFinished.disconnect(self._adjust_height)
+        except RuntimeError:
+            pass
+        self._view.page().runJavaScript(
+            "document.body.scrollHeight",
+            self._apply_height,
+        )
+
+    def _apply_height(self, h) -> None:
+        """Callback with measured content height from JS."""
+        if h is None or not isinstance(h, (int, float)):
+            return
+        h = max(int(h) + 4, self._min_h)  # small padding
+        self._view.setFixedHeight(h)
+        self.setFixedHeight(h)
 
 
 # ---------------------------------------------------------------------------

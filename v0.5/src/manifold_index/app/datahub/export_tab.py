@@ -15,7 +15,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QRadioButton, QButtonGroup,
+    QLabel, QLineEdit, QPushButton,
     QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout,
     QWidget,
 )
@@ -154,19 +154,6 @@ class ExportTab(QWidget):
             row.addWidget(edit, 1)
             pbl.addLayout(row)
             setattr(self, attr, edit)
-
-        target_row = QHBoxLayout()
-        target_row.addWidget(QLabel("Target dir:"))
-        self._target_kernels = QRadioButton("kernel_cache")
-        self._target_iref    = QRadioButton("iref_cache")
-        self._target_nc      = QRadioButton("nc_cache")
-        self._target_kernels.setChecked(True)
-        tg = QButtonGroup(pub_box)
-        for rb in (self._target_kernels, self._target_iref, self._target_nc):
-            tg.addButton(rb)
-            target_row.addWidget(rb)
-        target_row.addStretch(1)
-        pbl.addLayout(target_row)
 
         pub_out_row = QHBoxLayout()
         pub_out_row.addWidget(QLabel("Dist dir:"))
@@ -325,32 +312,51 @@ class ExportTab(QWidget):
             self._pub_result.setVisible(True)
             return
 
-        pack_name   = self._pub_id.text().strip() or "custom_pack"  # type: ignore[attr-defined]
-        release_tag = self._pub_tag.text().strip() or "data-v1"     # type: ignore[attr-defined]
-        out_dir     = self._pub_out_path.text().strip() or "dist"
+        pack_id      = self._pub_id.text().strip()   # type: ignore[attr-defined]
+        display_name = self._pub_name.text().strip() # type: ignore[attr-defined]
+        description  = self._pub_desc.text().strip() # type: ignore[attr-defined]
+        release_tag  = self._pub_tag.text().strip()  # type: ignore[attr-defined]
+        out_dir      = self._pub_out_path.text().strip() or "dist"
+
+        if not pack_id:
+            self._pub_result.setText("Pack ID is required.")
+            self._pub_result.setVisible(True)
+            return
+        if not release_tag:
+            self._pub_result.setText("Release tag is required (e.g. data-v2).")
+            self._pub_result.setVisible(True)
+            return
 
         paths = [e.get("path", "") for e in entries if e.get("path")]
 
         try:
             self._create_btn.setEnabled(False)
             result = DataHubService.create_tarball(
-                file_paths     = paths,
-                pack_name      = pack_name,
-                release_tag    = release_tag,
-                output_dir     = out_dir,
-                update_registry= True,
+                file_paths        = paths,
+                pack_id           = pack_id,
+                release_tag       = release_tag,
+                output_dir        = out_dir,
+                pack_display_name = display_name or None,
+                description       = description or None,
+                update_registry   = True,
             )
             archive = str(result["path"])
             sha     = result["sha256"][:16]
             size_mb = result["size_bytes"] / 1e6
             n       = result["n_files"]
+            cat     = result.get("category", "?")
+            tgt     = result.get("target_subdir", "?")
             self._pub_result.setText(
-                f"→ {archive}  ({size_mb:.1f} MB · {n} files · SHA-256: {sha}…)\n"
-                "data_packs.json updated.\n"
+                f"→ {archive}  ({size_mb:.1f} MB · {n} files · {cat} → {tgt})\n"
+                f"SHA-256: {sha}…\n"
+                "data_packs.json updated. "
                 "Next: upload to GitHub Releases as a release asset."
             )
             self._pub_result.setVisible(True)
             self.archive_created.emit(archive)
+        except ValueError as exc:
+            self._pub_result.setText(str(exc))
+            self._pub_result.setVisible(True)
         except Exception as exc:
             self._pub_result.setText(f"Archive error: {exc}")
             self._pub_result.setVisible(True)

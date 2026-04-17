@@ -125,14 +125,14 @@ def format_gluing_table_html(md) -> str:
     n = md.num_tetrahedra
     G = md.gluing_matrix
 
-    header = "<tr><th>Edge</th>"
+    header = "<tr><th>$\\textrm{{Edge}}$</th>"
     for j in range(n):
         header += f"<th>$(Z_{{{j+1}}}, Z_{{{j+1}}}', Z_{{{j+1}}}'')$</th>"
     header += "</tr>\n"
 
     rows = ""
     for i in range(n):
-        rows += f"<tr><td><b>{i}</b></td>"
+        rows += f"<tr><td>${i}$</td>"
         for j in range(n):
             a = int(G[i, 3 * j])
             b = int(G[i, 3 * j + 1])
@@ -172,17 +172,17 @@ def format_easy_edges_html(ps, md=None) -> str:
         else:
             composition = "<td></td>"
         lines += (
-            f'<tr><td><b>E{idx}</b></td>'
+            f'<tr><td><b>$E{idx}$</b></td>'
             f"<td>${triplets}$</td>"
             f"{composition}"
-            f"<td>basis row {idx + 1}</td></tr>\n"
+            f"<td>$\\textrm{{basis row }}{idx + 1}$</td></tr>\n"
         )
     if not lines:
-        return '<p class="muted">No easy edges.</p>\n'
+        return '<p class="muted">$\\textrm{{No easy edges.}}$</p>\n'
     header = (
-        "<tr><th>Edge</th><th>Triplets</th>"
-        f"{'<th>Composition</th>' if md is not None else ''}"
-        "<th>Role</th></tr>\n"
+        "<tr><th>$\\textrm{{Edge}}$</th><th>$\\textrm{{Triplets}}$</th>"
+        f"{'<th>$\\textrm{{Composition}}$</th>' if md is not None else ''}"
+        "<th>$\\textrm{{Role}}$</th></tr>\n"
     )
     return (
         "<table>\n"
@@ -218,17 +218,17 @@ def format_hard_edges_html(ps, md=None) -> str:
         else:
             composition = "<td></td>"
         lines += (
-            f'<tr><td><b>H{idx}</b></td>'
+            f'<tr><td><b>$H{idx}$</b></td>'
             f"<td>${triplets}$</td>"
             f"{composition}"
-            f"<td>basis row {n_easy + idx + 1}</td></tr>\n"
+            f"<td>$\\textrm{{basis row }}{n_easy + idx + 1}$</td></tr>\n"
         )
     if not lines:
         return '<p class="muted">No hard edges.</p>\n'
     header = (
-        "<tr><th>Edge</th><th>Triplets</th>"
-        f"{'<th>Composition</th>' if md is not None else ''}"
-        "<th>Role</th></tr>\n"
+        "<tr><th>$\\textrm{{Edge}}$</th><th>$\\textrm{{Triplets}}$</th>"
+        f"{'<th>$\\textrm{{Composition}}$</th>' if md is not None else ''}"
+        "<th>$\\textrm{{Role}}$</th></tr>\n"
     )
     return (
         "<table>\n"

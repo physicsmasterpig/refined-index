@@ -947,7 +947,8 @@ def list_iref_caches(
     """List all I^ref cache files with their metadata.
 
     Returns a list of dicts with keys: ``path``, ``manifold_name``,
-    ``nz_hash``, ``n_entries``, ``n_tetrahedra``, ``n_cusps``.
+    ``nz_hash``, ``n_entries``, ``n_tetrahedra``, ``n_cusps``,
+    ``grid_params`` (dict or None).
     """
     d = Path(cache_dir) if cache_dir else _DEFAULT_IREF_DIR
     if not d.exists():
@@ -965,6 +966,7 @@ def list_iref_caches(
                     "n_entries": len(payload.get("entries", {})),
                     "n_tetrahedra": payload.get("n_tetrahedra", "?"),
                     "n_cusps": payload.get("n_cusps", "?"),
+                    "grid_params": payload.get("grid_params"),
                 })
         except Exception:
             continue

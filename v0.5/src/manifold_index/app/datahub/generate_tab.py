@@ -41,6 +41,7 @@ class GenerateTab(QWidget):
         self._worker: GenerateWorker | None = None
         self._task_queue: list[dict] = []
         self._pause_event = threading.Event()  # set = paused
+        self._cancelled = False                # user pressed Cancel for current task
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -308,7 +309,7 @@ class GenerateTab(QWidget):
                     "task": "kernels",
                     "slopes": [(P, Q)],
                     "qq": self._k_qq.value(),
-                    "skip": self._k_skip.isChecked(),
+                    "skip_existing": self._k_skip.isChecked(),
                     "n_workers": self._n_workers.value(),
                     "label": f"Kernels ({P},{Q}) qq={self._k_qq.value()}",
                 })
@@ -326,7 +327,7 @@ class GenerateTab(QWidget):
                     "task": "kernels",
                     "slopes": slopes,
                     "qq": self._k_qq.value(),
-                    "skip": self._k_skip.isChecked(),
+                    "skip_existing": self._k_skip.isChecked(),
                     "n_workers": self._n_workers.value(),
                     "label": f"Kernels P∈[{self._k_P_lo.value()},{self._k_P_hi.value()}] Q∈[0,{self._k_Q_hi.value()}] qq={self._k_qq.value()}",
                 })
@@ -342,7 +343,7 @@ class GenerateTab(QWidget):
                 "qq": self._ir_qq.value(),
                 "m_max": self._ir_m.value(),
                 "e_max": self._ir_e.value(),
-                "skip": self._ir_skip.isChecked(),
+                "skip_existing": self._ir_skip.isChecked(),
                 "n_workers": self._n_workers.value(),
                 "label": f"I^ref m{self._ir_census_from.value():03d}–m{self._ir_census_to.value():03d} qq={self._ir_qq.value()}",
             })
@@ -358,7 +359,7 @@ class GenerateTab(QWidget):
                 "qq": self._nc_qq.value(),
                 "p_max": self._nc_p_max.value(),
                 "q_max": self._nc_q_max.value(),
-                "skip": self._nc_skip.isChecked(),
+                "skip_existing": self._nc_skip.isChecked(),
                 "n_workers": self._n_workers.value(),
                 "label": f"NC m{self._nc_from.value():03d}–m{self._nc_to.value():03d} qq={self._nc_qq.value()}",
             })
@@ -387,6 +388,7 @@ class GenerateTab(QWidget):
 
         task = queued[0]
         task["status"] = "running"
+        self._cancelled = False
         self._set_row_status(task["_row"], "running")
         self._queue_progress.setVisible(True)
         self._queue_progress.setValue(0)
@@ -422,12 +424,15 @@ class GenerateTab(QWidget):
         self._queue_status.setVisible(False)
 
     def _on_cancel(self) -> None:
+        self._cancelled = True
         if self._worker:
             self._worker.cancel()
         self._pause_event.clear()
         self._pause_btn.setEnabled(False)
         self._resume_btn.setEnabled(False)
         self._cancel_btn.setEnabled(False)
+        self._queue_status.setText("Cancelling…")
+        self._queue_status.setVisible(True)
 
     def _on_clear_completed(self) -> None:
         completed = [t for t in self._task_queue if t["status"] in ("done", "error", "cancelled")]
@@ -449,14 +454,22 @@ class GenerateTab(QWidget):
             if not _status_str(item).startswith("error")
             and _status_str(item) != "cancelled"
         )
-        task["status"] = "done"
-        self._set_row_status(task["_row"], f"done ({done})")
+        if self._cancelled:
+            task["status"] = "cancelled"
+            self._set_row_status(task["_row"], f"cancelled ({done} completed)")
+            summary = f"{task.get('label','Task')} cancelled ({done} items completed)"
+        else:
+            task["status"] = "done"
+            self._set_row_status(task["_row"], f"done ({done})")
+            summary = f"{task.get('label','Task')} complete ({done} items)"
+        self._cancelled = False
         self._queue_progress.setVisible(False)
+        self._queue_status.setVisible(False)
         self._pause_btn.setEnabled(False)
         self._cancel_btn.setEnabled(False)
         self._start_btn.setEnabled(bool([t for t in self._task_queue if t["status"] == "queued"]))
         self._refresh_cache_summary()
-        self.task_finished.emit(f"{task.get('label','Task')} complete ({done} items)")
+        self.task_finished.emit(summary)
 
     def _on_worker_error(self, task: dict, msg: str) -> None:
         task["status"] = "error"

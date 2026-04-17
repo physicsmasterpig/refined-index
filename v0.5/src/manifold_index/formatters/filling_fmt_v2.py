@@ -133,11 +133,11 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
     html = (
         '<table class="nc" style="font-size: 0.95em;">\n'
         '<tr>\n'
-        '  <th>#</th>\n'
+        '  <th>$\\#$</th>\n'
         '  <th>$\\gamma_i$</th>\n'
         '  <th>$\\delta_i$</th>\n'
         '  <th>$\\left.\\textrm{Coeff}_{q^1}(\\mathcal{I}^{\\vec{\gamma},\\vec{\delta}}(\\vec{m}=0,\\vec{u}))\\right|_{\\textrm{adj}\\,\\mathfrak{su}(2)_i}$</th>\n'
-        '  <th>Source</th>\n'
+        '  <th>$\\textrm{Source}$</th>\n'
         '</tr>\n'
     )
 
@@ -177,11 +177,11 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
 
         html += (
             f'<tr>\n'
-            f'  <td style="text-align: center;"><b>{i}</b></td>\n'
+            f'  <td style="text-align: center;"><b>${i}$</b></td>\n'
             f'  <td style="text-align: center;">${gamma_str}$</td>\n'
             f'  <td style="text-align: center;">${delta_str}$</td>\n'
             f'  <td style="text-align: center;">{snc_cell}</td>\n'
-            f'  <td style="text-align: center;"><small>{nc.source}</small></td>\n'
+            f'  <td style="text-align: center;"><small>$\\textrm{{{nc.source}}}$</small></td>\n'
             f'</tr>\n'
         )
 
