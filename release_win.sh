@@ -11,8 +11,8 @@
 #   4. (gh CLI 설치 시) 빌드 진행 상황 실시간 추적
 #
 # Usage:
-#   ./release_win.sh v0.5.4            # 버전 업데이트 + 태그 푸시
-#   ./release_win.sh v0.5.4 --dry-run  # 실제 변경 없이 미리 보기
+#   ./release_win.sh v1.0.0            # 버전 업데이트 + 태그 푸시
+#   ./release_win.sh v1.0.0 --dry-run  # 실제 변경 없이 미리 보기
 #
 # 필요 조건 (Mac):
 #   - git
@@ -33,21 +33,21 @@ fi
 # ── 버전 검증 ─────────────────────────────────────────────────────
 if [[ -z "$VERSION_ARG" ]]; then
   echo "Usage: ./release_win.sh v<MAJOR>.<MINOR>.<PATCH> [--dry-run]"
-  echo "  예: ./release_win.sh v0.5.4"
+  echo "  예: ./release_win.sh v1.0.0"
   exit 1
 fi
 
 VERSION_NUM="${VERSION_ARG#v}"   # 0.5.4
-VERSION_TAG="v${VERSION_NUM}"   # v0.5.4
+VERSION_TAG="v${VERSION_NUM}"   # v1.0.0
 
 if ! [[ "$VERSION_NUM" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "오류: 버전 형식이 잘못됨 — 'v0.5.4' 형식으로 입력하세요."
+  echo "오류: 버전 형식이 잘못됨 — 'v1.0.0' 형식으로 입력하세요."
   exit 1
 fi
 
 # ── 현재 버전 감지 및 일관성 확인 ────────────────────────────────
-CURRENT_VERSION=$(grep '^version' v0.5/pyproject.toml | sed 's/version = "\(.*\)"/\1/')
-VER_SPEC=$(grep 'APP_VERSION = ' v0.5/ManifoldIndex_win.spec | sed 's/.*APP_VERSION = "\(.*\)"/\1/')
+CURRENT_VERSION=$(grep '^version' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+VER_SPEC=$(grep 'APP_VERSION = ' ManifoldIndex_win.spec | sed 's/.*APP_VERSION = "\(.*\)"/\1/')
 VER_DOCS=$(grep -o 'v[0-9]\+\.[0-9]\+\.[0-9]\+' docs/index.html | head -1 | sed 's/v//')
 
 # 파일 간 버전 불일치 감지
@@ -110,34 +110,34 @@ do_sed() {
 echo "[ 2/5 ] 버전 업데이트..."
 
 # pyproject.toml
-do_sed "v0.5/pyproject.toml" \
+do_sed "pyproject.toml" \
   "version = \"$CURRENT_VERSION\"" \
   "version = \"$VERSION_NUM\""
-echo "  v0.5/pyproject.toml"
+echo "  pyproject.toml"
 
 # ManifoldIndex_win.spec (Windows 빌드)
-do_sed "v0.5/ManifoldIndex_win.spec" \
+do_sed "ManifoldIndex_win.spec" \
   "APP_VERSION = \".*\"" \
   "APP_VERSION = \"$VERSION_NUM\""
-echo "  v0.5/ManifoldIndex_win.spec"
+echo "  ManifoldIndex_win.spec"
 
 # ManifoldIndex.spec (macOS 빌드)
-do_sed "v0.5/ManifoldIndex.spec" \
+do_sed "ManifoldIndex.spec" \
   "APP_VERSION = \".*\"" \
   "APP_VERSION = \"$VERSION_NUM\""
-echo "  v0.5/ManifoldIndex.spec"
+echo "  ManifoldIndex.spec"
 
 # build_app.sh (macOS 빌드 스크립트)
-do_sed "v0.5/build_app.sh" \
+do_sed "build_app.sh" \
   "APP_VERSION=\".*\"" \
   "APP_VERSION=\"$VERSION_NUM\""
-echo "  v0.5/build_app.sh"
+echo "  build_app.sh"
 
 # build_app.bat (Windows 로컬 빌드 스크립트)
-do_sed "v0.5/build_app.bat" \
+do_sed "build_app.bat" \
   "set APP_VERSION=.*" \
   "set APP_VERSION=$VERSION_NUM"
-echo "  v0.5/build_app.bat"
+echo "  build_app.bat"
 
 # docs/index.html — 다운로드 링크 및 버전 표시 업데이트
 # macOS 다운로드 링크
@@ -169,11 +169,11 @@ fi
 echo "[ 3/5 ] 커밋..."
 git diff --stat
 git add \
-  v0.5/pyproject.toml \
-  v0.5/ManifoldIndex_win.spec \
-  v0.5/ManifoldIndex.spec \
-  v0.5/build_app.sh \
-  v0.5/build_app.bat \
+  pyproject.toml \
+  ManifoldIndex_win.spec \
+  ManifoldIndex.spec \
+  build_app.sh \
+  build_app.bat \
   docs/index.html
 git commit -m "chore: bump version to $VERSION_NUM"
 echo "  완료"

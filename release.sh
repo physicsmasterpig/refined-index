@@ -6,9 +6,9 @@
 # to the same GitHub Release, and docs/index.html is updated automatically.
 #
 # Usage:
-#   ./release.sh v0.5.4            # full release
-#   ./release.sh v0.5.4 --dry-run  # preview all changes, build nothing
-#   ./release.sh v0.5.4 --skip-mac # skip local macOS build (Windows only)
+#   ./release.sh v1.0.0            # full release
+#   ./release.sh v1.0.0 --dry-run  # preview all changes, build nothing
+#   ./release.sh v1.0.0 --skip-mac # skip local macOS build (Windows only)
 #
 # Requirements:
 #   - macOS (for the local .app build)
@@ -44,19 +44,19 @@ done
 # ── Version validation ────────────────────────────────────────────────────────
 if [[ -z "$VERSION_ARG" ]]; then
   echo "Usage: ./release.sh v<MAJOR>.<MINOR>.<PATCH> [--dry-run] [--skip-mac]"
-  echo "  e.g.  ./release.sh v0.5.4"
+  echo "  e.g.  ./release.sh v1.0.0"
   exit 1
 fi
 
 VERSION_NUM="${VERSION_ARG#v}"    # 0.5.4
-VERSION_TAG="v${VERSION_NUM}"    # v0.5.4
+VERSION_TAG="v${VERSION_NUM}"    # v1.0.0
 
 if ! [[ "$VERSION_NUM" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  die "Bad version format — use vMAJOR.MINOR.PATCH (e.g. v0.5.4)"
+  die "Bad version format — use vMAJOR.MINOR.PATCH (e.g. v1.0.0)"
 fi
 
 # ── Detect current version ────────────────────────────────────────────────────
-CURRENT_VERSION=$(grep '^version' v0.5/pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+CURRENT_VERSION=$(grep '^version' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
 
 header "━━  Refined Index Calculator — Release  ━━"
 info "Current : v${CURRENT_VERSION}"
@@ -94,9 +94,9 @@ if ! $SKIP_MAC; then
   if [[ -d "$VENV_ROOT/bin" ]]; then
     PYINSTALLER="$VENV_ROOT/bin/pyinstaller"
     PYTHON_BIN="$VENV_ROOT/bin/python"
-  elif [[ -d "$SCRIPT_DIR/v0.5/.venv/bin" ]]; then
-    PYINSTALLER="$SCRIPT_DIR/v0.5/.venv/bin/pyinstaller"
-    PYTHON_BIN="$SCRIPT_DIR/v0.5/.venv/bin/python"
+  elif [[ -d "$SCRIPT_DIR/.venv/bin" ]]; then
+    PYINSTALLER="$SCRIPT_DIR/.venv/bin/pyinstaller"
+    PYTHON_BIN="$SCRIPT_DIR/.venv/bin/python"
   elif command -v pyinstaller >/dev/null 2>&1; then
     PYINSTALLER="pyinstaller"
     PYTHON_BIN="python"
@@ -106,7 +106,7 @@ if ! $SKIP_MAC; then
   ok "PyInstaller: $PYINSTALLER"
 
   "$PYTHON_BIN" -c "
-import sys; sys.path.insert(0, 'v0.5/src')
+import sys; sys.path.insert(0, 'src')
 from manifold_index.app import launch_gui
 " 2>/dev/null && ok "Entry point importable" \
               || die "launch_gui not importable — check your venv"
@@ -125,12 +125,12 @@ do_sed() {
 # ── Version bump ──────────────────────────────────────────────────────────────
 header "[ 2/6 ]  Version bump  (${CURRENT_VERSION} → ${VERSION_NUM})"
 
-do_sed "v0.5/pyproject.toml"        "version = \"${CURRENT_VERSION}\""   "version = \"${VERSION_NUM}\""
-do_sed "v0.5/ManifoldIndex.spec"    "APP_VERSION = \".*\""               "APP_VERSION = \"${VERSION_NUM}\""
-do_sed "v0.5/ManifoldIndex_win.spec" "APP_VERSION = \".*\""              "APP_VERSION = \"${VERSION_NUM}\""
-do_sed "v0.5/build_app.sh"          "APP_VERSION=\".*\""                 "APP_VERSION=\"${VERSION_NUM}\""
-do_sed "v0.5/build_app.bat"         "set APP_VERSION=.*"                 "set APP_VERSION=${VERSION_NUM}"
-do_sed "v0.5/src/manifold_index/__init__.py" \
+do_sed "pyproject.toml"        "version = \"${CURRENT_VERSION}\""   "version = \"${VERSION_NUM}\""
+do_sed "ManifoldIndex.spec"    "APP_VERSION = \".*\""               "APP_VERSION = \"${VERSION_NUM}\""
+do_sed "ManifoldIndex_win.spec" "APP_VERSION = \".*\""              "APP_VERSION = \"${VERSION_NUM}\""
+do_sed "build_app.sh"          "APP_VERSION=\".*\""                 "APP_VERSION=\"${VERSION_NUM}\""
+do_sed "build_app.bat"         "set APP_VERSION=.*"                 "set APP_VERSION=${VERSION_NUM}"
+do_sed "src/manifold_index/__init__.py" \
   "__version__ = \"${CURRENT_VERSION}\"" \
   "__version__ = \"${VERSION_NUM}\""
 
@@ -160,11 +160,10 @@ MAC_ZIP=""
 if ! $SKIP_MAC; then
   header "[ 3/6 ]  macOS build"
 
-  cd v0.5
   info "Running PyInstaller…"
   "$PYINSTALLER" ManifoldIndex.spec --noconfirm --clean 2>&1 | tail -5
 
-  [[ -d "dist/ManifoldIndex.app" ]] || { cd ..; die "Build failed — dist/ManifoldIndex.app not found"; }
+  [[ -d "dist/ManifoldIndex.app" ]] || die "Build failed — dist/ManifoldIndex.app not found"
   ok "dist/ManifoldIndex.app  ($(du -sh dist/ManifoldIndex.app | cut -f1))"
 
   info "Ad-hoc signing…"
@@ -176,8 +175,7 @@ if ! $SKIP_MAC; then
   ditto -c -k --sequesterRsrc --keepParent dist/ManifoldIndex.app dist/ManifoldIndex.zip
   ok "dist/ManifoldIndex.zip  ($(du -sh dist/ManifoldIndex.zip | cut -f1))"
 
-  MAC_ZIP="$(pwd)/dist/ManifoldIndex.zip"
-  cd ..
+  MAC_ZIP="$SCRIPT_DIR/dist/ManifoldIndex.zip"
 else
   header "[ 3/6 ]  macOS build — skipped"
 fi
@@ -186,12 +184,12 @@ fi
 header "[ 4/6 ]  Commit & push branch"
 
 git add \
-  v0.5/pyproject.toml \
-  v0.5/ManifoldIndex.spec \
-  v0.5/ManifoldIndex_win.spec \
-  v0.5/build_app.sh \
-  v0.5/build_app.bat \
-  v0.5/src/manifold_index/__init__.py \
+  pyproject.toml \
+  ManifoldIndex.spec \
+  ManifoldIndex_win.spec \
+  build_app.sh \
+  build_app.bat \
+  src/manifold_index/__init__.py \
   docs/index.html
 
 if git diff --cached --quiet; then

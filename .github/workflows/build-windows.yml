@@ -1,7 +1,7 @@
 name: Build Windows
 
 # Triggers:
-#   - push a version tag from Mac:  git tag v0.5.3 && git push origin v0.5.3
+#   - push a version tag from Mac:  git tag v1.0.0 && git push origin v1.0.0
 #   - manual run from GitHub UI (Actions tab → Run workflow) for testing
 
 on:
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version label (e.g. v0.5.3). Defaults to "dev".'
+        description: 'Version label (e.g. v1.0.0). Defaults to "dev".'
         required: false
         default: 'dev'
 
@@ -35,7 +35,7 @@ jobs:
           cache: 'pip'
 
       # ── 3. Determine version label ───────────────────────────────
-      # On tag push  → use the tag (e.g. v0.5.3)
+      # On tag push  → use the tag (e.g. v1.0.0)
       # On manual run → use the workflow_dispatch input
       - name: Set version
         id: ver
@@ -54,7 +54,6 @@ jobs:
       # - Python DLLs are in the standard PATH, so PyInstaller finds
       #   sqlite3/ssl/lzma automatically (no conda Library/bin needed)
       - name: Install dependencies
-        working-directory: v0.5
         run: |
           python -m pip install --upgrade pip
           pip install snappy numpy scipy "PySide6>=6.6" pyinstaller Pillow
@@ -62,7 +61,6 @@ jobs:
       # ── 5. Generate .ico ─────────────────────────────────────────
       # macOS uses .icns — Windows needs .ico. Generate from the PNG.
       - name: Generate icon
-        working-directory: v0.5
         run: |
           python -c "
           from PIL import Image
@@ -74,7 +72,6 @@ jobs:
 
       # ── 6. Preflight check ───────────────────────────────────────
       - name: Verify entry point importable
-        working-directory: v0.5
         run: |
           python -c "
           import sys; sys.path.insert(0, 'src')
@@ -84,13 +81,11 @@ jobs:
 
       # ── 7. PyInstaller build ─────────────────────────────────────
       - name: Build with PyInstaller
-        working-directory: v0.5
         run: |
           pyinstaller ManifoldIndex_win.spec --noconfirm --clean
 
       # ── 8. Verify output ─────────────────────────────────────────
       - name: Verify build output
-        working-directory: v0.5
         shell: bash
         run: |
           if [ ! -f "dist/ManifoldIndex.exe" ]; then
@@ -105,7 +100,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ManifoldIndex-${{ steps.ver.outputs.version }}-windows
-          path: v0.5/dist/ManifoldIndex.exe
+          path: dist/ManifoldIndex.exe
           retention-days: 7
 
       # ── 10. Upload to GitHub Release (tag pushes only) ──────────
@@ -114,7 +109,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.version }}
-          files: v0.5/dist/ManifoldIndex.exe
+          files: dist/ManifoldIndex.exe
           body: |
             **Windows build — ${{ steps.ver.outputs.version }}**
 
