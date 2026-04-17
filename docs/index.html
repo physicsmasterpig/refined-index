@@ -378,62 +378,6 @@
       border-radius: 4px;
     }
 
-    /* ── Features Grid ──────────────────────────────────────────────── */
-    .features {
-      margin: 4rem 0;
-    }
-
-    .features-header {
-      text-align: center;
-      margin-bottom: 2.5rem;
-    }
-
-    .features-header h2 {
-      font-size: 1.75rem;
-      margin-bottom: 0.5rem;
-      letter-spacing: -0.025em;
-      font-weight: 600;
-    }
-
-    .features-header p {
-      color: #666;
-    }
-
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 2rem;
-    }
-
-    .feature-card {
-      padding: 2rem;
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      transition: all 0.2s;
-    }
-
-    .feature-card:hover {
-      border-color: #1a1a1a;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-    }
-
-    .feature-icon {
-      font-size: 1.5rem;
-      margin-bottom: 0.75rem;
-    }
-
-    .feature-card h3 {
-      font-size: 1rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .feature-card p {
-      font-size: 0.9rem;
-      color: #666;
-      line-height: 1.5;
-    }
-
     /* ── Sections ────────────────────────────────────────────────────── */
     section {
       margin: 3rem 0;
@@ -490,7 +434,7 @@
       background: #f5f5f5;
       padding: 0.25rem 0.5rem;
       border-radius: 4px;
-      font-family: 'Courier New', monospace;
+      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
       font-size: 0.85em;
       color: #1a1a1a;
     }
@@ -502,8 +446,99 @@
       padding: 1rem;
       margin: 1rem 0;
       overflow-x: auto;
-      font-family: 'Courier New', monospace;
+      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
       font-size: 0.9rem;
+    }
+
+    /* ── Install section ─────────────────────────────────────────────── */
+    .install-steps {
+      counter-reset: step;
+      list-style: none;
+      padding-left: 0;
+      margin-bottom: 1.25rem;
+    }
+
+    .install-steps li {
+      counter-increment: step;
+      padding-left: 2.75rem;
+      position: relative;
+      margin-bottom: 1rem;
+      color: #444;
+    }
+
+    .install-steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 2rem;
+      height: 2rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #1a1a1a;
+      color: #fff;
+      border-radius: 50%;
+      font-size: 0.8rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .install-note {
+      font-size: 0.88rem;
+      color: #777;
+      padding: 0.75rem 1rem;
+      background: #f9fafb;
+      border-left: 3px solid #d1d5db;
+      border-radius: 0 4px 4px 0;
+      margin: 0.5rem 0 2rem;
+    }
+
+    /* ── Contributors ────────────────────────────────────────────────── */
+    .contrib-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.25rem;
+      margin: 1.5rem 0 2rem;
+    }
+
+    .contrib-card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+    }
+
+    .contrib-role {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #555;
+      background: #f1f3f5;
+      padding: 0.2rem 0.55rem;
+      border-radius: 3px;
+      margin-bottom: 0.75rem;
+    }
+
+    .contrib-name {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-bottom: 0.2rem;
+    }
+
+    .contrib-affil {
+      font-size: 0.85rem;
+      color: #666;
+      margin-bottom: 0.65rem;
+    }
+
+    .contrib-contrib {
+      font-size: 0.88rem;
+      color: #555;
+      line-height: 1.5;
     }
 
     /* ── Footer ─────────────────────────────────────────────────────── */
@@ -587,8 +622,9 @@
     <div class="container">
       <div class="logo">Refined Index</div>
       <div class="header-links">
-        <a href="#features">Features</a>
+        <a href="#download">Download</a>
         <a href="#install">Install</a>
+        <a href="guide.html">User Guide</a>
         <a href="https://github.com/physicsmasterpig/refined-index" target="_blank">GitHub</a>
       </div>
     </div>
@@ -708,71 +744,38 @@
       </div>
     </div>
 
-    <!-- ── Features ────────────────────────────────────────────────────── -->
-    <section class="features" id="features">
-      <div class="features-header">
-        <h2>Capabilities</h2>
-        <p>Comprehensive tools for hyperbolic 3-manifold research</p>
-      </div>
-
-      <div class="features-grid">
-        <div class="feature-card">
-          <div class="feature-icon">📐</div>
-          <h3>3D Index</h3>
-          <p>Compute I(m, e) q-series for any cusped manifold in the SnapPy census.</p>
-        </div>
-
-        <div class="feature-card">
-          <div class="feature-icon">🔄</div>
-          <h3>Refined Index</h3>
-          <p>Two-variable (q, t) refinement with automatic basis selection.</p>
-        </div>
-
-        <div class="feature-card">
-          <div class="feature-icon">🎯</div>
-          <h3>Dehn Filling</h3>
-          <p>Fill cusps with (P, Q) slopes and compute the filled index.</p>
-        </div>
-
-        <div class="feature-card">
-          <div class="feature-icon">🔍</div>
-          <h3>Non-closable Cycles</h3>
-          <p>Search for slopes whose filled index vanishes identically.</p>
-        </div>
-
-        <div class="feature-card">
-          <div class="feature-icon">📦</div>
-          <h3>Data Packs</h3>
-          <p>Pre-computed kernels and indices to skip expensive computations.</p>
-        </div>
-
-        <div class="feature-card">
-          <div class="feature-icon">🚀</div>
-          <h3>Cross-Platform</h3>
-          <p>Native apps for macOS and Windows. No dependencies required.</p>
-        </div>
-      </div>
-    </section>
-
     <!-- ── Installation ────────────────────────────────────────────────– -->
     <section id="install">
       <h2>Installation</h2>
 
       <h3>macOS</h3>
-      <p>Extract the zip and move <code>ManifoldIndex.app</code> to Applications. On first launch, macOS will block it. Clear the quarantine flag:</p>
-      <div class="code-block">xattr -cr ~/Downloads/ManifoldIndex.app</div>
-      <p>Then launch normally. This is only required once.</p>
+      <ol class="install-steps">
+        <li>Download <code>ManifoldIndex.zip</code> from the download section above.</li>
+        <li>Open the zip — macOS expands it to <code>ManifoldIndex.app</code>. Drag the app into <code>/Applications</code> (or any folder you prefer).</li>
+        <li>Because the app is not notarised, Gatekeeper will block the first launch. Clear the quarantine flag with:
+          <div class="code-block">xattr -cr /Applications/ManifoldIndex.app</div>
+          Then double-click the app as normal. This step is only required once.
+        </li>
+        <li>If you skipped step 3 and already saw the <em>"cannot be opened"</em> dialog, open <strong>System Settings → Privacy &amp; Security</strong> and click <strong>Open Anyway</strong> next to the ManifoldIndex entry.</li>
+      </ol>
+      <p class="install-note">The app bundles its own Python runtime and SnapPy — you do not need to install anything else.</p>
 
       <h3>Windows</h3>
-      <p>Download the zip, extract it, and run <code>ManifoldIndex.exe</code> from the extracted folder. If Windows Defender warns, click <strong>More info</strong> → <strong>Run anyway</strong>.</p>
+      <ol class="install-steps">
+        <li>Download <code>ManifoldIndex.exe</code> from the download section above (it's a single self-contained executable — no installer, no zip).</li>
+        <li>Move it anywhere you like (Desktop, Documents, a new folder — it's fine). Double-click to run.</li>
+        <li>On first launch, Windows SmartScreen may show a blue pop-up saying <em>"Windows protected your PC"</em> because the binary isn't signed by a recognised publisher. Click <strong>More info</strong>, then <strong>Run anyway</strong>. You will only see this once per download.</li>
+        <li>If Microsoft Defender or a third-party antivirus quarantines the file, add an exclusion for the folder you put <code>ManifoldIndex.exe</code> in. The installer-less format occasionally trips heuristic scanners.</li>
+      </ol>
+      <p class="install-note">Startup takes ~5–10 seconds on first launch while the embedded Python unpacks into <code>%LOCALAPPDATA%\Temp</code>. Subsequent launches are faster.</p>
 
       <h3>From Source</h3>
-      <p>Requires Python ≥ 3.10 and dependencies in <code>pyproject.toml</code>.</p>
-      <div class="code-block">pip install -e ".[dev]"<br>manifold-index  # Launch GUI<br>pytest tests/  # Run tests</div>
+      <p>Requires Python 3.10 or newer. After cloning the repo:</p>
+      <div class="code-block">pip install -e ".[dev]"<br>manifold-index   # Launch GUI<br>pytest tests/    # Run test suite</div>
     </section>
 
     <!-- ── Changelog ────────────────────────────────────────────────────– -->
-    <section>
+    <section id="changelog">
       <h2>Changelog</h2>
 
       <h3>v1.0.0 — first stable release</h3>
@@ -785,52 +788,89 @@
         <li><strong>Repository layout flattened</strong> — src/, tests/, assets/, and build scripts now live at the repo root.</li>
       </ul>
 
-      <h3>v0.5.15</h3>
-      <ul>
-        <li><strong>Display Improvements:</strong> Better fill result layout with combined metadata and improved LaTeX notation</li>
-        <li><strong>Windows Support:</strong> Added build_app.bat script for standalone .exe building on Windows</li>
-        <li><strong>New Widget:</strong> math_label.py for enhanced mathematical notation display</li>
-        <li><strong>Code Quality:</strong> Simplified UI labels and reduced complexity in display components</li>
-        <li>Improved multi-cusp filling display with per-cusp slope formatting</li>
-      </ul>
+      <div class="older-toggle-row">
+        <button class="older-toggle" id="changelog-toggle" onclick="toggleChangelog()" aria-expanded="false" aria-controls="old-changelog">
+          Show older releases <span class="chev" aria-hidden="true">▾</span>
+        </button>
+      </div>
 
-      <h3>v0.5.2</h3>
-      <ul>
-        <li><strong>Critical Fix:</strong> Resolved SnapPy SQLite thread-binding error on manifold loading</li>
-        <li><strong>Threading:</strong> Manifold loaded in main thread to avoid cross-thread database access</li>
-        <li>All manifolds from SnapPy census can now be loaded reliably</li>
-      </ul>
+      <div class="older-versions" id="old-changelog" hidden>
+        <h3>v0.5.15</h3>
+        <ul>
+          <li><strong>Display Improvements:</strong> Better fill result layout with combined metadata and improved LaTeX notation</li>
+          <li><strong>Windows Support:</strong> Added build_app.bat script for standalone .exe building on Windows</li>
+          <li><strong>New Widget:</strong> math_label.py for enhanced mathematical notation display</li>
+          <li><strong>Code Quality:</strong> Simplified UI labels and reduced complexity in display components</li>
+          <li>Improved multi-cusp filling display with per-cusp slope formatting</li>
+        </ul>
 
-      <h3>v0.5.1</h3>
-      <ul>
-        <li><strong>UI Redesign:</strong> Complete v0.4-style formatters with mathematical notation (α, β, γ, δ)</li>
-        <li><strong>KaTeX Rendering:</strong> Inline LaTeX throughout — table headers, parameters, results</li>
-        <li><strong>Per-Cycle Weyl:</strong> Independent Weyl compatibility checks for each NC cycle basis choice</li>
-        <li><strong>Enhanced Tables:</strong> NC cycle display with per-cycle Weyl vectors as tuples, professional appearance</li>
-        <li><strong>Improved Display:</strong> Better fill result layout, transparent backgrounds, proper mathematical notation</li>
-      </ul>
+        <h3>v0.5.2</h3>
+        <ul>
+          <li><strong>Critical Fix:</strong> Resolved SnapPy SQLite thread-binding error on manifold loading</li>
+          <li><strong>Threading:</strong> Manifold loaded in main thread to avoid cross-thread database access</li>
+          <li>All manifolds from SnapPy census can now be loaded reliably</li>
+        </ul>
 
-      <h3>v0.5.0</h3>
-      <ul>
-        <li><strong>Performance:</strong> Yield CPU and release GIL in progress callbacks for macOS responsiveness</li>
-        <li><strong>Stability:</strong> Comprehensive error analysis in data handling and worker management</li>
-        <li><strong>Robustness:</strong> Enhanced session state handling with stale signal guards</li>
-        <li>76+ tests passing</li>
-      </ul>
+        <h3>v0.5.1</h3>
+        <ul>
+          <li><strong>UI Redesign:</strong> Complete v0.4-style formatters with mathematical notation (α, β, γ, δ)</li>
+          <li><strong>KaTeX Rendering:</strong> Inline LaTeX throughout — table headers, parameters, results</li>
+          <li><strong>Per-Cycle Weyl:</strong> Independent Weyl compatibility checks for each NC cycle basis choice</li>
+          <li><strong>Enhanced Tables:</strong> NC cycle display with per-cycle Weyl vectors as tuples, professional appearance</li>
+          <li><strong>Improved Display:</strong> Better fill result layout, transparent backgrounds, proper mathematical notation</li>
+        </ul>
 
-      <h3>v0.4.2</h3>
-      <ul>
-        <li><strong>Critical:</strong> Fixed half-integer e summation in Dehn filling</li>
-        <li>Multi-cusp Weyl symmetry corrections for accurate manifold analysis</li>
-        <li>Corrected Weyl convention: f(m,e) = f(−m,−e)</li>
-        <li>Stale data pack removal for data integrity</li>
-      </ul>
+        <h3>v0.5.0</h3>
+        <ul>
+          <li><strong>Performance:</strong> Yield CPU and release GIL in progress callbacks for macOS responsiveness</li>
+          <li><strong>Stability:</strong> Comprehensive error analysis in data handling and worker management</li>
+          <li><strong>Robustness:</strong> Enhanced session state handling with stale signal guards</li>
+          <li>76+ tests passing</li>
+        </ul>
 
-      <h3>v0.4.0</h3>
+        <h3>v0.4.2</h3>
+        <ul>
+          <li><strong>Critical:</strong> Fixed half-integer e summation in Dehn filling</li>
+          <li>Multi-cusp Weyl symmetry corrections for accurate manifold analysis</li>
+          <li>Corrected Weyl convention: f(m,e) = f(−m,−e)</li>
+          <li>Stale data pack removal for data integrity</li>
+        </ul>
+
+        <h3>v0.4.0</h3>
+        <ul>
+          <li>Complete computation core rewrite with cleaner architecture</li>
+          <li>Full (½)ℤ² lattice support for IS chains</li>
+          <li>Pre-computed kernels-qq50 data pack fully recomputed</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ── Contributors ─────────────────────────────────────────────────– -->
+    <section id="contributors">
+      <h2>Contributors</h2>
+      <p>Refined Index Calculator is developed by researchers in hyperbolic geometry and 3d supersymmetric gauge theory. Contributions — bug reports, patches, data packs — are welcome.</p>
+
+      <div class="contrib-grid">
+        <div class="contrib-card">
+          <div class="contrib-role">Lead author</div>
+          <div class="contrib-name">Minseon Park</div>
+          <div class="contrib-affil">Seoul National University · Department of Physics &amp; Astronomy</div>
+          <div class="contrib-contrib">Architecture, computation core, GUI, release engineering.</div>
+        </div>
+
+        <div class="contrib-card">
+          <div class="contrib-role">Contributor</div>
+          <div class="contrib-name">Jonathan Minho Chung</div>
+          <div class="contrib-affil">KAIST</div>
+          <div class="contrib-contrib">Mathematical review and feedback on the refined-index formulation.</div>
+        </div>
+      </div>
+
+      <h3>Get involved</h3>
       <ul>
-        <li>Complete computation core rewrite with cleaner architecture</li>
-        <li>Full (½)ℤ² lattice support for IS chains</li>
-        <li>Pre-computed kernels-qq50 data pack fully recomputed</li>
+        <li>Found a bug or have a feature request? <a href="https://github.com/physicsmasterpig/refined-index/issues/new" target="_blank">Open an issue</a>.</li>
+        <li>Have a computed data pack you want to share? Use the <em>Export &amp; Share</em> tab in the Data Hub to package it, then open a PR adding the release URL to the registry.</li>
+        <li>Citations and academic use: please cite the project URL and the specific version you used. A BibTeX snippet will be added once the accompanying paper is posted to arXiv.</li>
       </ul>
     </section>
 
@@ -846,6 +886,7 @@
       <div>
         <h4>Resources</h4>
         <ul>
+          <li><a href="guide.html">User Guide</a></li>
           <li><a href="https://github.com/physicsmasterpig/refined-index" target="_blank">GitHub</a></li>
           <li><a href="https://github.com/physicsmasterpig/refined-index/issues" target="_blank">Issues</a></li>
           <li><a href="https://github.com/physicsmasterpig/refined-index/releases" target="_blank">Releases</a></li>
@@ -925,6 +966,22 @@
       } else {
         panel.setAttribute('hidden', '');
         btn.firstChild.nodeValue = 'Show older versions ';
+      }
+    }
+
+    function toggleChangelog() {
+      const panel = document.getElementById('old-changelog');
+      const btn = document.getElementById('changelog-toggle');
+      const open = !panel.classList.contains('open');
+      panel.classList.toggle('open', open);
+      btn.classList.toggle('open', open);
+      btn.setAttribute('aria-expanded', String(open));
+      if (open) {
+        panel.removeAttribute('hidden');
+        btn.firstChild.nodeValue = 'Hide older releases ';
+      } else {
+        panel.setAttribute('hidden', '');
+        btn.firstChild.nodeValue = 'Show older releases ';
       }
     }
 

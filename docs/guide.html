@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>User Guide — Refined Index Calculator</title>
+  <meta name="description" content="How to use the Refined Index Calculator: loading manifolds, computing the refined (q,t)-index, performing Dehn fillings, searching for non-closable cycles, and sharing pre-computed data packs." />
+  <meta name="theme-color" content="#0a0a0a" />
+  <link rel="canonical" href="https://physicsmasterpig.github.io/refined-index/guide.html" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #fafbfc;
+      color: #1a1a1a;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    ::selection { background: #1a1a1a; color: #fff; }
+
+    .container { max-width: 960px; margin: 0 auto; padding: 0 2rem; }
+
+    /* ── Header ───────────────────────────────────────────────────── */
+    header {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 1.25rem 0;
+      position: sticky;
+      top: 0;
+      background: rgba(250, 251, 252, 0.92);
+      backdrop-filter: saturate(1.2) blur(8px);
+      z-index: 100;
+    }
+    header .container { display: flex; align-items: center; justify-content: space-between; }
+    .logo { font-size: 1rem; font-weight: 600; letter-spacing: -0.02em; color: #1a1a1a; text-decoration: none; }
+    .header-links { display: flex; gap: 1.75rem; font-size: 0.9rem; }
+    .header-links a { color: #666; text-decoration: none; transition: color 0.2s; }
+    .header-links a:hover { color: #1a1a1a; }
+    .header-links a.active { color: #1a1a1a; font-weight: 500; }
+
+    /* ── Page layout ──────────────────────────────────────────────── */
+    .page {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 3rem;
+      padding: 3rem 0 5rem;
+    }
+    @media (max-width: 860px) {
+      .page { grid-template-columns: 1fr; gap: 1.5rem; }
+      .toc { position: static; max-height: none; }
+    }
+
+    /* ── TOC ─────────────────────────────────────────────────────── */
+    .toc {
+      position: sticky;
+      top: 5rem;
+      max-height: calc(100vh - 6rem);
+      overflow-y: auto;
+      font-size: 0.88rem;
+      border-left: 1px solid #e5e7eb;
+      padding-left: 1.25rem;
+    }
+    .toc h4 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #999; margin-bottom: 0.75rem; font-weight: 600; }
+    .toc ol { list-style: none; }
+    .toc li { margin-bottom: 0.35rem; }
+    .toc a { color: #555; text-decoration: none; transition: color 0.2s; }
+    .toc a:hover { color: #1a1a1a; }
+    .toc ol ol { margin-top: 0.25rem; margin-left: 0.9rem; font-size: 0.82rem; }
+    .toc ol ol li { margin-bottom: 0.2rem; }
+
+    /* ── Article ─────────────────────────────────────────────────── */
+    article { min-width: 0; }
+    article h1 {
+      font-size: 2.5rem;
+      font-weight: 600;
+      letter-spacing: -0.035em;
+      line-height: 1.1;
+      margin-bottom: 0.5rem;
+    }
+    article .lede {
+      font-size: 1.1rem;
+      color: #666;
+      margin-bottom: 3rem;
+      max-width: 640px;
+      line-height: 1.55;
+    }
+    article h2 {
+      font-size: 1.6rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-top: 3rem;
+      margin-bottom: 1rem;
+      padding-top: 2rem;
+      border-top: 1px solid #eceef1;
+    }
+    article h2:first-of-type { padding-top: 0; border-top: none; margin-top: 2rem; }
+    article h3 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.6rem;
+      color: #0a0a0a;
+    }
+    article h4 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 1.5rem;
+      margin-bottom: 0.4rem;
+      color: #1a1a1a;
+    }
+    article p { color: #444; margin-bottom: 1rem; }
+    article ul, article ol { margin: 0.5rem 0 1.25rem 1.5rem; color: #444; }
+    article ul li, article ol li { margin-bottom: 0.45rem; }
+    article strong { color: #0a0a0a; font-weight: 600; }
+    article a { color: #1a56db; text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.15s; }
+    article a:hover { border-bottom-color: #1a56db; }
+
+    code {
+      background: #f1f3f5;
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+      font-size: 0.88em;
+      color: #1a1a1a;
+    }
+    pre {
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 6px;
+      padding: 1rem 1.15rem;
+      margin: 1rem 0 1.5rem;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+      font-size: 0.85rem;
+      line-height: 1.55;
+    }
+    pre code { background: transparent; padding: 0; color: inherit; font-size: inherit; }
+
+    /* Callout boxes */
+    .callout {
+      border-left: 3px solid #d1d5db;
+      background: #f9fafb;
+      padding: 0.9rem 1.1rem;
+      border-radius: 0 4px 4px 0;
+      margin: 1rem 0 1.5rem;
+      font-size: 0.93rem;
+      color: #444;
+    }
+    .callout.tip { border-left-color: #059669; background: #ecfdf5; }
+    .callout.warn { border-left-color: #d97706; background: #fffbeb; }
+    .callout.note { border-left-color: #1a56db; background: #eff6ff; }
+    .callout strong { color: inherit; }
+
+    /* Keyboard chip */
+    kbd {
+      display: inline-block;
+      padding: 0.1rem 0.45rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.8em;
+      color: #1a1a1a;
+      background: #fff;
+      border: 1px solid #d1d5db;
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+
+    /* Field table for documenting form fields */
+    .field-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0 1.5rem;
+      font-size: 0.93rem;
+    }
+    .field-table th,
+    .field-table td {
+      text-align: left;
+      padding: 0.65rem 0.85rem;
+      border-bottom: 1px solid #eceef1;
+      vertical-align: top;
+    }
+    .field-table th {
+      background: #f9fafb;
+      font-weight: 600;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #555;
+    }
+    .field-table td:first-child { font-family: ui-monospace, Menlo, monospace; font-size: 0.88rem; white-space: nowrap; color: #0a0a0a; }
+
+    /* Footer */
+    footer {
+      background: #f5f5f5;
+      border-top: 1px solid #e5e7eb;
+      padding: 2rem 0;
+      font-size: 0.85rem;
+      color: #777;
+    }
+    footer .container { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+    footer a { color: #555; text-decoration: none; }
+    footer a:hover { color: #1a1a1a; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="container">
+      <a class="logo" href="index.html">Refined Index</a>
+      <nav class="header-links">
+        <a href="index.html#download">Download</a>
+        <a href="index.html#install">Install</a>
+        <a href="guide.html" class="active">User Guide</a>
+        <a href="https://github.com/physicsmasterpig/refined-index" target="_blank">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container page">
+    <!-- ── Table of contents ─────────────────────────────────────── -->
+    <aside class="toc" aria-label="Table of contents">
+      <h4>On this page</h4>
+      <ol>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#first-launch">First launch</a></li>
+        <li><a href="#calculator">Calculator mode</a>
+          <ol>
+            <li><a href="#card-manifold">Manifold</a></li>
+            <li><a href="#card-index">Refined Index</a></li>
+            <li><a href="#card-filling">Dehn Filling</a></li>
+            <li><a href="#card-export">Export</a></li>
+          </ol>
+        </li>
+        <li><a href="#datahub">Data Hub</a>
+          <ol>
+            <li><a href="#tab-download">Download</a></li>
+            <li><a href="#tab-generate">Generate</a></li>
+            <li><a href="#tab-publish">Export &amp; Share</a></li>
+          </ol>
+        </li>
+        <li><a href="#shortcuts">Keyboard shortcuts</a></li>
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
+      </ol>
+    </aside>
+
+    <!-- ── Article ──────────────────────────────────────────────── -->
+    <article>
+      <h1>User Guide</h1>
+      <p class="lede">A practical walkthrough of the Refined Index Calculator — from loading a SnapPy census manifold to publishing a pre-computed data pack. Written against <strong>v1.0.0</strong>.</p>
+
+      <!-- ── Overview ────────────────────────────────────────────── -->
+      <h2 id="overview">Overview</h2>
+      <p>The app has two modes, selectable from the buttons in the top-right of the window:</p>
+      <ul>
+        <li><strong>Calculator</strong> — the primary workflow. Load a single manifold and step through four cards: <em>Manifold</em> → <em>Refined Index</em> → <em>Dehn Filling</em> → <em>Export</em>. Results update live; you can <kbd>⌘</kbd>+<kbd>Enter</kbd> to run the current card or press <strong>Run All</strong> to execute every card top-to-bottom.</li>
+        <li><strong>Data Hub</strong> — manage pre-computed caches. Download shared data packs from GitHub Releases, generate your own kernel / I<sup>ref</sup> / NC-cycle caches at scale, or bundle yours up and publish them for others to use.</li>
+      </ul>
+      <p>Every result is cached to disk under <code>~/.manifold_index/</code> (macOS &amp; Linux) or <code>%APPDATA%\manifold_index\</code> (Windows), so reopening a session is instant and repeat computations hit the cache rather than recomputing.</p>
+
+      <!-- ── First launch ────────────────────────────────────────── -->
+      <h2 id="first-launch">First launch</h2>
+      <p>On first launch the app creates its cache directory and opens in Calculator mode with all four cards collapsed. To get a quick end-to-end result:</p>
+      <ol>
+        <li>Click the <strong>Manifold</strong> card header to expand it.</li>
+        <li>Type <code>m004</code> in the name field and click <strong>Load</strong>. (The field auto-completes from the SnapPy census.)</li>
+        <li>Press the <strong>Run All</strong> button at the top of the window. The app loads the manifold, computes the refined index, and stops at the Dehn Filling card waiting for slopes.</li>
+      </ol>
+      <div class="callout tip"><strong>Tip.</strong> The first computation for any manifold is the slowest — it builds the underlying kernel cache. Subsequent runs reuse the cache and finish in seconds.</div>
+
+      <!-- ── Calculator mode ────────────────────────────────────── -->
+      <h2 id="calculator">Calculator mode</h2>
+      <p>Each of the four cards is independently collapsible and shows a status tag in its header: <em>Ready</em>, <em>Running</em>, <em>Done ✓</em>, or <em>Error</em>. A card only runs once its inputs are valid and any required upstream cards have completed.</p>
+
+      <!-- Manifold -->
+      <h3 id="card-manifold">① Manifold</h3>
+      <p>Loads a cusped hyperbolic 3-manifold and fixes the computation's global truncation parameter.</p>
+      <table class="field-table">
+        <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td>Manifold name</td><td>Any name SnapPy accepts — census label (<code>m004</code>, <code>s776</code>), knot (<code>4_1</code>, <code>K12n123</code>), or a link complement such as <code>L6a1</code>.</td></tr>
+          <tr><td>Nmax</td><td>The truncation level used throughout the pipeline. Higher N gives more terms of the q-series but costs quadratically more time and memory. <strong>N = 10</strong> is a reasonable default for exploration.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout note"><strong>On the Nmax choice.</strong> The refined index is computed as a q-series truncated at q<sup>N</sup>. If you are checking identities or looking for cancellation patterns, start at N = 10, verify the pattern, then re-run at higher N only if you need confirmation.</div>
+
+      <!-- Index -->
+      <h3 id="card-index">② Refined Index</h3>
+      <p>Computes the refined (q, t)-index <em>I</em>(m, e) over a rectangular lattice of (m, e) values and renders it in α / β basis notation.</p>
+      <table class="field-table">
+        <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td>P ∈ [−P, P]</td><td>Symmetric range for the charge variable <em>m</em>. The app enforces Weyl symmetry, so only non-negative <em>m</em> is actually evaluated; negative values are read off by reflection.</td></tr>
+          <tr><td>Q ≤ Qmax</td><td>Upper bound for the flux variable <em>e</em>. Together with P this defines the (m, e) grid.</td></tr>
+          <tr><td>Workers</td><td>Number of parallel worker threads used for the computation. Set to the number of physical CPU cores (not hyperthreads). The default auto-detects.</td></tr>
+        </tbody>
+      </table>
+      <p>Results are displayed as a table of (m, e) ↔ q-series, with α and β basis labels in the header. Click any cell to copy the raw LaTeX of that series to the clipboard.</p>
+
+      <!-- Filling -->
+      <h3 id="card-filling">③ Dehn Filling</h3>
+      <p>Fills one or more cusps with (P, Q) slopes and returns the filled index, with an option to search systematically for <em>non-closable</em> cycles — slopes whose filled index is identically zero.</p>
+
+      <h4>Single fill</h4>
+      <p>The card shows one row per cusp. Set <em>m</em> and <em>e</em> for each unfilled cusp; cusps left blank are treated as closed. The result is the filled q-series plus a <em>Weyl compatibility</em> diagnostic indicating whether the chosen slope respects the manifold's symmetries.</p>
+
+      <h4>NC-cycle search</h4>
+      <p>Use this to find slopes whose contributions cancel. Set the search rectangle (<em>P range</em>, <em>Q max</em>) and workers, then click <strong>Search</strong>. Progress is live — the card shows <em>Tested X / Y slopes…</em> and you can <strong>Stop</strong> at any time without losing partial results.</p>
+      <p>The auto-Weyl check (when enabled) runs in parallel and filters out slopes that would fail the compatibility test anyway, speeding the search substantially for manifolds with high symmetry.</p>
+      <div class="callout warn"><strong>Collapsed edges.</strong> Some manifold triangulations produce degenerate edges on certain slopes. The app detects these, marks the affected slopes with ✗ in the results, and skips them — you don't need to filter manually.</div>
+
+      <!-- Export -->
+      <h3 id="card-export">④ Export</h3>
+      <p>Saves the pipeline's output as JSON, LaTeX, or a rendered PDF report.</p>
+      <table class="field-table">
+        <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td>Format</td><td><code>json</code> (machine-readable, round-trippable), <code>tex</code> (LaTeX source for inclusion in a paper), or <code>pdf</code> (auto-compiled if a TeX distribution is on your PATH).</td></tr>
+          <tr><td>Output</td><td>Destination folder. Defaults to <code>~/Desktop/ManifoldIndex_exports/</code>; click the folder icon to choose another.</td></tr>
+        </tbody>
+      </table>
+      <p>If PDF compilation fails (no TeX installed, missing package, etc.), the app shows the last 40 lines of the compiler log so you can diagnose without leaving the app.</p>
+
+      <!-- ── Data Hub ────────────────────────────────────────────── -->
+      <h2 id="datahub">Data Hub</h2>
+      <p>Switch to Data Hub from the top-right button. It has three tabs.</p>
+
+      <!-- Download -->
+      <h3 id="tab-download">Download</h3>
+      <p>Lists all data packs registered in the public registry. Each pack is a <code>.tar.gz</code> of pre-computed caches — kernels, refined indices, or NC-cycle search results — that someone has published to a GitHub Release.</p>
+      <ul>
+        <li><strong>Search / Filter</strong> by manifold name, census, or data type.</li>
+        <li><strong>Select</strong> one or more packs and click <strong>Download</strong>. Downloads run sequentially with per-pack progress; you can pause or cancel at any time.</li>
+        <li>Downloaded packs are extracted into the appropriate cache subdirectory automatically (<code>kernel_cache/</code>, <code>iref_cache/</code>, or <code>nc_cycle_cache/</code>).</li>
+      </ul>
+      <div class="callout tip"><strong>When to download vs. generate.</strong> If a pack exists that covers the range you need (right N<sub>max</sub>, right P / Q bounds), downloading is faster — frequently by orders of magnitude. The Generate tab is for ranges or manifolds no-one has published yet.</div>
+
+      <!-- Generate -->
+      <h3 id="tab-generate">Generate</h3>
+      <p>Batch-generates caches across a range of manifolds. Choose the <strong>Data Type</strong> (kernels, I<sup>ref</sup>, or NC cycles), the <strong>Census</strong> and manifold filter, and the computation parameters. Press <strong>Start</strong>.</p>
+      <ul>
+        <li>Jobs run one at a time in a queue; the currently-running job shows live progress.</li>
+        <li><strong>Pause</strong> / <strong>Resume</strong> keeps the queue; <strong>Cancel</strong> stops the current job and marks it cancelled in the queue row.</li>
+        <li>The queue is <em>coverage-aware</em>: jobs that overlap with an existing cache are skipped automatically. Re-running with a wider range computes only the uncovered grid.</li>
+      </ul>
+
+      <!-- Publish -->
+      <h3 id="tab-publish">Export &amp; Share</h3>
+      <p>Packages local caches into a shareable <code>.tar.gz</code> data pack and (optionally) uploads it to a GitHub Release for inclusion in the registry.</p>
+      <ol>
+        <li>Browse your local cache and tick the files to include. You can mix only files of the <em>same</em> type — packs are homogeneous so the downloader can file them correctly.</li>
+        <li>Fill in the pack metadata:
+          <ul>
+            <li><strong>Pack ID</strong> — machine-readable identifier (e.g. <code>kernels-qq50</code>). Required.</li>
+            <li><strong>Display name</strong> — human-readable title shown in the Download tab.</li>
+            <li><strong>Description</strong> — short blurb explaining coverage or intent.</li>
+            <li><strong>Release tag</strong> — the GitHub Release tag the pack will live on, e.g. <code>data-v2</code>.</li>
+          </ul>
+        </li>
+        <li>Click <strong>Create archive</strong>. The tarball is written to disk and, if you provided a release tag, uploaded via <code>gh release upload</code>.</li>
+        <li>Open a PR on the registry repo adding the new pack's metadata so it appears in every user's Download tab.</li>
+      </ol>
+
+      <!-- ── Keyboard shortcuts ─────────────────────────────────── -->
+      <h2 id="shortcuts">Keyboard shortcuts</h2>
+      <table class="field-table">
+        <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>1</kbd>–<kbd>4</kbd></td><td>Expand the corresponding card (Manifold / Index / Filling / Export).</td></tr>
+          <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Run the currently-expanded card.</td></tr>
+          <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save session (manifold name, card inputs, expanded state) to the last path.</td></tr>
+          <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>⇧</kbd>+<kbd>S</kbd></td><td>Save session as… (prompts for a new path).</td></tr>
+          <tr><td><kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>O</kbd></td><td>Open a saved session.</td></tr>
+        </tbody>
+      </table>
+
+      <!-- ── Troubleshooting ────────────────────────────────────── -->
+      <h2 id="troubleshooting">Troubleshooting</h2>
+
+      <h4>Window title shows the wrong version</h4>
+      <p>Fixed in v1.0.0. If you downloaded before 17 April 2026, grab the latest <code>.zip</code> / <code>.exe</code> from the <a href="index.html#download">download page</a> — the old build bundled stale package metadata.</p>
+
+      <h4>macOS: "ManifoldIndex.app cannot be opened because the developer cannot be verified"</h4>
+      <p>The app is ad-hoc signed, not notarised. Run once:</p>
+      <pre><code>xattr -cr /Applications/ManifoldIndex.app</code></pre>
+      <p>Then launch normally. Or open <strong>System Settings → Privacy &amp; Security</strong> and click <strong>Open Anyway</strong> next to the quarantined app.</p>
+
+      <h4>Windows: SmartScreen blocks the exe</h4>
+      <p>Click <strong>More info → Run anyway</strong>. The exe isn't signed with an EV certificate; SmartScreen will stop warning once enough people have run it without issue.</p>
+
+      <h4>SnapPy census error on load</h4>
+      <p>Some exotic manifold names require snap-py subpackages that aren't in every build. Check the status bar — if it says <em>"census module not available"</em>, try a different census (e.g. <code>m004</code> instead of <code>o9_00000</code>) or install from source where you can add the missing package to the dev environment.</p>
+
+      <h4>Computation is unexpectedly slow</h4>
+      <p>Check the <strong>Workers</strong> field on cards ②–③. The default usually auto-detects correctly, but on systems with aggressive CPU-throttling you may need to bump it manually. If the cache directory is on a network drive, move it to local SSD — the I/O patterns are small-random and perform badly over networks.</p>
+
+      <div class="callout note"><strong>Still stuck?</strong> Open an <a href="https://github.com/physicsmasterpig/refined-index/issues/new" target="_blank">issue on GitHub</a> with your OS, the app version (shown in the window title), and the steps to reproduce. A screenshot of the error state is worth a thousand words.</div>
+    </article>
+  </main>
+
+  <footer>
+    <div class="container">
+      <span>&copy; 2026 Refined Index Contributors</span>
+      <span>
+        <a href="index.html">Home</a> · <a href="https://github.com/physicsmasterpig/refined-index" target="_blank">GitHub</a> · <a href="https://github.com/physicsmasterpig/refined-index/issues" target="_blank">Report an issue</a>
+      </span>
+    </div>
+  </footer>
+
+</body>
+</html>
