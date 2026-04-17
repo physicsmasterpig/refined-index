@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "refined-index-calculator"
-version = "0.5.15"
+version = "1.0.0"
 description = "Refined Index Calculator — 3-manifold refined index, Dehn filling, and NC cycle analysis."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "GPL-2.0-or-later" }
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
