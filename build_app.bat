@@ -48,9 +48,16 @@ if not exist "%SPEC%" (
     exit /b 1
 )
 
+REM ── Refresh package metadata so importlib.metadata.version() reflects
+REM the current pyproject.toml (prevents a stale version ending up in the
+REM window title after a version bump).
+echo 🔄  Refreshing package metadata…
+python -m pip install -e . --no-deps --quiet || exit /b 1
+
 REM ── Preflight check ───────────────────────────────────────────────
 echo 🔍  Checking entry point…
-python -c "from manifold_index.app import launch_gui; print('  ✓ launch_gui importable')" || exit /b 1
+python -c "from manifold_index.app import launch_gui; print('  launch_gui importable')" || exit /b 1
+python -c "from importlib.metadata import version; v = version('refined-index-calculator'); print('  package metadata: v' + v); assert v == '%APP_VERSION%', 'metadata ' + v + ' != APP_VERSION %APP_VERSION%'" || exit /b 1
 
 REM ── Build ────────────────────────────────────────────────────────
 echo.

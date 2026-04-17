@@ -53,10 +53,15 @@ jobs:
       # pip on a fresh GitHub Actions Windows runner:
       # - Python DLLs are in the standard PATH, so PyInstaller finds
       #   sqlite3/ssl/lzma automatically (no conda Library/bin needed)
+      # Installing the local package (editable) registers accurate
+      # metadata so importlib.metadata.version() returns the version
+      # from pyproject.toml (used for the window title).
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install snappy numpy scipy "PySide6>=6.6" pyinstaller Pillow
+          pip install -e . --no-deps
+          python -c "from importlib.metadata import version; print('refined-index-calculator metadata:', version('refined-index-calculator'))"
 
       # ── 5. Generate .ico ─────────────────────────────────────────
       # macOS uses .icns — Windows needs .ico. Generate from the PNG.

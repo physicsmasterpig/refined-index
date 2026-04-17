@@ -21,7 +21,7 @@ APP_VERSION="1.0.0"
 
 # ── Clean ─────────────────────────────────────────────────────────
 if [[ "${1:-}" == "--clean" ]]; then
-    echo "🧹  Cleaning previous build artifacts…"
+    echo "🧹  Cleaning previous build artifacts..."
     rm -rf build/ dist/ManifoldIndex.app dist/ManifoldIndex.zip
 fi
 
@@ -51,13 +51,21 @@ if [[ ! -f "$SPEC" ]]; then
 fi
 
 # ── Preflight check — confirm entry point importable ──────────────
-echo "🔍  Checking entry point…"
+echo "🔍  Checking entry point..."
 PYTHON_BIN="$(dirname "$PYINSTALLER")/python"
+
+# Refresh package metadata so importlib.metadata.version() reflects the
+# current pyproject.toml (prevents a stale version string ending up in
+# the window title after a version bump).
+echo "🔄  Refreshing package metadata..."
+"$PYTHON_BIN" -m pip install -e . --no-deps --quiet
+
 "$PYTHON_BIN" -c "from manifold_index.app import launch_gui; print('  ✓ launch_gui importable')"
+"$PYTHON_BIN" -c "from importlib.metadata import version; v = version('refined-index-calculator'); print(f'  ✓ package metadata: v{v}'); assert v == '${APP_VERSION}', f'metadata {v} != APP_VERSION ${APP_VERSION}'"
 
 # ── Build ─────────────────────────────────────────────────────────
 echo ""
-echo "🔨  Building Refined Index Calculator v${APP_VERSION}…"
+echo "🔨  Building Refined Index Calculator v${APP_VERSION}..."
 echo "    Spec:  $SPEC"
 echo "    Entry: launcher.py → manifold_index.app:launch_gui"
 echo ""
@@ -78,13 +86,13 @@ BUNDLE_VER=$(defaults read "$SCRIPT_DIR/$APP/Contents/Info.plist" \
 echo "✅  Built: $APP  ($SIZE, bundle version $BUNDLE_VER)"
 
 # ── Ad-hoc code sign (local use only; re-sign with Developer ID for distribution) ──
-echo "🔏  Ad-hoc signing…"
+echo "🔏  Ad-hoc signing..."
 codesign --force --deep --sign - "$APP" 2>/dev/null \
     && echo "✅  Signed (ad-hoc)" \
     || echo "⚠️   Sign step skipped (codesign not available)"
 
 # ── Create distributable zip ──────────────────────────────────────
-echo "📦  Creating $ZIP…"
+echo "📦  Creating $ZIP..."
 rm -f "$ZIP"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 ZIP_SIZE=$(ls -lh "$ZIP" | awk '{print $5}')

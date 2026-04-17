@@ -160,17 +160,17 @@ MAC_ZIP=""
 if ! $SKIP_MAC; then
   header "[ 3/6 ]  macOS build"
 
-  info "Running PyInstaller…"
+  info "Running PyInstaller..."
   "$PYINSTALLER" ManifoldIndex.spec --noconfirm --clean 2>&1 | tail -5
 
   [[ -d "dist/ManifoldIndex.app" ]] || die "Build failed — dist/ManifoldIndex.app not found"
   ok "dist/ManifoldIndex.app  ($(du -sh dist/ManifoldIndex.app | cut -f1))"
 
-  info "Ad-hoc signing…"
+  info "Ad-hoc signing..."
   codesign --force --deep --sign - dist/ManifoldIndex.app 2>/dev/null \
     && ok "Signed (ad-hoc)" || warn "codesign skipped"
 
-  info "Creating zip…"
+  info "Creating zip..."
   rm -f dist/ManifoldIndex.zip
   ditto -c -k --sequesterRsrc --keepParent dist/ManifoldIndex.app dist/ManifoldIndex.zip
   ok "dist/ManifoldIndex.zip  ($(du -sh dist/ManifoldIndex.zip | cut -f1))"
@@ -226,7 +226,7 @@ gh release create "$VERSION_TAG" \
 ok "Release created: https://github.com/${REPO_SLUG}/releases/tag/${VERSION_TAG}"
 
 if [[ -n "$MAC_ZIP" ]]; then
-  info "Uploading macOS zip…"
+  info "Uploading macOS zip..."
   gh release upload "$VERSION_TAG" "$MAC_ZIP" --repo "$REPO_SLUG"
   ok "ManifoldIndex.zip uploaded"
 fi
@@ -238,7 +238,7 @@ git tag -f "$VERSION_TAG"
 git push origin "$VERSION_TAG" --force
 ok "Tag '${VERSION_TAG}' pushed — Windows CI triggered"
 
-info "Waiting for build to finish (Ctrl+C to detach)…"
+info "Waiting for build to finish (Ctrl+C to detach)..."
 echo ""
 
 # Give Actions a moment to register the run
