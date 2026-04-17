@@ -4,6 +4,20 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Refined Index Calculator — Hyperbolic 3-Manifold Research Tool</title>
+  <meta name="description" content="Desktop research tool for computing the 3D index, refined (q,t)-index, Dehn fillings, and non-closable cycles of cusped hyperbolic 3-manifolds. Native builds for macOS and Windows." />
+  <meta name="theme-color" content="#0a0a0a" />
+
+  <!-- Open Graph / social previews -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Refined Index Calculator" />
+  <meta property="og:title" content="Refined Index Calculator" />
+  <meta property="og:description" content="Compute 3D index, refined (q,t)-index, Dehn fillings, and non-closable cycles of hyperbolic 3-manifolds — native macOS &amp; Windows app." />
+  <meta property="og:url" content="https://physicsmasterpig.github.io/refined-index/" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Refined Index Calculator" />
+  <meta name="twitter:description" content="Compute 3D index, refined (q,t)-index, Dehn fillings, and non-closable cycles of hyperbolic 3-manifolds — native macOS &amp; Windows app." />
+
+  <link rel="canonical" href="https://physicsmasterpig.github.io/refined-index/" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -21,7 +35,10 @@
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
+      font-feature-settings: "cv11", "ss01", "ss03";
     }
+
+    ::selection { background: #1a1a1a; color: #fff; }
 
     /* ── Layout ─────────────────────────────────────────────────────── */
     .container {
@@ -71,27 +88,28 @@
 
     /* ── Hero ────────────────────────────────────────────────────────── */
     .hero {
-      padding: 5rem 0;
+      padding: 4.5rem 0 3.5rem;
       text-align: center;
     }
 
     .hero h1 {
-      font-size: 3.5rem;
-      font-weight: 700;
-      line-height: 1.1;
-      margin-bottom: 1rem;
-      letter-spacing: -0.03em;
+      font-size: 3.25rem;
+      font-weight: 600;
+      line-height: 1.05;
+      margin-bottom: 1.25rem;
+      letter-spacing: -0.035em;
       color: #0a0a0a;
     }
 
     .hero p {
-      font-size: 1.25rem;
-      color: #666;
+      font-size: 1.15rem;
+      color: #555;
       margin-bottom: 2rem;
-      max-width: 600px;
+      max-width: 620px;
       margin-left: auto;
       margin-right: auto;
-      font-weight: 300;
+      font-weight: 400;
+      line-height: 1.55;
     }
 
     .hero-meta {
@@ -157,23 +175,76 @@
     .download-section {
       background: #fff;
       border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      padding: 3rem;
-      margin: 4rem 0;
+      border-radius: 14px;
+      padding: 2.5rem 2.5rem 2rem;
+      margin: 3rem 0 4rem;
+      box-shadow: 0 1px 2px rgba(15,23,42,0.04);
     }
 
     .download-header {
       text-align: center;
-      margin-bottom: 2rem;
+      margin-bottom: 1.75rem;
     }
 
     .download-header h2 {
-      font-size: 1.5rem;
-      margin-bottom: 0.5rem;
+      font-size: 1.35rem;
+      margin-bottom: 0.35rem;
+      letter-spacing: -0.01em;
     }
 
     .download-header p {
       color: #666;
+      font-size: 0.95rem;
+    }
+
+    /* "Older versions" toggle */
+    .older-toggle-row {
+      text-align: center;
+      margin-top: 1.25rem;
+    }
+
+    .older-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: transparent;
+      border: none;
+      color: #666;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      padding: 0.4rem 0.75rem;
+      border-radius: 4px;
+      transition: color 0.2s, background 0.2s;
+    }
+
+    .older-toggle:hover {
+      color: #1a1a1a;
+      background: #f5f5f5;
+    }
+
+    .older-toggle .chev {
+      display: inline-block;
+      transition: transform 0.2s;
+      font-size: 0.75rem;
+    }
+
+    .older-toggle.open .chev { transform: rotate(180deg); }
+
+    .older-versions {
+      display: none;
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px dashed #e5e7eb;
+    }
+
+    .older-versions.open { display: block; }
+
+    .older-versions .selector-label {
+      font-size: 0.75rem;
+      color: #999;
+      margin-bottom: 0.75rem;
+      display: block;
     }
 
     /* ── Selectors ──────────────────────────────────────────────────── */
@@ -181,7 +252,12 @@
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 2rem;
-      margin-bottom: 2.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .selector-group--single {
+      grid-template-columns: minmax(0, 320px);
+      justify-content: center;
     }
 
     @media (max-width: 640px) {
@@ -304,17 +380,19 @@
 
     /* ── Features Grid ──────────────────────────────────────────────── */
     .features {
-      margin: 5rem 0;
+      margin: 4rem 0;
     }
 
     .features-header {
       text-align: center;
-      margin-bottom: 3rem;
+      margin-bottom: 2.5rem;
     }
 
     .features-header h2 {
-      font-size: 2rem;
+      font-size: 1.75rem;
       margin-bottom: 0.5rem;
+      letter-spacing: -0.025em;
+      font-weight: 600;
     }
 
     .features-header p {
@@ -358,9 +436,9 @@
 
     /* ── Sections ────────────────────────────────────────────────────── */
     section {
-      margin: 4rem 0;
-      padding: 3rem 0;
-      border-top: 1px solid #e5e7eb;
+      margin: 3rem 0;
+      padding: 2.5rem 0;
+      border-top: 1px solid #eceef1;
     }
 
     section:first-of-type {
@@ -369,9 +447,10 @@
     }
 
     section h2 {
-      font-size: 2rem;
-      margin-bottom: 1.5rem;
-      letter-spacing: -0.02em;
+      font-size: 1.75rem;
+      margin-bottom: 1.25rem;
+      letter-spacing: -0.025em;
+      font-weight: 600;
     }
 
     section h3 {
@@ -432,7 +511,7 @@
       background: #f5f5f5;
       border-top: 1px solid #e5e7eb;
       padding: 3rem 0;
-      margin-top: 5rem;
+      margin-top: 4rem;
     }
 
     footer .container {
@@ -542,20 +621,11 @@
     <!-- ── Download Section ──────────────────────────────────────────── -->
     <div class="download-section" id="download">
       <div class="download-header">
-        <h2>Download</h2>
-        <p>Select your version and platform</p>
+        <h2>Download v1.0.0</h2>
+        <p>Stable release · choose your platform</p>
       </div>
 
-      <div class="selector-group">
-        <div class="selector">
-          <label class="selector-label">Version</label>
-          <div class="selector-buttons version-selector">
-            <button class="selector-btn active" data-value="v1.0" onclick="selectVersion('v1.0')">v1.0.0</button>
-            <button class="selector-btn" data-value="v0.5" onclick="selectVersion('v0.5')">v0.5.15</button>
-            <button class="selector-btn" data-value="v0.4" onclick="selectVersion('v0.4')">v0.4.2</button>
-          </div>
-        </div>
-
+      <div class="selector-group selector-group--single">
         <div class="selector">
           <label class="selector-label">Platform</label>
           <div class="selector-buttons platform-selector">
@@ -583,40 +653,58 @@
         <div class="system-note">No installation needed — just double-click the downloaded <strong>ManifoldIndex.exe</strong>. If Windows SmartScreen warns, click <strong>More info</strong> → <strong>Run anyway</strong>.</div>
       </div>
 
-      <!-- macOS v0.5.15 -->
-      <div class="download-card" id="card-v0.5-macos">
-        <span class="version-badge">v0.5.15</span>
-        <h3>v0.5.15 for macOS</h3>
-        <div class="platform-info">Universal (Intel + Apple Silicon) · macOS 11+</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.15/ManifoldIndex.zip" class="download-btn">Download (296 MB)</a>
-        <div class="system-note">Ad-hoc signed. Clear quarantine with: <code>xattr -cr ~/Downloads/ManifoldIndex.app</code></div>
+      <div class="older-toggle-row">
+        <button class="older-toggle" id="older-toggle" onclick="toggleOlder()" aria-expanded="false" aria-controls="older-versions">
+          Show older versions <span class="chev" aria-hidden="true">▾</span>
+        </button>
       </div>
 
-      <!-- Windows v0.5.15 -->
-      <div class="download-card" id="card-v0.5-windows">
-        <span class="version-badge">v0.5.15</span>
-        <h3>v0.5.15 for Windows</h3>
-        <div class="platform-info">Windows 10+ · x64 standalone exe</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.15/ManifoldIndex.exe" class="download-btn">Download .exe</a>
-        <div class="system-note">No installation needed. Download and run directly. Windows Defender may warn—click "More info" → "Run anyway".</div>
-      </div>
+      <div class="older-versions" id="older-versions" hidden>
+        <label class="selector-label">Older releases</label>
+        <div class="selector-group">
+          <div class="selector">
+            <div class="selector-buttons version-selector">
+              <button class="selector-btn active" data-value="v0.5" onclick="selectVersion('v0.5')">v0.5.15</button>
+              <button class="selector-btn" data-value="v0.4" onclick="selectVersion('v0.4')">v0.4.2</button>
+            </div>
+          </div>
+        </div>
 
-      <!-- macOS v0.4.2 -->
-      <div class="download-card" id="card-v0.4-macos">
-        <span class="version-badge">v0.4.2</span>
-        <h3>v0.4.2 for macOS</h3>
-        <div class="platform-info">Apple Silicon (arm64) · macOS 11+</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.4.2/ManifoldIndex.zip" class="download-btn">Download (288 MB)</a>
-        <div class="system-note">Ad-hoc signed. Clear quarantine with: <code>xattr -cr ~/Downloads/ManifoldIndex.app</code></div>
-      </div>
+        <!-- macOS v0.5.15 -->
+        <div class="download-card active" id="card-v0.5-macos">
+          <span class="version-badge">v0.5.15</span>
+          <h3>v0.5.15 for macOS</h3>
+          <div class="platform-info">Universal (Intel + Apple Silicon) · macOS 11+</div>
+          <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.15/ManifoldIndex.zip" class="download-btn">Download (296 MB)</a>
+          <div class="system-note">Ad-hoc signed. Clear quarantine with: <code>xattr -cr ~/Downloads/ManifoldIndex.app</code></div>
+        </div>
 
-      <!-- Windows v0.4.2 -->
-      <div class="download-card" id="card-v0.4-windows">
-        <span class="version-badge">v0.4.2</span>
-        <h3>v0.4.2 for Windows</h3>
-        <div class="platform-info">Windows 10+ · x64 standalone .exe</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.4.2/ManifoldIndex.exe" class="download-btn">Download .exe</a>
-        <div class="system-note">Download and run directly. Windows Defender may warn—click "More info" → "Run anyway".</div>
+        <!-- Windows v0.5.15 -->
+        <div class="download-card" id="card-v0.5-windows">
+          <span class="version-badge">v0.5.15</span>
+          <h3>v0.5.15 for Windows</h3>
+          <div class="platform-info">Windows 10+ · x64 standalone exe</div>
+          <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.5.15/ManifoldIndex.exe" class="download-btn">Download .exe</a>
+          <div class="system-note">No installation needed. Download and run directly. Windows Defender may warn—click "More info" → "Run anyway".</div>
+        </div>
+
+        <!-- macOS v0.4.2 -->
+        <div class="download-card" id="card-v0.4-macos">
+          <span class="version-badge">v0.4.2</span>
+          <h3>v0.4.2 for macOS</h3>
+          <div class="platform-info">Apple Silicon (arm64) · macOS 11+</div>
+          <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.4.2/ManifoldIndex.zip" class="download-btn">Download (288 MB)</a>
+          <div class="system-note">Ad-hoc signed. Clear quarantine with: <code>xattr -cr ~/Downloads/ManifoldIndex.app</code></div>
+        </div>
+
+        <!-- Windows v0.4.2 -->
+        <div class="download-card" id="card-v0.4-windows">
+          <span class="version-badge">v0.4.2</span>
+          <h3>v0.4.2 for Windows</h3>
+          <div class="platform-info">Windows 10+ · x64 standalone .exe</div>
+          <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v0.4.2/ManifoldIndex.exe" class="download-btn">Download .exe</a>
+          <div class="system-note">Download and run directly. Windows Defender may warn—click "More info" → "Run anyway".</div>
+        </div>
       </div>
     </div>
 
@@ -780,11 +868,14 @@
   </footer>
 
   <script>
-    let currentVersion = 'v1.0';
+    // Latest-stable is always shown; v0.5 / v0.4 live behind a toggle and
+    // have their own independent version selector.
     let currentPlatform = 'macos';
+    let olderVersion = 'v0.5';
+    const ALL_VERSIONS = ['v1.0', 'v0.5', 'v0.4'];
 
     function selectVersion(version) {
-      currentVersion = version;
+      olderVersion = version;
       updateDisplay();
       updateVersionButtons();
     }
@@ -796,37 +887,45 @@
     }
 
     function updateDisplay() {
-      // Hide all cards
-      ['v0.4', 'v0.5', 'v1.0'].forEach(v => {
+      ALL_VERSIONS.forEach(v => {
         ['macos', 'windows'].forEach(p => {
           const card = document.getElementById(`card-${v}-${p}`);
-          if (card) card.classList.remove('active');
+          if (!card) return;
+          const isLatest = v === 'v1.0';
+          const shouldShow = isLatest
+            ? (p === currentPlatform)
+            : (v === olderVersion && p === currentPlatform);
+          card.classList.toggle('active', shouldShow);
         });
       });
-
-      // Show selected card
-      const card = document.getElementById(`card-${currentVersion}-${currentPlatform}`);
-      if (card) card.classList.add('active');
     }
 
     function updateVersionButtons() {
       document.querySelectorAll('.version-selector .selector-btn').forEach(btn => {
-        if (btn.dataset.value === currentVersion) {
-          btn.classList.add('active');
-        } else {
-          btn.classList.remove('active');
-        }
+        btn.classList.toggle('active', btn.dataset.value === olderVersion);
       });
     }
 
     function updatePlatformButtons() {
       document.querySelectorAll('.platform-selector .selector-btn').forEach(btn => {
-        if (btn.dataset.value === currentPlatform) {
-          btn.classList.add('active');
-        } else {
-          btn.classList.remove('active');
-        }
+        btn.classList.toggle('active', btn.dataset.value === currentPlatform);
       });
+    }
+
+    function toggleOlder() {
+      const panel = document.getElementById('older-versions');
+      const btn = document.getElementById('older-toggle');
+      const open = !panel.classList.contains('open');
+      panel.classList.toggle('open', open);
+      btn.classList.toggle('open', open);
+      btn.setAttribute('aria-expanded', String(open));
+      if (open) {
+        panel.removeAttribute('hidden');
+        btn.firstChild.nodeValue = 'Hide older versions ';
+      } else {
+        panel.setAttribute('hidden', '');
+        btn.firstChild.nodeValue = 'Show older versions ';
+      }
     }
 
     // Initialize — detect platform from user-agent so Windows visitors
