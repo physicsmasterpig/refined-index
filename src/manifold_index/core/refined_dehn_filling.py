@@ -79,7 +79,7 @@ import math
 import warnings
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Sequence
+from typing import Any, Sequence
 
 from manifold_index.core.dehn_filling import (
     KernelTerm,
@@ -2463,6 +2463,7 @@ def compute_unrefined_kernel_refined_index(
     incompat_edges: list[int] | None = None,
     weyl_a: list[Fraction] | None = None,
     weyl_b: list[Fraction] | None = None,
+    weyl_ab: Any = None,
     verbose: bool = False,
 ) -> FilledRefinedResult:
     """Unrefined kernel K(P,Q;m,e) applied to the refined index I^ref.

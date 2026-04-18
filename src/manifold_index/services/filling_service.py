@@ -236,6 +236,7 @@ class FillingService:
         q_order_half: int,
         weyl_a: list[Fraction] | None,
         weyl_b: list[Fraction] | None,
+        weyl_ab: Any = None,
         incompat_edges: list[int] | None = None,
         manifold_name: str = "unknown",
     ) -> tuple[int, int, Any]:
@@ -269,6 +270,7 @@ class FillingService:
             incompat_edges=incompat_edges,
             weyl_a=weyl_a,
             weyl_b=weyl_b,
+            weyl_ab=weyl_ab,
         )
 
         try:

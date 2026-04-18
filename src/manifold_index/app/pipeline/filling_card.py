@@ -1622,7 +1622,7 @@ class FillingCard(QWidget):
             weyl_b = list(ab.b)
             self._launch_unrefined_kernel_fill_workers(
                 nc_P, nc_Q, user_P, user_Q, cusp_idx, charge_points,
-                weyl_a, weyl_b, adj_pass, basis_label
+                weyl_a, weyl_b, adj_pass, basis_label, ab=ab,
             )
 
     def _launch_refined_fill_workers(
@@ -1709,7 +1709,8 @@ class FillingCard(QWidget):
 
     def _launch_unrefined_kernel_fill_workers(
         self, nc_P: int, nc_Q: int, user_P: int, user_Q: int, cusp_idx: int,
-        charge_points: list, weyl_a, weyl_b, adj_pass, basis_label: str
+        charge_points: list, weyl_a, weyl_b, adj_pass, basis_label: str,
+        ab=None,
     ) -> None:
         """Launch UnrefinedKernelFillWorker for each charge point (path 3).
 
@@ -1773,6 +1774,7 @@ class FillingCard(QWidget):
                 q_order_half   = s.q_order_half,
                 weyl_a         = weyl_a,
                 weyl_b         = weyl_b,
+                weyl_ab        = ab,
                 incompat_edges = incompat_edges or None,
                 manifold_name  = s.manifold_name if s.manifold_name else "unknown",
                 parent         = self,

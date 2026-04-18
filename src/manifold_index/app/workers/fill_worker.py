@@ -146,6 +146,7 @@ class UnrefinedKernelFillWorker(QThread):
         q_order_half: int,
         weyl_a: list[Fraction] | None = None,
         weyl_b: list[Fraction] | None = None,
+        weyl_ab: Any = None,
         incompat_edges: list[int] | None = None,
         manifold_name: str = "unknown",
         parent=None,
@@ -162,6 +163,7 @@ class UnrefinedKernelFillWorker(QThread):
         self._q_order_half   = q_order_half
         self._weyl_a         = weyl_a
         self._weyl_b         = weyl_b
+        self._weyl_ab        = weyl_ab
         self._incompat_edges = incompat_edges
         self._manifold_name  = manifold_name
 
@@ -190,6 +192,7 @@ class UnrefinedKernelFillWorker(QThread):
                 q_order_half   = self._q_order_half,
                 weyl_a         = self._weyl_a,
                 weyl_b         = self._weyl_b,
+                weyl_ab        = self._weyl_ab,
                 incompat_edges = self._incompat_edges,
                 manifold_name  = self._manifold_name,
             )
