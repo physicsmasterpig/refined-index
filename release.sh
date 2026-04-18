@@ -147,6 +147,22 @@ do_sed "docs/index.html" \
 
 ok "pyproject.toml, both specs, build scripts, docs/index.html"
 
+# ── Verify docs/index.html actually points at the new tag ────────────────────
+# The sed above substitutes CURRENT→NEW; if docs drifted (a prior release
+# skipped this step) the patterns silently no-op.  Catch that here.
+if ! $DRY_RUN; then
+  for asset in ManifoldIndex.zip ManifoldIndex.exe; do
+    expected="releases/download/${VERSION_TAG}/${asset}"
+    if ! grep -q "$expected" docs/index.html; then
+      die "docs/index.html does not reference ${expected} after version bump.
+    Likely cause: docs still point at an older version than pyproject.toml.
+    Fix docs/index.html manually so its download links match v${CURRENT_VERSION}
+    before re-running, or edit this release to the new tag directly."
+    fi
+  done
+  ok "docs/index.html references v${VERSION_NUM} download URLs"
+fi
+
 # ── Dry-run exit ──────────────────────────────────────────────────────────────
 if $DRY_RUN; then
   echo ""
