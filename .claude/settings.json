@@ -73,11 +73,37 @@
       "Bash(PYTHONUNBUFFERED=1 python3 -u scripts/check_refined_q1.py)",
       "Bash(sed -i '' 's/strongly_nc_q1_value/unrefined_q1_proj/g; s/strongly_nc/is_marginal/g; s/Strongly NC/Unref. q\\\\^1/g; s/strongly-NC/non-marginal/g; s/strongly NC/non-marginal/g; s/STRONGLY NC/NON-MARGINAL/g' /Users/pmp/Documents/Research/ultimate/scripts/check_strongly_nc.py)",
       "Bash(sed -i '' 's/proj == -1/proj <= -1/g; s/\\(proj == -1\\)/\\(proj <= -1\\)/g; s/\\(proj != -1\\)/\\(proj >= 0\\)/g' /Users/pmp/Documents/Research/ultimate/scripts/check_strongly_nc.py)",
-      "Bash(PYTHONUNBUFFERED=1 python3 -u scripts/check_strongly_nc.py)"
+      "Bash(PYTHONUNBUFFERED=1 python3 -u scripts/check_strongly_nc.py)",
+      "Bash(pdflatex -interaction=nonstopmode -halt-on-error workflow_diagram.tex)",
+      "Bash(pdfinfo workflow_diagram.pdf)",
+      "Bash(sips -s format png workflow_diagram.pdf --out /tmp/wf_preview.png)",
+      "Bash(pdftoppm -r 200 workflow_diagram.pdf /tmp/wf -png)",
+      "Bash(pdftoppm -r 200 workflow_diagram.pdf /tmp/wf2 -png)",
+      "Bash(pdftoppm -r 200 workflow_diagram.pdf /tmp/wf3 -png)",
+      "Bash(pdftoppm -r 170 workflow_diagram.pdf /tmp/wf4 -png)",
+      "Bash(python3 -c \"print\\(f'{354.329/72*25.4:.2f} x {637.792/72*25.4:.2f} mm'\\)\")",
+      "Bash(pdftoppm -r 300 -y 0 -H 1300 -x 0 -W 1480 workflow_diagram.pdf /tmp/wf4top -png)",
+      "Bash(pdftoppm -r 300 -y 1300 -H 1360 -x 0 -W 1480 workflow_diagram.pdf /tmp/wf4bot -png)",
+      "Bash(pdftoppm -r 300 -y 1300 -H 1360 -x 0 -W 1480 workflow_diagram.pdf /tmp/wf5bot -png)",
+      "Bash(pdftoppm -r 220 workflow_diagram.pdf /tmp/wf5full -png)",
+      "Bash(pdftoppm -r 220 workflow_diagram.pdf /tmp/wf6 -png)",
+      "Bash(pdftoppm -r 400 -y 2600 -H 150 workflow_diagram.pdf /tmp/wflegend -png)",
+      "Bash(pdftoppm -r 400 -y 3370 -H 170 workflow_diagram.pdf /tmp/wflegend2 -png)",
+      "Bash(pdftoppm -r 400 -y 3370 -H 170 workflow_diagram.pdf /tmp/wflegend3 -png)",
+      "Bash(pdftoppm -r 220 workflow_diagram.pdf /tmp/wf7 -png)",
+      "Bash(pdftoppm -r 400 -y 3260 -H 280 workflow_diagram.pdf /tmp/wflegend4 -png)",
+      "Bash(pdftoppm -r 400 -y 3260 -H 280 workflow_diagram.pdf /tmp/wflegend5 -png)",
+      "Bash(pdftoppm -r 180 workflow_diagram.pdf /tmp/wffinal -png)",
+      "Bash(pdftoppm -r 220 workflow_diagram.pdf /tmp/wf8 -png)",
+      "Bash(pdftoppm -r 220 workflow_diagram.pdf /tmp/wf9 -png)",
+      "Bash(pdftoppm -r 220 workflow_diagram.pdf /tmp/wf10 -png)",
+      "Bash(pdftoppm -r 220 workflow_diagram.pdf /tmp/wf11 -png)",
+      "Read(//Users/pmp/**)"
     ],
     "additionalDirectories": [
       "/tmp",
-      "/Users/pmp/Documents/Research/iref3d"
+      "/Users/pmp/Documents/Research/iref3d",
+      "/Users/pmp/Documents/Research/ultimate/docs"
     ]
   }
 }
