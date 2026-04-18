@@ -700,6 +700,7 @@ def format_fill_info_html(
     result,
     adjoint_per_cusp: "list[dict] | None" = None,
     ab_vectors=None,
+    adj_pass: "bool | None" = None,
 ) -> str:
     r"""HTML for the fill-info panel shown above the result table.
 
@@ -824,6 +825,13 @@ def format_fill_info_html(
                 a_ok = all(Fraction(v).denominator == 1 for v in cusp_a_matrix[j])
                 b_ok = all((Fraction(v) * 2).denominator == 1 for v in cusp_b_matrix[j])
                 edge_compat.append(a_ok and b_ok)
+
+        # If the SU(2)-adjoint q^1 projection did not pass, no edge is
+        # actually toggleable — _compute_extended_incompat_edges forces all
+        # edges off in that case. Mirror that here so the Status column and
+        # the W_j toggle buttons tell the user the same thing.
+        if adj_pass is not True and edge_compat is not None:
+            edge_compat = [False] * len(edge_compat)
 
         # Header
         cusp_hdrs = "".join(f"<th>$C_{{{I}}}$</th>" for I in range(num_cusps)) if num_cusps > 1 else ""

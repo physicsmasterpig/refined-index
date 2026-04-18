@@ -140,6 +140,7 @@ class FillingCard(QWidget):
         self._last_fill_info_result = None           # last fill result
         self._last_adjoint_per_cusp: "list | None" = None  # latest per-cusp adjoint results
         self._last_fill_info_ab = None               # ABVectors for per-edge a/b display
+        self._last_fill_info_adj_pass: "bool | None" = None  # latest joint adj_pass gate
         self._nc_worker_progress: dict[int, tuple[int, int]] = {}
         self._fill_current_row: int | None = None
         self._fill_grid_total: int = 0
@@ -1182,9 +1183,10 @@ class FillingCard(QWidget):
             return
         inactive_w = [j for j, a in enumerate(self._fill_active_edges()) if not a]
         inactive_v = [ci for ci, a in enumerate(self._fill_active_cusp_etas()) if not a]
-        row = 0
+        seq = 0  # fallback row for queries without stored row_index
 
         for fq in self._session.fill_queries:
+            row = fq.row_index if fq.row_index >= 0 else seq
             if fq.result is not None:
                 try:
                     projected = fq.result.collapse_eta_edges(inactive_w)
@@ -1199,11 +1201,12 @@ class FillingCard(QWidget):
                 except Exception:
                     latex = "—"
                 self._fill_table.set_row_result(row, latex, fq.source)
-                if (row + 1) % 50 == 0:
+                if (seq + 1) % 50 == 0:
                     QCoreApplication.processEvents()
-            row += 1
+            seq += 1
 
         for mfq in self._session.multi_fill_queries:
+            row = mfq.row_index if mfq.row_index >= 0 else seq
             if mfq.result is not None:
                 try:
                     projected = mfq.result.collapse_eta_edges(inactive_w)
@@ -1215,9 +1218,9 @@ class FillingCard(QWidget):
                 except Exception:
                     latex = "—"
                 self._fill_table.set_row_result(row, latex, mfq.source)
-                if (row + 1) % 50 == 0:
+                if (seq + 1) % 50 == 0:
                     QCoreApplication.processEvents()
-            row += 1
+            seq += 1
 
     def _update_summary(self) -> None:
         n_nc   = len(self._nc_cycle_vms)
@@ -1510,6 +1513,7 @@ class FillingCard(QWidget):
                 self._last_fill_info_result,
                 adjoint_per_cusp=self._last_adjoint_per_cusp,
                 ab_vectors=self._last_fill_info_ab,
+                adj_pass=self._last_fill_info_adj_pass,
             )
             if info_html:
                 self._fill_info_view.set_html(info_html)
@@ -1527,6 +1531,7 @@ class FillingCard(QWidget):
         print(f"[JOINT-ADJ] done: per_cusp={per_cusp}, overall_pass={adj_pass}", flush=True)
         self._last_adjoint_per_cusp = per_cusp if per_cusp else None
         self._last_fill_info_ab = payload.get("ab_vectors")
+        self._last_fill_info_adj_pass = adj_pass
         self._refresh_fill_info_view()
 
     def _on_joint_adjoint_error(self, msg: str, gen: int) -> None:
@@ -1641,6 +1646,7 @@ class FillingCard(QWidget):
         self._last_fill_info_specs  = []
         self._last_fill_info_result = None
         self._last_adjoint_per_cusp = None
+        self._last_fill_info_adj_pass = None
         self._last_fill_info_ab = None
         self._fill_info_view.setVisible(False)
 
@@ -1725,6 +1731,7 @@ class FillingCard(QWidget):
         self._last_fill_info_specs  = []
         self._last_fill_info_result = None
         self._last_adjoint_per_cusp = None
+        self._last_fill_info_adj_pass = None
         self._last_fill_info_ab = None
         self._fill_info_view.setVisible(False)
 
@@ -1934,6 +1941,8 @@ class FillingCard(QWidget):
                 cycle_key = (nc_P, nc_Q)
                 nc_weyl = self._nc_weyl_results.get(cycle_key, {})
                 self._last_fill_info_ab = nc_weyl.get("ab")
+                self._last_fill_info_adj_pass = nc_weyl.get("adj_pass") \
+                    if nc_weyl else None
                 self._refresh_fill_info_view()
             except Exception:
                 pass
@@ -1962,6 +1971,7 @@ class FillingCard(QWidget):
             weyl_b       = list(s.weyl_result.b) if s.weyl_result else None,
             incompat_edges = incompat_edges or [],
             source       = "computed",
+            row_index    = row,
         )
         s.fill_queries.append(fq)
         if s.stage < PipelineStage.FILLED:
@@ -2046,9 +2056,11 @@ class FillingCard(QWidget):
                 cycle_key = (nc_P, nc_Q)
                 nc_weyl = self._nc_weyl_results.get(cycle_key, {})
                 self._last_fill_info_ab = nc_weyl.get("ab")
+                self._last_fill_info_adj_pass = nc_weyl.get("adj_pass")
                 info_html = format_fill_info_html([fake_spec], result,
                                                   adjoint_per_cusp=self._last_adjoint_per_cusp,
-                                                  ab_vectors=self._last_fill_info_ab)
+                                                  ab_vectors=self._last_fill_info_ab,
+                                                  adj_pass=self._last_fill_info_adj_pass)
                 if info_html:
                     self._fill_info_view.set_html(info_html)
                     self._fill_info_view.setVisible(True)
@@ -2080,6 +2092,7 @@ class FillingCard(QWidget):
             incompat_edges = [],
             source       = "computed",
             unrefined_fallback = True,
+            row_index    = row,
         )
         s.fill_queries.append(fq)
         if s.stage < PipelineStage.FILLED:
@@ -2283,9 +2296,11 @@ class FillingCard(QWidget):
 
         # ── Set up progress and spawn one worker per charge config ─────
         self._fill_table.clear_rows()
+        s.multi_fill_queries.clear()
         self._last_fill_info_specs  = []
         self._last_fill_info_result = None
         self._last_adjoint_per_cusp = None
+        self._last_fill_info_adj_pass = None
         self._last_fill_info_ab = None
         self._fill_info_view.setVisible(False)
         self._fill_btn.setEnabled(False)
@@ -2392,6 +2407,7 @@ class FillingCard(QWidget):
             result           = result,
             unfilled_charges = uc_indexed,   # [(cusp_idx, m, e), …]
             source           = "computed",
+            row_index        = row,
         )
         s.multi_fill_queries.append(mfq)
 

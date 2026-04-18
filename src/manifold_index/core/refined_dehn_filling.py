@@ -2170,17 +2170,15 @@ def compute_filled_refined_index(
             cache_iref=cache_iref,
             manifold_name=manifold_name,
         )
-        # Reliability-aware truncation.
-        # ℓ=2  (single IS step): η_V comes from one kernel, fully reliable
-        #     up to |η_V| ≤ kernel eta_order.  A straight q-cut is correct.
-        # ℓ≥3 (multiple IS steps): intermediate η-truncation degrades
-        #     reliability near the η_V boundary; widen the diamond by
-        #     2·(ℓ−2), empirically calibrated from the ℓ=3 convergence study.
+        # Diamond truncation qq + |η_V| ≤ qq_order.  For ℓ=2 this is
+        # required so that the cusp-η collapse (η_V → 1) telescopes to the
+        # correct 3D projection — a pure q-cut leaves unpaired high-|η_V|
+        # entries at low qq that produce spurious half-integer artefacts
+        # (notably at meridian (1,0)).  For ℓ≥3 we widen by 2·(ℓ−2).
         _extra = 0 if ell == 2 else 2 * (ell - 2)
         truncated: MultiEtaSeries = {
             k: v for k, v in total_series_fast.items()
-            if k[0] <= qq_order
-            and (ell == 2 or k[0] + abs(k[-1]) <= qq_order + _extra)
+            if k[0] + abs(k[-1]) <= qq_order + _extra
         }
         return FilledRefinedResult(
             P=P, Q=Q, cusp_idx=cusp_idx,
@@ -2248,12 +2246,11 @@ def compute_filled_refined_index(
             cache_iref=cache_iref,
             manifold_name=manifold_name,
         )
-        # Reliability-aware truncation (see cached-kernel path above).
+        # Diamond truncation (see cached-kernel path above).
         _extra = 0 if ell == 2 else 2 * (ell - 2)
         truncated_auto: MultiEtaSeries = {
             k: v for k, v in total_series_auto.items()
-            if k[0] <= qq_order
-            and (ell == 2 or k[0] + abs(k[-1]) <= qq_order + _extra)
+            if k[0] + abs(k[-1]) <= qq_order + _extra
         }
         return FilledRefinedResult(
             P=P, Q=Q, cusp_idx=cusp_idx,
@@ -2418,14 +2415,12 @@ def compute_filled_refined_index(
     # qq_order.  The diamond rule removes exactly these artifacts.
     #
     # The cusp η is always the LAST key dimension (appended in step 3).
-    # Reliability-aware truncation: ℓ=2 uses straight q-cut; ℓ≥3
-    # widens diamond by 2·(ℓ−2) (see cached-kernel path above).
+    # Diamond truncation qq + |η_V| ≤ qq_order (+2·(ℓ−2) for ℓ≥3)
+    # (see cached-kernel path above).
     _extra = 0 if ell == 2 else 2 * (ell - 2)
     truncated: MultiEtaSeries = {}
     for k, v in total_series_ell2.items():
-        if k[0] > qq_order:
-            continue
-        if ell >= 3 and k[0] + abs(k[-1]) > qq_order + _extra:
+        if k[0] + abs(k[-1]) > qq_order + _extra:
             continue
         frac_v = Fraction(v, lcd)
         if frac_v != 0:

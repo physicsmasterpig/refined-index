@@ -86,6 +86,7 @@ class FillQuery:
     timestamp: float = field(default_factory=time.time)
     source: str = "computed"         # "computed" | "cache"
     unrefined_fallback: bool = False
+    row_index: int = -1              # table row this query owns (for stable re-render)
 
 
 @dataclass
@@ -103,6 +104,7 @@ class MultiFillQuery:
     unfilled_charges: list = field(default_factory=list)  # [(cusp_idx, m, e), …]
     timestamp: float = field(default_factory=time.time)
     source: str = "computed"             # "computed" | "cache"
+    row_index: int = -1                  # table row this query owns (for stable re-render)
 
 
 @dataclass
