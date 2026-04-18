@@ -51,6 +51,7 @@ class FillWorker(QThread):
         incompat_edges: list[int] | None = None,
         auto_precompute: bool = True,
         manifold_name: str = "unknown",
+        weyl_ab: Any = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -65,6 +66,7 @@ class FillWorker(QThread):
         self._q_order_half    = q_order_half
         self._weyl_a          = weyl_a
         self._weyl_b          = weyl_b
+        self._weyl_ab         = weyl_ab
         self._incompat_edges  = incompat_edges
         self._auto_precompute = auto_precompute
         self._manifold_name   = manifold_name
@@ -96,6 +98,7 @@ class FillWorker(QThread):
                 q_order_half   = self._q_order_half,
                 weyl_a         = self._weyl_a,
                 weyl_b         = self._weyl_b,
+                weyl_ab        = self._weyl_ab,
                 incompat_edges = self._incompat_edges,
                 auto_precompute= self._auto_precompute,
                 progress_fn    = _prog,

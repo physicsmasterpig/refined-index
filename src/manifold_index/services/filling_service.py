@@ -140,6 +140,7 @@ class FillingService:
         auto_precompute: bool = True,
         progress_fn: Callable | None = None,
         manifold_name: str = "unknown",
+        weyl_ab: Any = None,
     ) -> tuple[int, int, Any]:
         """Apply basis change and compute the filled refined index.
 
@@ -208,6 +209,7 @@ class FillingService:
             q_order_half=q_order_half,
             weyl_a=weyl_a,
             weyl_b=weyl_b,
+            weyl_ab=weyl_ab,
             incompat_edges=incompat_edges,
             auto_precompute=auto_precompute,
         )
@@ -336,11 +338,13 @@ class FillingService:
 
             weyl_a = spec.get("weyl_a")
             weyl_b = spec.get("weyl_b")
+            weyl_ab = spec.get("weyl_ab")
             incompat_edges = spec.get("incompat_edges")
 
             fill_specs.append(_rdf_mod.MultiCuspFillSpec(
                 cusp_idx=cusp_idx, P=p, Q=q,
                 weyl_a=weyl_a, weyl_b=weyl_b,
+                weyl_ab=weyl_ab,
                 incompat_edges=incompat_edges,
             ))
             augmented.append({**spec, "p": p, "q": q})

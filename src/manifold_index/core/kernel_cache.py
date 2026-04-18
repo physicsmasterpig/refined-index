@@ -583,10 +583,20 @@ def _load_kernel_from_dir(
     # 1. Exact match (fast path)
     path = d / _kernel_filename(P, Q, qq_order)
     if path.exists():
-        with gzip.open(path, "rb") as f:
-            kt = pickle.load(f)
-        if isinstance(kt, KernelTable):
-            return kt
+        try:
+            with gzip.open(path, "rb") as f:
+                kt = pickle.load(f)
+        except (EOFError, OSError, pickle.UnpicklingError, Exception) as exc:
+            # Corrupt cache (e.g. process killed mid-write): quarantine and regenerate.
+            try:
+                path.rename(path.with_suffix(path.suffix + ".corrupt"))
+            except OSError:
+                pass
+            import logging
+            logging.warning(f"[kernel_cache] corrupt file {path.name} quarantined: {exc}")
+        else:
+            if isinstance(kt, KernelTable):
+                return kt
 
     # 2. Fallback: smallest stored_qq ≥ qq_order for same (P, Q)
     #    Parse qq from filenames first, sort by qq, then load only the
@@ -606,8 +616,17 @@ def _load_kernel_from_dir(
     candidates.sort()
 
     for _stored_qq, cached_path in candidates:
-        with gzip.open(cached_path, "rb") as f:
-            candidate = pickle.load(f)
+        try:
+            with gzip.open(cached_path, "rb") as f:
+                candidate = pickle.load(f)
+        except (EOFError, OSError, pickle.UnpicklingError, Exception) as exc:
+            try:
+                cached_path.rename(cached_path.with_suffix(cached_path.suffix + ".corrupt"))
+            except OSError:
+                pass
+            import logging
+            logging.warning(f"[kernel_cache] corrupt file {cached_path.name} quarantined: {exc}")
+            continue
         if isinstance(candidate, KernelTable):
             return candidate
 
@@ -2605,6 +2624,7 @@ def apply_precomputed_kernel(
     e_other: Sequence[int | Fraction] | None = None,
     weyl_a: list[Fraction] | None = None,
     weyl_b: list[Fraction] | None = None,
+    weyl_ab: Any = None,
     incompat_edges: list[int] | None = None,
     qq_order: int | None = None,
     verbose: bool = False,
@@ -2794,7 +2814,7 @@ def apply_precomputed_kernel(
             m_ext, e_ext = _make_ext(m_i, e_i)
             refined = _apply_weyl_shift(
                 refined, m_ext, e_ext, weyl_a, weyl_b, num_hard,
-                cusp_idx=cusp_idx,
+                cusp_idx=cusp_idx, weyl_ab=weyl_ab,
             )
 
         if not refined:

@@ -1614,7 +1614,7 @@ class FillingCard(QWidget):
             weyl_b = list(ab.b)
             self._launch_refined_fill_workers(
                 nc_P, nc_Q, user_P, user_Q, cusp_idx, charge_points,
-                weyl_a, weyl_b, adj_pass, basis_label
+                weyl_a, weyl_b, adj_pass, basis_label, ab=ab,
             )
         else:
             print("[FILL] → Path 3: HALF-REFINED (I^ref + K(P,Q) unrefined kernel)")
@@ -1627,7 +1627,8 @@ class FillingCard(QWidget):
 
     def _launch_refined_fill_workers(
         self, nc_P: int, nc_Q: int, user_P: int, user_Q: int, cusp_idx: int,
-        charge_points: list, weyl_a, weyl_b, adj_pass, basis_label: str
+        charge_points: list, weyl_a, weyl_b, adj_pass, basis_label: str,
+        ab=None,
     ) -> None:
         """Launch FillWorker for each charge point (path 2: refined kernel)."""
         s = self._session
@@ -1692,6 +1693,7 @@ class FillingCard(QWidget):
                 q_order_half   = s.q_order_half,
                 weyl_a         = weyl_a,
                 weyl_b         = weyl_b,
+                weyl_ab        = ab,
                 incompat_edges = incompat_edges or None,
                 manifold_name  = s.manifold_name if s.manifold_name else "unknown",
                 parent         = self,
@@ -2148,6 +2150,12 @@ class FillingCard(QWidget):
             # Use per-cycle Weyl vectors from this NC cycle's ViewModel
             weyl_a = list(nc_vm.weyl_a) if nc_vm.weyl_a is not None else None
             weyl_b = list(nc_vm.weyl_b) if nc_vm.weyl_b is not None else None
+            # Full ABVectors (with cusp_columns) from the per-cycle Weyl-check
+            # result — needed for multi-cusp Weyl shift that sums over ALL cusps.
+            weyl_ab_full = None
+            nc_res = self._nc_weyl_results.get((nc_vm.P, nc_vm.Q))
+            if nc_res is not None:
+                weyl_ab_full = nc_res.get("ab")
 
             cusp_specs.append({
                 "cusp_idx": cusp_idx,
@@ -2157,6 +2165,7 @@ class FillingCard(QWidget):
                 "user_Q": user_Q,
                 "weyl_a": weyl_a,
                 "weyl_b": weyl_b,
+                "weyl_ab": weyl_ab_full,
             })
 
         # ── Compute joint incompat_edges across ALL cusps ─────────────

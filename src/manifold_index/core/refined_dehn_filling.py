@@ -1279,6 +1279,7 @@ def _apply_weyl_shift(
     weyl_b: list[Fraction],
     num_hard: int,
     cusp_idx: int = 0,
+    weyl_ab: Any = None,
 ) -> RefinedIndexResult:
     """Multiply a refined index by the Weyl monomial η^{a·e_I + b·m_I}.
 
@@ -1314,12 +1315,20 @@ def _apply_weyl_shift(
     RefinedIndexResult
         Shifted copy.
     """
-    m_I = m_ext[cusp_idx]
-    e_I = Fraction(e_ext[cusp_idx])
-    shift_x2 = [
-        int(2 * (weyl_a[j] * e_I + weyl_b[j] * m_I))
-        for j in range(num_hard)
-    ]
+    # Correct multi-cusp Weyl shift: sum over ALL cusps, each using its own
+    # column from cusp_columns.  The old flat-(weyl_a, weyl_b)+cusp_idx path
+    # only contracts with the filled cusp's charge, which is wrong whenever
+    # any unfilled cusp has a non-trivial Weyl column (e.g. m125: cusp-0 has
+    # a=1, so Weyl depends on e_0).
+    if weyl_ab is not None and getattr(weyl_ab, "cusp_columns", None):
+        shift_x2 = weyl_ab.shift_x2(m_ext, e_ext)
+    else:
+        m_I = m_ext[cusp_idx]
+        e_I = Fraction(e_ext[cusp_idx])
+        shift_x2 = [
+            int(2 * (weyl_a[j] * e_I + weyl_b[j] * m_I))
+            for j in range(num_hard)
+        ]
     # If all shifts are zero, return original unmodified
     if all(s == 0 for s in shift_x2):
         return refined
@@ -1903,6 +1912,7 @@ def compute_filled_refined_index(
     m1_range: int | None = None,
     weyl_a: list[Fraction] | None = None,
     weyl_b: list[Fraction] | None = None,
+    weyl_ab: Any = None,
     incompat_edges: list[int] | None = None,
     verbose: bool = False,
     n_workers: int = 1,
@@ -2012,9 +2022,6 @@ def compute_filled_refined_index(
     # internal η sum can be tighter than qq_internal.  We use qq_order
     # itself as the η budget: this is exact for the diamond rule and
     # avoids wasting time on high-η terms that will be discarded.
-    if eta_order is None:
-        eta_order = q_order_half
-
     qq_order = q_order_half
 
     # ------------------------------------------------------------------
@@ -2022,6 +2029,11 @@ def compute_filled_refined_index(
     # ------------------------------------------------------------------
     hj_ks = hj_continued_fraction(P, Q)
     ell = len(hj_ks)
+
+    # For ℓ≥3 the widened diamond (|η_V| ≤ qq_order + 2·(ℓ−2)) demands
+    # a larger η budget inside the IS chain.
+    if eta_order is None:
+        eta_order = q_order_half + (2 * (ell - 2) if ell >= 3 else 0)
     if verbose:
         print(f"[refined_filling] P={P}, Q={Q}, HJ-CF={hj_ks}, ℓ={ell}")
 
@@ -2085,7 +2097,7 @@ def compute_filled_refined_index(
             if weyl_a is not None and weyl_b is not None:
                 refined = _apply_weyl_shift(
                     refined, m_ext, e_ext, weyl_a, weyl_b, num_hard,
-                    cusp_idx=cusp_idx,
+                    cusp_idx=cusp_idx, weyl_ab=weyl_ab,
                 )
 
             # Convert to MultiEtaSeries (no cusp η dimension)
@@ -2150,6 +2162,7 @@ def compute_filled_refined_index(
             e_other=e_other,
             weyl_a=weyl_a,
             weyl_b=weyl_b,
+            weyl_ab=weyl_ab,
             incompat_edges=incompat_edges,
             qq_order=qq_order,
             verbose=verbose,
@@ -2157,10 +2170,17 @@ def compute_filled_refined_index(
             cache_iref=cache_iref,
             manifold_name=manifold_name,
         )
-        # Apply diamond truncation: qq + |cusp_eta| ≤ qq_order
+        # Reliability-aware truncation.
+        # ℓ=2  (single IS step): η_V comes from one kernel, fully reliable
+        #     up to |η_V| ≤ kernel eta_order.  A straight q-cut is correct.
+        # ℓ≥3 (multiple IS steps): intermediate η-truncation degrades
+        #     reliability near the η_V boundary; widen the diamond by
+        #     2·(ℓ−2), empirically calibrated from the ℓ=3 convergence study.
+        _extra = 0 if ell == 2 else 2 * (ell - 2)
         truncated: MultiEtaSeries = {
             k: v for k, v in total_series_fast.items()
-            if k[0] + abs(k[-1]) <= qq_order
+            if k[0] <= qq_order
+            and (ell == 2 or k[0] + abs(k[-1]) <= qq_order + _extra)
         }
         return FilledRefinedResult(
             P=P, Q=Q, cusp_idx=cusp_idx,
@@ -2220,6 +2240,7 @@ def compute_filled_refined_index(
             e_other=e_other,
             weyl_a=weyl_a,
             weyl_b=weyl_b,
+            weyl_ab=weyl_ab,
             incompat_edges=incompat_edges,
             qq_order=qq_order,
             verbose=verbose,
@@ -2227,9 +2248,12 @@ def compute_filled_refined_index(
             cache_iref=cache_iref,
             manifold_name=manifold_name,
         )
+        # Reliability-aware truncation (see cached-kernel path above).
+        _extra = 0 if ell == 2 else 2 * (ell - 2)
         truncated_auto: MultiEtaSeries = {
             k: v for k, v in total_series_auto.items()
-            if k[0] + abs(k[-1]) <= qq_order
+            if k[0] <= qq_order
+            and (ell == 2 or k[0] + abs(k[-1]) <= qq_order + _extra)
         }
         return FilledRefinedResult(
             P=P, Q=Q, cusp_idx=cusp_idx,
@@ -2296,7 +2320,7 @@ def compute_filled_refined_index(
             if weyl_a is not None and weyl_b is not None:
                 refined = _apply_weyl_shift(
                     refined, m_ext, e_ext, weyl_a, weyl_b, num_hard,
-                    cusp_idx=cusp_idx,
+                    cusp_idx=cusp_idx, weyl_ab=weyl_ab,
                 )
 
             # Convert to MultiEtaSeries with cusp_eta=0 appended
@@ -2394,12 +2418,18 @@ def compute_filled_refined_index(
     # qq_order.  The diamond rule removes exactly these artifacts.
     #
     # The cusp η is always the LAST key dimension (appended in step 3).
+    # Reliability-aware truncation: ℓ=2 uses straight q-cut; ℓ≥3
+    # widens diamond by 2·(ℓ−2) (see cached-kernel path above).
+    _extra = 0 if ell == 2 else 2 * (ell - 2)
     truncated: MultiEtaSeries = {}
     for k, v in total_series_ell2.items():
-        if k[0] + abs(k[-1]) <= qq_order:
-            frac_v = Fraction(v, lcd)
-            if frac_v != 0:
-                truncated[k] = frac_v
+        if k[0] > qq_order:
+            continue
+        if ell >= 3 and k[0] + abs(k[-1]) > qq_order + _extra:
+            continue
+        frac_v = Fraction(v, lcd)
+        if frac_v != 0:
+            truncated[k] = frac_v
 
     if verbose:
         n_raw = sum(1 for k, v in total_series_ell2.items() if k[0] <= qq_order and v != 0)
@@ -2517,7 +2547,7 @@ def compute_unrefined_kernel_refined_index(
         if weyl_a is not None and weyl_b is not None:
             refined = _apply_weyl_shift(
                 refined, m_ext, e_ext, weyl_a, weyl_b, num_hard,
-                cusp_idx=cusp_idx,
+                cusp_idx=cusp_idx, weyl_ab=weyl_ab,
             )
         n_terms += 1
         if verbose:
@@ -3158,6 +3188,7 @@ class MultiCuspFillSpec:
     weyl_a: list[Fraction] | None = None
     weyl_b: list[Fraction] | None = None
     incompat_edges: list[int] | None = None
+    weyl_ab: Any = None   # full multi-cusp ABVectors (with cusp_columns)
 
 
 # -- Multi-spectator helpers for n_fills ≥ 3 ----------------------------
@@ -3509,6 +3540,7 @@ def compute_multi_cusp_filled_refined_index(
             q_order_half=q_order_half,
             weyl_a=spec.weyl_a,
             weyl_b=spec.weyl_b,
+            weyl_ab=spec.weyl_ab,
             verbose=verbose,
             auto_precompute=auto_precompute,
             cache_iref=cache_iref,
