@@ -34,7 +34,7 @@ SRC = PROJECT / "src"
 PKG = SRC / "manifold_index"
 
 # ── Version ────────────────────────────────────────────────────────
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 
 # ── collect_all for snappy ecosystem and UI framework ────────────
 _snappy_datas, _snappy_bins, _snappy_hidden = collect_all("snappy")
