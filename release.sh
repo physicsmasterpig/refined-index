@@ -161,6 +161,16 @@ if ! $DRY_RUN; then
     fi
   done
   ok "docs/index.html references v${VERSION_NUM} download URLs"
+
+  # Verify __version__ fallback in __init__.py was bumped.
+  # This is the string the frozen app displays in its window title, since
+  # importlib.metadata cannot locate the package inside a PyInstaller bundle.
+  if ! grep -q "__version__ = \"${VERSION_NUM}\"" src/manifold_index/__init__.py; then
+    die "src/manifold_index/__init__.py still does not declare __version__ = \"${VERSION_NUM}\".
+    The sed above no-op'd (fallback string drifted from pyproject.toml).
+    Fix the __version__ fallback manually, then re-run."
+  fi
+  ok "src/manifold_index/__init__.py __version__ = ${VERSION_NUM}"
 fi
 
 # ── Dry-run exit ──────────────────────────────────────────────────────────────
