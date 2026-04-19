@@ -90,11 +90,21 @@ class NCSearchWorker(QThread):
             )
 
             def _prog(done: int, total: int) -> None:
+                # Honour user cancellation: if Stop was clicked, raise out of
+                # the slope loop inside find_nc_cycles.  The exception is
+                # caught below and suppressed silently (no error signal).
+                if self.isInterruptionRequested():
+                    raise _NCSearchCancelled()
                 # time.sleep() is guaranteed to release the Python GIL so the
                 # main thread can process Qt/Cocoa events between slopes.
                 # msleep() is a C++ call that may NOT release the GIL.
                 time.sleep(0.005)
                 self.progress.emit(done, total)
+
+            def _cancel_check() -> None:
+                """Raised inside compute_filled_index to abort mid-slope."""
+                if self.isInterruptionRequested():
+                    raise _NCSearchCancelled()
 
             nc_result = FillingService.find_nc_cycles(
                 self._nz_data,
@@ -103,6 +113,7 @@ class NCSearchWorker(QThread):
                 self._q_range,
                 self._q_order_half,
                 progress_fn=_prog,
+                cancel_check=_cancel_check,
             )
             cycles = FillingService.canonicalise_nc_cycles(
                 list(nc_result.cycles) if hasattr(nc_result, "cycles") else []
@@ -114,6 +125,14 @@ class NCSearchWorker(QThread):
                     "cycles":    cycles,
                 }
             )
+        except _NCSearchCancelled:
+            # User-initiated stop — keep silent, do not emit error.
+            return
         except Exception as exc:
             self.error.emit(str(exc))
+
+
+class _NCSearchCancelled(Exception):
+    """Raised inside the progress callback when the worker is interrupted."""
+    pass
 

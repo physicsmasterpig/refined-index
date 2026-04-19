@@ -35,6 +35,7 @@ class FillingService:
         q_range: tuple[int, int],
         q_order_half: int,
         progress_fn: Callable[[int, int], None] | None = None,
+        cancel_check: Callable[[], None] | None = None,
     ) -> Any:
         """Run ``find_non_closable_cycles`` for *cusp_idx* over the given ranges.
 
@@ -60,6 +61,7 @@ class FillingService:
             q_range=range(q_lo, q_hi + 1),
             q_order_half=q_order_half,
             progress_fn=progress_fn,
+            cancel_check=cancel_check,
         )
 
     @staticmethod

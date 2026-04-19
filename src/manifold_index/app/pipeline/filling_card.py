@@ -896,6 +896,14 @@ class FillingCard(QWidget):
         self._nc_status.setVisible(True)
         self._card.set_status(CardStatus.READY)
 
+    def trigger_stop_nc(self) -> None:
+        """Public: programmatically stop any running NC cycle search.
+
+        Used by :class:`PipelineView` when the user clicks the "Run All" stop
+        button while the pipeline is in the NC-search stage.
+        """
+        self._on_nc_stop_clicked()
+
     def _on_nc_progress(self, done: int, total: int, cusp_idx: int) -> None:
         """Aggregate progress from all cusp workers into one bar."""
         self._nc_worker_progress[cusp_idx] = (done, total)

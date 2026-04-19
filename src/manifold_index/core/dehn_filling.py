@@ -169,6 +169,7 @@ def enumerate_kernel_terms(
     e_other: Sequence[int | Fraction],
     q_order_half: int,
     _summation_cache: dict | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> list[KernelTerm]:
     """Enumerate all kernel terms (m, e) that could contribute to I_{P/Q}.
 
@@ -288,6 +289,8 @@ def enumerate_kernel_terms(
             _INTEG_MISS_CAP = q_order_half
             t_abs = 0
             while t_abs <= 4 * q_order_half + 50:
+                if cancel_check is not None and (t_abs & 0x3) == 0:
+                    cancel_check()   # may raise to abort scan
                 t = sign * t_abs
                 # avoid double-counting t=0 when sign=-1
                 if sign == -1 and t_abs == 0:
@@ -514,6 +517,7 @@ def compute_filled_index(
     q_order_half: int = 20,
     verbose: bool = False,
     _t0: float | None = None,
+    cancel_check: "Callable[[], None] | None" = None,
 ) -> FilledIndexResult:
     """Compute the Dehn-filled 3D index I_{P/Q}^{(cusp_idx)}.
 
@@ -570,6 +574,7 @@ def compute_filled_index(
     kernel_terms = enumerate_kernel_terms(
         P, Q, R, S, nz_data, cusp_idx, m_other, e_other, q_order_half,
         _summation_cache=_summation_cache,
+        cancel_check=cancel_check,
     )
     _log(f"Step A done: {len(kernel_terms)} kernel terms  ({time.time()-t_a:.3f}s)")
 
@@ -604,6 +609,8 @@ def compute_filled_index(
     # ------------------------------------------------------------------
     _log(f"Step B: computing I_{{3D}} for each of {len(kernel_terms)} kernel terms …")
     for i, kt in enumerate(kernel_terms):
+        if cancel_check is not None:
+            cancel_check()   # may raise to abort mid-slope
         m_ext, e_ext = _make_ext(kt.m, kt.e)
 
         # For c=0 the kernel shifts the series by ±phase/2, so we need
@@ -752,6 +759,7 @@ def find_non_closable_cycles(
     use_symmetry: bool = True,
     verbose: bool = False,
     progress_fn: Callable[[int, int], None] | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> NonClosableCycleResult:
     """Search for non-closable cycles at ``cusp_idx`` over a range of slopes.
 
@@ -823,6 +831,8 @@ def find_non_closable_cycles(
     computed: dict[tuple[int, int], bool] = {}
 
     for idx, (P, Q) in enumerate(compute_slopes):
+        if cancel_check is not None:
+            cancel_check()   # may raise before starting this slope
         t_slope = time.time()
         if verbose:
             print(
@@ -841,6 +851,7 @@ def find_non_closable_cycles(
             q_order_half=q_order_half,
             verbose=verbose,
             _t0=t0,
+            cancel_check=cancel_check,
         )
         non_closable = filled.is_stably_zero()
         computed[(P, Q)] = non_closable

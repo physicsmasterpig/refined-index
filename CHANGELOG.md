@@ -5,6 +5,39 @@ All notable changes to Refined Index Calculator.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] — 2026-04-20
+
+### Fixed
+- **Refined Dehn-filling basis-dependence bug** on m060 (1, 1) and similar
+  single-cusp fillings: the `_exact_e0_candidates` enumerator was
+  under-sizing its per-axis bounding box when the inner local-search
+  minimiser (`_proj_min_fixed`) returned non-optimal values, silently
+  dropping valid lattice points and making the filled-index result
+  basis-dependent at η → 1. Two layers of fix:
+  1. *Clip-to-floor* on the heuristic `R[j]`: pad suspiciously-small
+     axes without inflating large ones.
+  2. *Per-axis adaptive shell growth*: after the initial enumeration,
+     grow any axis whose valid points touch the face by +1 and
+     enumerate only the new slab (canonical-axis trick). Terminates on
+     saturation.
+- **Stop button** in the NC cycle search no longer raises
+  `AttributeError: 'FillingCard' has no attribute 'trigger_stop_nc'`.
+- **NC cycle search cancellation** is now responsive mid-slope: the
+  `cancel_check` callback threads through `compute_filled_index` and
+  `enumerate_kernel_terms`, so clicking Stop aborts within ~5 s even on
+  slow manifolds (previously had to wait for the current slope to
+  finish, potentially many minutes).
+
+### Changed
+- **`_MAX_BOX_SIZE` default lowered from 50M to 1M** (overridable via
+  `_IREF_MAX_BOX_SIZE` env var). On manifolds with highly-elongated
+  sublevel sets (e.g. m111 at slope (1, 0)), the default keeps
+  per-slope compute time tractable. Trade-off: lattice points beyond
+  the per-axis clamp are silently dropped; for the affected manifolds
+  the NC-cycle classification of certain fillings may change from
+  "closable" to "NC" at very small caps. Raise the env var to
+  re-validate if precise results are needed on those cases.
+
 ## [1.0.0] — unreleased
 
 First stable release. Data-pack formats, GUI layout, and the service-level

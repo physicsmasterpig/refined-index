@@ -722,61 +722,62 @@ def _exact_e0_candidates(
     # proportionally.  Candidates outside the tightened box are discarded —
     # this is safe because F_x2 grows quadratically away from its minimum,
     # so extremely large e0 values cannot satisfy F_x2 ≤ q_bound in practice.
-    _MAX_BOX_SIZE = 50_000_000  # 50M: ~30 MB per batch, traversable in < 30s
+    # _MAX_BOX_SIZE overridable via env var for experiments.  Default is 1M
+    # (chosen for v1.0.8 to cap per-slope compute time on manifolds with
+    # highly-elongated sublevel sets such as m111, where the heuristic box
+    # would otherwise exceed 50M points).  A smaller cap trades silent
+    # correctness loss on those manifolds for tractable runtime.
+    _MAX_BOX_SIZE = int(os.environ.get("_IREF_MAX_BOX_SIZE", 1_000_000))
+    _NP_BOX_THRESH = 64
+    _NP_BOX_BATCH  = 200_000
+
+    # --- Heuristic initial per-axis radius with fixed safety cushion ---
+    # ``_proj_min_fixed`` under-estimates R for some manifolds.  Add a linear
+    # cushion to recover correctness on tested cases (m060 at q_order_half=24
+    # needs ~28 extra per axis).  See memory/project_iref_box_safety.md for
+    # the principled (shell-based adaptive) replacement, parked after a
+    # performance regression on m146.
     R = np.zeros(num_easy, dtype=int)
     for j in range(num_easy):
         def _G_j(t: int, _j: int = j) -> int:
             return _proj_min_fixed(F_x2, _j, t, num_easy, q_bound_x2)
         R[j] = _axis_scan_bound(_G_j, q_bound_x2)
 
-    # Clamp R so that box_size ≤ _MAX_BOX_SIZE: reduce the largest R[j] first.
+    # Clip small heuristic R's up to a floor, leave large ones untouched.
+    # Rationale: ``_proj_min_fixed`` is a local-search minimiser that over-
+    # estimates the per-axis value and so ``_axis_scan_bound`` can return an
+    # R[j] smaller than the true sublevel extent — but only when R[j] itself
+    # is small (the local search gets stuck near the origin).  When R[j] is
+    # already large, the scan is reliable.  Clipping to a floor therefore
+    # pads the suspicious axes without inflating the reliable ones.
+    floor = max(8, q_bound_x2 // 2 + 4)
+    R = np.maximum(R, floor)
+
+    # Clamp R so the box stays under _MAX_BOX_SIZE.  Remember whether we
+    # hit the cap — if so, shell growth below would just re-hit the cap
+    # every iteration, so we skip it.
+    _was_clamped = False
     box_size_raw = int(np.prod(2 * R + 1))
     if box_size_raw > _MAX_BOX_SIZE:
-        # Reduce each R[j] to R_cap = floor((_MAX_BOX_SIZE^(1/d) - 1) / 2)
         R_cap = max(1, int(_MAX_BOX_SIZE ** (1.0 / num_easy) - 1) // 2)
         R = np.minimum(R, R_cap)
+        _was_clamped = True
 
-    # --- Step 2: enumerate bounding box and filter ---
-    # Flat-index batching: iterate over the box in fixed-size chunks of
-    # _NP_BOX_BATCH rows.  Each chunk is generated from a contiguous slice
-    # of the flat (C-order) index [0, box_size), decoded into per-dimension
-    # coordinates using modulo/divide — no meshgrid, no large temporaries.
-    #
-    # Peak allocation per batch:
-    #   e0_batch  : B × num_easy × 8 bytes
-    #   args_b    : 2n × B × 8 bytes  (from easy_cols @ e0_batch.T)
-    #   ~3 intermediate (2n × B) arrays
-    # = B × (num_easy + 5·2n) × 8  ≤  200k × (5 + 60) × 8  ≈  104 MB   (n=6)
-    # This bound holds regardless of box dimensionality or R magnitude.
-    _NP_BOX_THRESH = 64
-    _NP_BOX_BATCH  = 200_000
-
-    box_size = 1
-    for j in range(num_easy):
-        box_size *= 2 * int(R[j]) + 1
-
-    ranges_np = [np.arange(-int(R[j]), int(R[j]) + 1, dtype=np.int64)
-                 for j in range(num_easy)]
-
-    # Pre-compute per-dimension sizes and C-order strides for flat→coord decoding
-    sizes = np.array([len(r) for r in ranges_np], dtype=np.int64)
-
+    # --- Shared helpers ---
     def _eval_batch(e0_batch: np.ndarray) -> list[np.ndarray]:
         """Evaluate F_x2 for a (B, num_easy) int64 batch, return valid rows."""
-        # RSS guard: macOS ignores RLIMIT_AS for mmap allocations, so we poll
-        # resource usage directly.  Raises MemoryError → caught by worker,
-        # reported as FAILED rather than killing the whole system.
         _rss_limit = os.environ.get("_IREF_RSS_LIMIT_GB", "0")
         if _rss_limit and _rss_limit != "0":
             import resource as _res
             _rss = _res.getrusage(_res.RUSAGE_SELF).ru_maxrss
-            # macOS returns bytes in ru_maxrss
             _rss_gb = _rss / (1024 ** 3)
             if _rss_gb > float(_rss_limit):
                 raise MemoryError(
                     f"Worker RSS {_rss_gb:.1f} GB exceeds limit "
                     f"{_rss_limit} GB — aborting chunk"
                 )
+        if e0_batch.size == 0:
+            return []
         args_b = base_args[:, np.newaxis] + easy_cols @ e0_batch.T  # (2n, B)
         m_b = args_b[:n]; e_b = args_b[n:]; me_b = m_b + e_b
         half_sums = (
@@ -790,31 +791,124 @@ def _exact_e0_candidates(
         valid = e0_batch[F_b <= q_bound_x2]
         return [valid[i] for i in range(len(valid))]
 
-    def _flat_to_e0(flat: np.ndarray) -> np.ndarray:
-        """Decode flat C-order indices into (B, num_easy) coordinate array."""
-        e0 = np.empty((len(flat), num_easy), dtype=np.int64)
-        rem = flat.copy()
-        for j in range(num_easy - 1, -1, -1):
-            e0[:, j] = ranges_np[j][rem % sizes[j]]
-            rem //= sizes[j]
-        return e0
+    def _enumerate_full_box(R_local: np.ndarray) -> list[np.ndarray]:
+        """Enumerate [-R_local, R_local]^d and return e0 with F_x2 ≤ q_bound_x2."""
+        ranges_np = [np.arange(-int(R_local[j]), int(R_local[j]) + 1, dtype=np.int64)
+                     for j in range(num_easy)]
+        sizes_local = np.array([len(r) for r in ranges_np], dtype=np.int64)
+        box_size_local = 1
+        for j in range(num_easy):
+            box_size_local *= 2 * int(R_local[j]) + 1
 
-    if box_size <= _NP_BOX_THRESH:
-        # Tiny box — Python loop is fastest (no numpy call overhead).
-        result: list[np.ndarray] = []
-        for e0_tuple in iproduct(*ranges_np):
-            e0 = np.array(e0_tuple, dtype=np.int64)
-            if F_x2(e0) <= q_bound_x2:
-                result.append(e0)
+        def _flat_to_e0(flat: np.ndarray) -> np.ndarray:
+            e0 = np.empty((len(flat), num_easy), dtype=np.int64)
+            rem = flat.copy()
+            for j in range(num_easy - 1, -1, -1):
+                e0[:, j] = ranges_np[j][rem % sizes_local[j]]
+                rem //= sizes_local[j]
+            return e0
+
+        if box_size_local <= _NP_BOX_THRESH:
+            out: list[np.ndarray] = []
+            for e0_tuple in iproduct(*ranges_np):
+                e0 = np.array(e0_tuple, dtype=np.int64)
+                if F_x2(e0) <= q_bound_x2:
+                    out.append(e0)
+            return out
+
+        out = []
+        for start in range(0, box_size_local, _NP_BOX_BATCH):
+            flat = np.arange(start, min(start + _NP_BOX_BATCH, box_size_local),
+                             dtype=np.int64)
+            out.extend(_eval_batch(_flat_to_e0(flat)))
+        return out
+
+    def _enumerate_shell(R_old: np.ndarray, R_new: np.ndarray) -> np.ndarray:
+        """Return (N, num_easy) int64 array of points in box(R_new) \\ box(R_old).
+
+        Uses the "canonical axis" trick to avoid double-counting:
+        a shell point is emitted at its smallest axis j where
+        ``|e0[j]| > R_old[j]``.  For k < j, ``|e0[k]| ≤ R_old[k]``;
+        for k == j, ``|e0[j]| ∈ (R_old[j], R_new[j]]``; for k > j,
+        ``|e0[k]| ≤ R_new[k]``.
+        """
+        parts: list[np.ndarray] = []
+        for j in range(num_easy):
+            if R_new[j] == R_old[j]:
+                continue
+            # e0[j] takes values in {-R_new[j], …, -R_old[j]-1} ∪ {R_old[j]+1, …, R_new[j]}.
+            j_vals = np.concatenate([
+                np.arange(-int(R_new[j]), -int(R_old[j]), dtype=np.int64),
+                np.arange(int(R_old[j]) + 1, int(R_new[j]) + 1, dtype=np.int64),
+            ])
+            if j_vals.size == 0:
+                continue
+            axes = []
+            for k in range(num_easy):
+                if k < j:
+                    axes.append(np.arange(-int(R_old[k]), int(R_old[k]) + 1,
+                                          dtype=np.int64))
+                elif k == j:
+                    axes.append(j_vals)
+                else:
+                    axes.append(np.arange(-int(R_new[k]), int(R_new[k]) + 1,
+                                          dtype=np.int64))
+            grids = np.meshgrid(*axes, indexing='ij')
+            pts = np.stack([g.ravel() for g in grids], axis=1)
+            parts.append(pts)
+        if not parts:
+            return np.empty((0, num_easy), dtype=np.int64)
+        return np.concatenate(parts, axis=0)
+
+    # --- Initial box at clip-to-floor R ---
+    result = _enumerate_full_box(R)
+
+    # Skip adaptive shell growth if R was already clamped by _MAX_BOX_SIZE —
+    # any growth would re-hit the cap instantly.  The single-pass clamped
+    # enumeration is the best we can do within the memory budget; accept it.
+    if _was_clamped:
         return result
 
-    # All other sizes: flat-index batches, capped at _NP_BOX_BATCH rows each.
-    # box_size can be arbitrarily large (e.g. s900 has ~4.7 billion); the loop
-    # processes it in ~200k-row slices without ever allocating the full box.
-    result = []
-    for start in range(0, box_size, _NP_BOX_BATCH):
-        flat = np.arange(start, min(start + _NP_BOX_BATCH, box_size), dtype=np.int64)
-        result.extend(_eval_batch(_flat_to_e0(flat)))
+    # --- Adaptive per-axis shell growth ---
+    # If any valid point lies on a face of the current box, grow that axis by 1
+    # and enumerate only the new slab (canonical-axis trick avoids
+    # re-visiting interior points).  Terminate when no face is touched.
+    _MAX_SHELL_STEPS = 32
+    for _step in range(_MAX_SHELL_STEPS):
+        # Identify touched axes
+        touched = np.zeros(num_easy, dtype=bool)
+        for c in result:
+            for j in range(num_easy):
+                if abs(int(c[j])) >= int(R[j]):
+                    touched[j] = True
+        if not touched.any():
+            break
+
+        R_new = R.copy()
+        for j in range(num_easy):
+            if touched[j]:
+                R_new[j] = R[j] + 1
+
+        # Respect _MAX_BOX_SIZE.
+        box_size_new = int(np.prod(2 * R_new + 1))
+        if box_size_new > _MAX_BOX_SIZE:
+            R_cap = max(1, int(_MAX_BOX_SIZE ** (1.0 / num_easy) - 1) // 2)
+            R_new_capped = np.minimum(R_new, R_cap)
+            if np.array_equal(R_new_capped, R):
+                break  # can't grow any further without exceeding _MAX_BOX_SIZE
+            R_new = R_new_capped
+
+        shell = _enumerate_shell(R, R_new)
+        if shell.shape[0] == 0:
+            R = R_new
+            continue
+        shell_valid: list[np.ndarray] = []
+        for start in range(0, shell.shape[0], _NP_BOX_BATCH):
+            batch = shell[start:start + _NP_BOX_BATCH]
+            shell_valid.extend(_eval_batch(batch))
+        result.extend(shell_valid)
+        R = R_new
+
     return result
 
 
