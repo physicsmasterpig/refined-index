@@ -464,19 +464,25 @@ class FilledIndexResult:
         ----------
         buffer : int, optional
             Number of powers near the cutoff to ignore.
-            Default: ``min(max(5, q_order_half // 2), q_order_half - 1)``.
+            Default: ``min(max(6, q_order_half // 2 + 1), q_order_half - 1)``.
             The upper clamp ensures ``cutoff ≥ 1`` even when ``q_order_half``
             is very small (e.g. 4), preventing a negative cutoff that would
-            cause every series to appear stably zero.
+            cause every series to appear stably zero.  The floor of 6 (and
+            ``+1`` on the halfway rule) gives one extra level of margin so
+            that the term sitting exactly at the cutoff — which is itself
+            susceptible to truncation of its upward-shift partner — does
+            not spuriously flip the verdict.  A term at power ``k`` is
+            considered stable iff ``k < cutoff`` (strict).
 
         Returns
         -------
         bool
         """
         if buffer is None:
-            buffer = min(max(5, self.q_order_half // 2), self.q_order_half - 1)
+            buffer = min(max(6, self.q_order_half // 2 + 1),
+                         self.q_order_half - 1)
         cutoff = self.q_order_half - buffer
-        return not any(v != 0 for k, v in self.series.items() if k <= cutoff)
+        return not any(v != 0 for k, v in self.series.items() if k < cutoff)
 
     def as_polynomial_string(self, var: str = "q") -> str:
         """Human-readable q^{1/2}-series string."""

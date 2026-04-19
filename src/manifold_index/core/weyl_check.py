@@ -1096,7 +1096,8 @@ class AdjointProjectionResult:
         The computed value of the adjoint projection.  ``None`` if the
         required entries are missing (e.g. e = ±1, ±2 not available).
     is_pass : bool
-        True iff ``projected_value == -1``.
+        True iff ``projected_value <= -1`` (matching the unrefined
+        strongly-NC condition).
     c_e : dict[Fraction, int]
         The intermediate c_e values: for each e, the (q¹, η⁰) coefficient
         of I^ref(m=0, e).  Useful for diagnostics.
@@ -1268,7 +1269,7 @@ def check_adjoint_projection(
 
     return AdjointProjectionResult(
         projected_value=projected,
-        is_pass=(projected == -1),
+        is_pass=(projected <= -1),
         c_e=c_e,
         missing_e=[],
     )
@@ -1453,7 +1454,7 @@ def check_adjoint_projection_multi_cusp(
         projected = int(numerator)
         per_cusp.append(AdjointProjectionResult(
             projected_value=projected,
-            is_pass=(projected == -1),
+            is_pass=(projected <= -1),
             c_e={},
             missing_e=[],
         ))
@@ -1619,7 +1620,7 @@ def check_adjoint_with_w_vector(
     projected = numerator // 2
     return AdjointProjectionResult(
         projected_value=projected,
-        is_pass=(projected == -1),
+        is_pass=(projected <= -1),
         c_e=c_e,
         missing_e=[],
     )

@@ -25,6 +25,7 @@ from typing import Any
 from PySide6.QtCore import QThread, Signal
 
 from manifold_index.services.filling_service import FillingService
+from manifold_index.core.refined_dehn_filling import RELIABILITY_BUFFER
 
 
 class FillWorker(QThread):
@@ -86,6 +87,8 @@ class FillWorker(QThread):
                 time.sleep(0.005)
                 self.progress.emit(done, total)
 
+            qq_user = self._q_order_half
+            qq_eff  = qq_user + RELIABILITY_BUFFER
             p, q, result = FillingService.compute_filled_index(
                 nz_data        = self._nz_data,
                 cusp_idx       = self._cusp_idx,
@@ -95,7 +98,7 @@ class FillWorker(QThread):
                 user_Q         = self._user_Q,
                 m_other        = self._m_other,
                 e_other        = self._e_other,
-                q_order_half   = self._q_order_half,
+                q_order_half   = qq_eff,
                 weyl_a         = self._weyl_a,
                 weyl_b         = self._weyl_b,
                 weyl_ab        = self._weyl_ab,
@@ -104,6 +107,8 @@ class FillWorker(QThread):
                 progress_fn    = _prog,
                 manifold_name  = self._manifold_name,
             )
+            if result is not None:
+                result = result.truncate_qq(qq_user)
             self.finished.emit(
                 {
                     "cusp_idx": self._cusp_idx,
@@ -180,6 +185,8 @@ class UnrefinedKernelFillWorker(QThread):
                 time.sleep(0.005)
                 self.progress.emit(done, total)
 
+            qq_user = self._q_order_half
+            qq_eff  = qq_user + RELIABILITY_BUFFER
             p, q, result = FillingService.compute_unrefined_kernel_fill(
                 nz_data        = self._nz_data,
                 cusp_idx       = self._cusp_idx,
@@ -189,13 +196,15 @@ class UnrefinedKernelFillWorker(QThread):
                 user_Q         = self._user_Q,
                 m_other        = self._m_other,
                 e_other        = self._e_other,
-                q_order_half   = self._q_order_half,
+                q_order_half   = qq_eff,
                 weyl_a         = self._weyl_a,
                 weyl_b         = self._weyl_b,
                 weyl_ab        = self._weyl_ab,
                 incompat_edges = self._incompat_edges,
                 manifold_name  = self._manifold_name,
             )
+            if result is not None and hasattr(result, "truncate_qq"):
+                result = result.truncate_qq(qq_user)
             self.finished.emit(
                 {
                     "cusp_idx": self._cusp_idx,
@@ -317,16 +326,20 @@ class MultiFillWorker(QThread):
                 time.sleep(0.005)
                 self.status.emit(msg)
 
+            qq_user = self._q_order_half
+            qq_eff  = qq_user + RELIABILITY_BUFFER
             augmented, result = FillingService.compute_multi_cusp_filled_index(
                 nz_data        = self._nz_data,
                 cusp_specs     = self._cusp_specs,
-                q_order_half   = self._q_order_half,
+                q_order_half   = qq_eff,
                 auto_precompute= self._auto_precompute,
                 progress_fn    = _prog,
                 manifold_name  = self._manifold_name,
                 m_unfilled     = self._m_unfilled,
                 e_unfilled     = self._e_unfilled,
             )
+            if result is not None and hasattr(result, "truncate_qq"):
+                result = result.truncate_qq(qq_user)
             self.finished.emit({"cusp_specs": augmented, "result": result})
         except Exception as exc:
             self.error.emit(str(exc))

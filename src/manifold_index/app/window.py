@@ -26,6 +26,7 @@ from manifold_index.services.session import Session
 from manifold_index.app.pipeline.pipeline_view import PipelineView
 from manifold_index.app.datahub.datahub_view import DataHubView
 from manifold_index.app.theme.style import build_stylesheet
+from manifold_index.app.dev_mode import dev_mode
 
 from manifold_index import __version__ as _VERSION
 _APP_TITLE = f"Refined Index Calculator  v{_VERSION}"
@@ -75,6 +76,34 @@ class MainWindow(QMainWindow):
 
         tb.addWidget(self._calc_btn)
         tb.addWidget(self._hub_btn)
+
+        self._dev_btn = QPushButton("Dev")
+        self._dev_btn.setCheckable(True)
+        self._dev_btn.setChecked(dev_mode.is_on())
+        self._dev_btn.setFixedWidth(52)
+        self._dev_btn.setToolTip(
+            "Developer mode — reveals advanced controls (NC q_order override, …)."
+        )
+        self._dev_btn.setStyleSheet("""
+            QPushButton {
+                background: #f0f0f2;
+                border: 1px solid #c0c0c8;
+                border-radius: 6px;
+                padding: 4px 10px;
+                color: #555;
+            }
+            QPushButton:hover { background: #e6e6ea; }
+            QPushButton:checked {
+                background: #d35400;
+                border: 1px solid #a04000;
+                color: white;
+                font-weight: 600;
+            }
+            QPushButton:checked:hover { background: #b84800; }
+        """)
+        self._dev_btn.toggled.connect(self._on_dev_toggled)
+        dev_mode.changed.connect(self._sync_dev_btn)
+        tb.addWidget(self._dev_btn)
         root.addWidget(top_bar)
 
         # ── Stack ─────────────────────────────────────────────────────
@@ -105,6 +134,18 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Mode toggle
     # ------------------------------------------------------------------
+
+    def _on_dev_toggled(self, on: bool) -> None:
+        dev_mode.set(on)
+
+    def _sync_dev_btn(self, on: bool) -> None:
+        if self._dev_btn.isChecked() != on:
+            self._dev_btn.blockSignals(True)
+            self._dev_btn.setChecked(on)
+            self._dev_btn.blockSignals(False)
+        self._status_bar.showMessage(
+            f"Developer mode {'on' if on else 'off'}.", 3000
+        )
 
     def _switch_mode(self, idx: int) -> None:
         self._stack.setCurrentIndex(idx)

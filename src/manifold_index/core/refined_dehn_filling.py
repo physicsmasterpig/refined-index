@@ -122,6 +122,19 @@ QEtaSeries = dict[tuple[int, int], Fraction]
 MultiEtaSeries = dict[tuple[int, ...], Fraction]
 
 # ---------------------------------------------------------------------------
+# Reliability buffer
+# ---------------------------------------------------------------------------
+# When computing a filled refined index for display, the top few
+# qq-levels are susceptible to truncation artefacts: their cancellation
+# partners in the kernel live above qq_order and get cut.  To give the
+# user a reliable q-series up to the requested order, the GUI workers
+# inflate qq_order internally by RELIABILITY_BUFFER, then trim the
+# result back to the user-requested ceiling via
+# ``FilledRefinedResult.truncate_qq``.  Keep this in sync with the
+# ``is_stably_zero`` default buffer in dehn_filling.py.
+RELIABILITY_BUFFER: int = 4
+
+# ---------------------------------------------------------------------------
 # Dense numpy helpers for hot-path polynomial arithmetic
 # ---------------------------------------------------------------------------
 
@@ -1781,6 +1794,23 @@ class FilledRefinedResult:
         return FilledRefinedResult(
             P=self.P, Q=self.Q, cusp_idx=self.cusp_idx,
             series=new_series, qq_order=self.qq_order,
+            eta_order=self.eta_order, hj_ks=self.hj_ks,
+            n_kernel_terms=self.n_kernel_terms,
+            num_hard=self.num_hard, has_cusp_eta=self.has_cusp_eta,
+            num_cusp_eta=self.num_cusp_eta,
+        )
+
+    def truncate_qq(self, qq_max: int) -> "FilledRefinedResult":
+        """Return a copy with ``series`` trimmed to ``k[0] ≤ qq_max`` and
+        ``qq_order = qq_max``.  Used to hide boundary-artefact coefficients
+        from the caller after computing at an inflated internal qq_order
+        (the "reliability buffer" pattern — see RELIABILITY_BUFFER)."""
+        new_series: MultiEtaSeries = {
+            k: v for k, v in self.series.items() if k[0] <= qq_max
+        }
+        return FilledRefinedResult(
+            P=self.P, Q=self.Q, cusp_idx=self.cusp_idx,
+            series=new_series, qq_order=qq_max,
             eta_order=self.eta_order, hj_ks=self.hj_ks,
             n_kernel_terms=self.n_kernel_terms,
             num_hard=self.num_hard, has_cusp_eta=self.has_cusp_eta,

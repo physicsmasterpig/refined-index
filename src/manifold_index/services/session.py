@@ -148,6 +148,9 @@ class Session:
 
     # ── Card ② settings ───────────────────────────────────────────────
     q_order_half: int = 20           # shared qq setting (applies everywhere)
+    nc_q_order_half: int = 10        # NC-cycle search truncation (= q^5 default)
+    nc_search_p_range: int = 1       # NC search: |p| ≤ this
+    nc_search_q_range: int = 1       # NC search: 0 ≤ q ≤ this
     active_edges: list[bool] = field(default_factory=list)
     # active_edges[j] = True  → η_j is kept in output
     # active_edges[j] = False → η_j is projected out (set to 1)
@@ -332,6 +335,9 @@ def session_to_dict(session: Session) -> dict:
         "stage": session.stage.value,
         "cache_status": session.cache_status,
         "q_order_half": session.q_order_half,
+        "nc_q_order_half": session.nc_q_order_half,
+        "nc_search_p_range": session.nc_search_p_range,
+        "nc_search_q_range": session.nc_search_q_range,
         "active_edges": session.active_edges,
         "index_queries": [_iq(q) for q in session.index_queries],
         "weyl_checked": session.weyl_checked,
@@ -387,6 +393,9 @@ def session_from_dict(data: dict) -> Session:
         stage=PipelineStage(data["stage"]),
         cache_status=data.get("cache_status", {}),
         q_order_half=data["q_order_half"],
+        nc_q_order_half=data.get("nc_q_order_half", 10),
+        nc_search_p_range=data.get("nc_search_p_range", 1),
+        nc_search_q_range=data.get("nc_search_q_range", 1),
         active_edges=data["active_edges"],
         index_queries=[_iq(q) for q in data.get("index_queries", [])],
         weyl_checked=data.get("weyl_checked", False),

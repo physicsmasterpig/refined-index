@@ -19,6 +19,11 @@ from __future__ import annotations
 import logging
 from fractions import Fraction
 
+# Developer mode: toggled at runtime via the Dev button in the top bar
+# (or seeded from MANIFOLD_INDEX_DEV=1).  When on, advanced knobs
+# (NC-search truncation override, …) are revealed.
+from manifold_index.app.dev_mode import dev_mode
+
 from PySide6.QtCore import QCoreApplication, QTimer, Signal
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QGroupBox,
@@ -180,6 +185,40 @@ class FillingCard(QWidget):
         range_row.addWidget(self._q_range_spin)
         self._cache_chk = QCheckBox("Use cache")
         range_row.addWidget(self._cache_chk)
+
+        # NC-search truncation order (developer override).  Hidden unless
+        # MANIFOLD_INDEX_DEV=1 is set at launch.  The default (10 → q^5)
+        # is plenty for ruling out non-closability on known manifolds.
+        self._nc_qorder_label = QLabel("  NC q_order_half")
+        self._nc_qorder_spin = QSpinBox()
+        self._nc_qorder_spin.setRange(4, 100)
+        self._nc_qorder_spin.setValue(10)
+        self._nc_qorder_spin.setFixedWidth(55)
+        self._nc_qorder_spin.setToolTip(
+            "q-series truncation order used ONLY for NC-cycle search "
+            "(2 × q_max). Default 10 (= q^5)."
+        )
+        self._nc_qorder_label.setVisible(dev_mode.is_on())
+        self._nc_qorder_spin.setVisible(dev_mode.is_on())
+        range_row.addWidget(self._nc_qorder_label)
+        range_row.addWidget(self._nc_qorder_spin)
+
+        def _apply_dev_mode(on: bool) -> None:
+            self._nc_qorder_label.setVisible(on)
+            self._nc_qorder_spin.setVisible(on)
+        dev_mode.changed.connect(_apply_dev_mode)
+
+        # Persist spin values immediately so refresh() doesn't stomp user edits.
+        self._p_range_spin.valueChanged.connect(
+            lambda v: setattr(self._session, "nc_search_p_range", int(v))
+        )
+        self._q_range_spin.valueChanged.connect(
+            lambda v: setattr(self._session, "nc_search_q_range", int(v))
+        )
+        self._nc_qorder_spin.valueChanged.connect(
+            lambda v: setattr(self._session, "nc_q_order_half", int(v))
+        )
+
         range_row.addStretch(1)
         search_layout.addLayout(range_row)
 
@@ -506,6 +545,15 @@ class FillingCard(QWidget):
 
     def refresh(self, session: Session) -> None:
         self._session = session
+        # Block signals while restoring so setValue doesn't loop back into session.
+        for spin, val in (
+            (self._p_range_spin,  session.nc_search_p_range),
+            (self._q_range_spin,  session.nc_search_q_range),
+            (self._nc_qorder_spin, session.nc_q_order_half),
+        ):
+            spin.blockSignals(True)
+            spin.setValue(int(val))
+            spin.blockSignals(False)
         if session.nc_cycles:
             self._rebuild_nc_vms_from_session()
             self._render_nc_tables()
@@ -706,6 +754,10 @@ class FillingCard(QWidget):
         p_range = (-p_half, p_half)
         q_range = (0, q_half)
 
+        # Commit the NC-specific qq to the session (dev override; in
+        # non-dev mode the spinbox is hidden but still holds the default).
+        s.nc_q_order_half = int(self._nc_qorder_spin.value())
+
         self._nc_search_btn.setEnabled(False)
         self._nc_stop_btn.setEnabled(True)
         self._nc_progress.setRange(0, 0)   # indeterminate
@@ -730,7 +782,7 @@ class FillingCard(QWidget):
                 p_range      = p_range,
                 q_range      = q_range,
                 use_cache    = self._cache_chk.isChecked(),
-                q_order_half = s.q_order_half,
+                q_order_half = s.nc_q_order_half,
                 manifold_name = s.manifold_name,
                 parent       = self,
             )
