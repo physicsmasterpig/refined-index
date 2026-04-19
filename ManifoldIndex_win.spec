@@ -25,7 +25,7 @@ from PyInstaller.utils.hooks import (
 # ── Paths ──────────────────────────────────────────────────────────
 PROJECT = Path(SPECPATH)
 SRC = PROJECT / "src"
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.0.8"
 
 # ── conda vs pip auto-detection ────────────────────────────────────
 # conda environments have a Library/bin/ directory under sys.prefix

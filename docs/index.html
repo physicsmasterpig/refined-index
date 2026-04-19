@@ -619,7 +619,7 @@
     <!-- ── Download Section ──────────────────────────────────────────── -->
     <div class="download-section" id="download">
       <div class="download-header">
-        <h2>Download v1.0.7</h2>
+        <h2>Download v1.0.8</h2>
         <p>Stable release · choose your platform</p>
       </div>
 
@@ -633,21 +633,21 @@
         </div>
       </div>
 
-      <!-- macOS v1.0.7 -->
+      <!-- macOS v1.0.8 -->
       <div class="download-card active" id="card-v1.0-macos">
         <span class="version-badge latest">Latest · Stable</span>
-        <h3>v1.0.7 for macOS</h3>
+        <h3>v1.0.8 for macOS</h3>
         <div class="platform-info">Universal (Intel + Apple Silicon) · macOS 11+</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.0.7/ManifoldIndex.zip" class="download-btn">Download .zip (334 MB)</a>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.0.8/ManifoldIndex.zip" class="download-btn">Download .zip (334 MB)</a>
         <div class="system-note">Extract the zip, move <strong>ManifoldIndex.app</strong> to Applications, then run:<br><code>xattr -cr /Applications/ManifoldIndex.app</code><br>Only required the first time (clears the quarantine flag).</div>
       </div>
 
-      <!-- Windows v1.0.7 -->
+      <!-- Windows v1.0.8 -->
       <div class="download-card" id="card-v1.0-windows">
         <span class="version-badge latest">Latest · Stable</span>
-        <h3>v1.0.7 for Windows</h3>
+        <h3>v1.0.8 for Windows</h3>
         <div class="platform-info">Windows 10+ · x64 standalone exe</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.0.7/ManifoldIndex.exe" class="download-btn">Download .exe (350 MB)</a>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.0.8/ManifoldIndex.exe" class="download-btn">Download .exe (350 MB)</a>
         <div class="system-note">No installation needed — just double-click the downloaded <strong>ManifoldIndex.exe</strong>. If Windows SmartScreen warns, click <strong>More info</strong> → <strong>Run anyway</strong>.</div>
       </div>
 
@@ -739,6 +739,13 @@
     <!-- ── Changelog ────────────────────────────────────────────────────– -->
     <section id="changelog">
       <h2>Changelog</h2>
+
+      <h3>v1.0.8 — refined filling basis-independence, responsive Stop</h3>
+      <ul>
+        <li><strong>Refined Dehn-filling basis-dependence fix:</strong> the filled index via any NC cycle now agrees at η → 1 with the classical unrefined filling (previously m060 (1, 1) through NC = (−1, 0) or (0, 1) could give a different answer from NC = (1, 0)). Root cause was the per-axis bounding box in <code>_exact_e0_candidates</code> silently dropping valid lattice points; replaced with clip-to-floor + per-axis adaptive shell growth.</li>
+        <li><strong>Stop button in NC search is now responsive</strong> — aborts within a few seconds even on slow manifolds (was an <code>AttributeError</code> crash or an indefinite wait for the current slope to finish).</li>
+        <li><strong><code>_MAX_BOX_SIZE</code> default lowered from 50M to 1M</strong> (env-overridable via <code>_IREF_MAX_BOX_SIZE</code>) — keeps per-slope runtime tractable on manifolds with highly-elongated sublevel sets (m111 etc.). Trade-off is silent correctness loss on those manifolds; raise the env var to re-validate.</li>
+      </ul>
 
       <h3>v1.0.7 — first stable release</h3>
       <ul>
