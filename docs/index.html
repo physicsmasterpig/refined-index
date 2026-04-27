@@ -619,7 +619,7 @@
     <!-- ── Download Section ──────────────────────────────────────────── -->
     <div class="download-section" id="download">
       <div class="download-header">
-        <h2>Download v1.0.8</h2>
+        <h2>Download v1.0.9</h2>
         <p>Stable release · choose your platform</p>
       </div>
 
@@ -633,21 +633,21 @@
         </div>
       </div>
 
-      <!-- macOS v1.0.8 -->
+      <!-- macOS v1.0.9 -->
       <div class="download-card active" id="card-v1.0-macos">
         <span class="version-badge latest">Latest · Stable</span>
-        <h3>v1.0.8 for macOS</h3>
+        <h3>v1.0.9 for macOS</h3>
         <div class="platform-info">Universal (Intel + Apple Silicon) · macOS 11+</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.0.8/ManifoldIndex.zip" class="download-btn">Download .zip (334 MB)</a>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.0.9/ManifoldIndex.zip" class="download-btn">Download .zip (334 MB)</a>
         <div class="system-note">Extract the zip, move <strong>ManifoldIndex.app</strong> to Applications, then run:<br><code>xattr -cr /Applications/ManifoldIndex.app</code><br>Only required the first time (clears the quarantine flag).</div>
       </div>
 
-      <!-- Windows v1.0.8 -->
+      <!-- Windows v1.0.9 -->
       <div class="download-card" id="card-v1.0-windows">
         <span class="version-badge latest">Latest · Stable</span>
-        <h3>v1.0.8 for Windows</h3>
+        <h3>v1.0.9 for Windows</h3>
         <div class="platform-info">Windows 10+ · x64 standalone exe</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.0.8/ManifoldIndex.exe" class="download-btn">Download .exe (350 MB)</a>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.0.9/ManifoldIndex.exe" class="download-btn">Download .exe (350 MB)</a>
         <div class="system-note">No installation needed — just double-click the downloaded <strong>ManifoldIndex.exe</strong>. If Windows SmartScreen warns, click <strong>More info</strong> → <strong>Run anyway</strong>.</div>
       </div>
 
@@ -739,6 +739,13 @@
     <!-- ── Changelog ────────────────────────────────────────────────────– -->
     <section id="changelog">
       <h2>Changelog</h2>
+
+      <h3>v1.0.9 — 6_2 (1, 0) undercounting fix, batched F_x2</h3>
+      <ul>
+        <li><strong>Fixed 6_2 (1, 0) regression introduced by v1.0.8</strong> where the unrefined fill produced a spurious <code>{0: −1}</code> term and was incorrectly classified non-NC. Root cause: the v1.0.8 floor padding raised <code>R[j]</code> to ≥40, but the resulting initial box exceeded the 1M isotropic cap → R was clamped back to ~15 per axis → adaptive shell growth was <em>skipped entirely</em>, dropping ~192 valid sublevel points per kernel context. Fix: removed the early-exit on clamp, removed the inner <code>_MAX_BOX_SIZE</code> check inside shell growth, raised <code>_MAX_SHELL_STEPS</code> 32→80 with a 3-empty-shell convergence stop. 6_2 (1, 0) is now correctly stably zero at q_half ∈ {4, 6, 8, 10}; the v1.0.8 m060 (1, 1) refined fix is preserved.</li>
+        <li><strong>Batched <code>F_x2</code> in <code>_proj_min_fixed</code>:</strong> the projection minimiser now evaluates ray-scan trial points in 32-point NumPy chunks instead of single calls, and the inner <code>F_x2</code> always uses the vectorised path. ~2× speedup on the projection step; reduces total <code>F_x2</code> overhead from ~180 s to ~40 s on m111 (1, 0).</li>
+        <li><strong>Known regression:</strong> m111 (1, 0) at q_half = 4 unrefined fill is ~1.5× slower (102 s → ~150 s) because shell growth now correctly walks out the genuinely large sublevel set instead of stopping at the isotropic cap. The result is unchanged. A principled fix that replaces <code>_proj_min_fixed</code> with an exact projection minimiser is planned for v1.1.0.</li>
+      </ul>
 
       <h3>v1.0.8 — refined filling basis-independence, responsive Stop</h3>
       <ul>
