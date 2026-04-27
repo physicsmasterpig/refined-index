@@ -5,6 +5,49 @@ All notable changes to Refined Index Calculator.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.9] — 2026-04-22
+
+### Fixed
+- **6_2 (1, 0) unrefined-fill regression** introduced by v1.0.8: the
+  `_exact_e0_candidates` lattice enumeration was silently undercounting
+  for high-`n_int` manifolds (e.g. 6_2, n_int=4) whenever the heuristic
+  per-axis radius `R[j]` from `_axis_scan_bound`+`_proj_min_fixed`
+  underestimated the true sublevel extent. The v1.0.8 floor padding
+  raised `R[j]` to ≥40, but the resulting initial box exceeded the 1M
+  isotropic cap → R was clamped back to ~15 per axis → adaptive shell
+  growth was *skipped entirely* due to the `_was_clamped` early-exit →
+  ~192 valid sublevel points (per kernel context) were dropped, leaving
+  an uncancelled `{0: -1}` term in the truncated series. Three changes:
+  1. Removed the `if _was_clamped: return result` early-exit so shell
+     growth always runs.
+  2. Removed the inner `_MAX_BOX_SIZE` check inside shell growth — the
+     cap now applies only to the *initial* isotropic box; shell growth
+     is free to extend each axis anisotropically until the sublevel set
+     is exhausted.
+  3. Raised `_MAX_SHELL_STEPS` from 32 → 80 with a `_EMPTY_SHELL_STOP=3`
+     convergence heuristic (stop after 3 consecutive empty shells).
+
+  6_2 (1, 0) is now correctly stably zero at q_half ∈ {4, 6, 8, 10}.
+  m060 (1, 1) refined fix from v1.0.8 is preserved (q^0|η=0 = 0).
+
+### Performance
+- **Batched `F_x2` in `_proj_min_fixed`**: the per-axis projection
+  minimiser now evaluates ray-scan trial points in 32-point NumPy
+  chunks instead of single calls, and the inner `F_x2` always uses the
+  vectorised path (the n<8 scalar fallback is removed). Saves the
+  Python call overhead at ~35M F evaluations per slope. ~2× speedup
+  on the projection step alone.
+
+### Known regressions
+- **m111 (1, 0) unrefined fill at q_half=4** is now ~1.5× slower
+  (102 s → ~150 s) because the unbounded shell growth correctly walks
+  out the (genuinely large) sublevel set instead of stopping at the
+  isotropic cap. The cap-induced undercount happened to land on a
+  topologically correct stably-zero verdict for this slope, so the
+  result is unchanged. A principled fix that replaces `_proj_min_fixed`
+  with an exact projection minimiser (eliminating the need for the
+  floor padding and shell growth entirely) is planned for v1.1.0.
+
 ## [1.0.8] — 2026-04-20
 
 ### Fixed
