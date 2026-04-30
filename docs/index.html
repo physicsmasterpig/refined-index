@@ -619,7 +619,7 @@
     <!-- ── Download Section ──────────────────────────────────────────── -->
     <div class="download-section" id="download">
       <div class="download-header">
-        <h2>Download v1.1.0</h2>
+        <h2>Download v1.1.1</h2>
         <p>Stable release · choose your platform</p>
       </div>
 
@@ -633,21 +633,21 @@
         </div>
       </div>
 
-      <!-- macOS v1.1.0 -->
-      <div class="download-card active" id="card-v1.0-macos">
+      <!-- macOS v1.1.1 -->
+      <div class="download-card active" id="card-v1.1-macos">
         <span class="version-badge latest">Latest · Stable</span>
-        <h3>v1.1.0 for macOS</h3>
+        <h3>v1.1.1 for macOS</h3>
         <div class="platform-info">Universal (Intel + Apple Silicon) · macOS 11+</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.1.0/ManifoldIndex.zip" class="download-btn">Download .zip (334 MB)</a>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.1.1/ManifoldIndex.zip" class="download-btn">Download .zip (334 MB)</a>
         <div class="system-note">Extract the zip, move <strong>ManifoldIndex.app</strong> to Applications, then run:<br><code>xattr -cr /Applications/ManifoldIndex.app</code><br>Only required the first time (clears the quarantine flag).</div>
       </div>
 
-      <!-- Windows v1.1.0 -->
-      <div class="download-card" id="card-v1.0-windows">
+      <!-- Windows v1.1.1 -->
+      <div class="download-card" id="card-v1.1-windows">
         <span class="version-badge latest">Latest · Stable</span>
-        <h3>v1.1.0 for Windows</h3>
+        <h3>v1.1.1 for Windows</h3>
         <div class="platform-info">Windows 10+ · x64 standalone exe</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.1.0/ManifoldIndex.exe" class="download-btn">Download .exe (350 MB)</a>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.1.1/ManifoldIndex.exe" class="download-btn">Download .exe (350 MB)</a>
         <div class="system-note">No installation needed — just double-click the downloaded <strong>ManifoldIndex.exe</strong>. If Windows SmartScreen warns, click <strong>More info</strong> → <strong>Run anyway</strong>.</div>
       </div>
 
@@ -662,14 +662,33 @@
         <div class="selector-group">
           <div class="selector">
             <div class="selector-buttons version-selector">
-              <button class="selector-btn active" data-value="v0.5" onclick="selectVersion('v0.5')">v0.5.15</button>
+              <button class="selector-btn active" data-value="v1.0" onclick="selectVersion('v1.0')">v1.0.9</button>
+              <button class="selector-btn" data-value="v0.5" onclick="selectVersion('v0.5')">v0.5.15</button>
               <button class="selector-btn" data-value="v0.4" onclick="selectVersion('v0.4')">v0.4.2</button>
             </div>
           </div>
         </div>
 
+        <!-- macOS v1.0.9 -->
+        <div class="download-card active" id="card-v1.0-macos">
+          <span class="version-badge">v1.0.9</span>
+          <h3>v1.0.9 for macOS</h3>
+          <div class="platform-info">Universal (Intel + Apple Silicon) · macOS 11+</div>
+          <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.0.9/ManifoldIndex.zip" class="download-btn">Download (334 MB)</a>
+          <div class="system-note">Ad-hoc signed. Clear quarantine with: <code>xattr -cr ~/Downloads/ManifoldIndex.app</code></div>
+        </div>
+
+        <!-- Windows v1.0.9 -->
+        <div class="download-card" id="card-v1.0-windows">
+          <span class="version-badge">v1.0.9</span>
+          <h3>v1.0.9 for Windows</h3>
+          <div class="platform-info">Windows 10+ · x64 standalone exe</div>
+          <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.0.9/ManifoldIndex.exe" class="download-btn">Download .exe</a>
+          <div class="system-note">No installation needed. Download and run directly. Windows Defender may warn — click "More info" → "Run anyway".</div>
+        </div>
+
         <!-- macOS v0.5.15 -->
-        <div class="download-card active" id="card-v0.5-macos">
+        <div class="download-card" id="card-v0.5-macos">
           <span class="version-badge">v0.5.15</span>
           <h3>v0.5.15 for macOS</h3>
           <div class="platform-info">Universal (Intel + Apple Silicon) · macOS 11+</div>
@@ -739,6 +758,20 @@
     <!-- ── Changelog ────────────────────────────────────────────────────– -->
     <section id="changelog">
       <h2>Changelog</h2>
+
+      <h3>v1.1.1 — multi-cusp basis optimisation, downloads page cleanup</h3>
+      <ul>
+        <li><strong>Multi-cusp hard-edge basis optimisation.</strong>
+        ``MultiCuspNcCompatWorker`` now silently runs the optimiser
+        before the joint adjoint check, mirroring the single-cusp
+        behaviour from v1.1.0.  Refinement is the count of edges j for
+        which every per-cusp Weyl column has ``a_I[j] ∈ ℤ ∧ 2·b_I[j] ∈ ℤ``,
+        and verification uses the multi-cusp adjoint formula.</li>
+        <li><strong>Downloads page cleanup.</strong> v1.1 is the latest
+        stable series; v1.0 (final: v1.0.9) is now in Older Releases.
+        The internal version-grouping IDs and JS were renamed
+        accordingly.</li>
+      </ul>
 
       <h3>v1.1.0 — hard-edge basis optimisation</h3>
       <ul>
@@ -911,11 +944,11 @@
   </footer>
 
   <script>
-    // Latest-stable is always shown; v0.5 / v0.4 live behind a toggle and
-    // have their own independent version selector.
+    // Latest-stable (v1.1) is always shown; v1.0 / v0.5 / v0.4 live behind
+    // a toggle and have their own independent version selector.
     let currentPlatform = 'macos';
-    let olderVersion = 'v0.5';
-    const ALL_VERSIONS = ['v1.0', 'v0.5', 'v0.4'];
+    let olderVersion = 'v1.0';
+    const ALL_VERSIONS = ['v1.1', 'v1.0', 'v0.5', 'v0.4'];
 
     function selectVersion(version) {
       olderVersion = version;
@@ -934,7 +967,7 @@
         ['macos', 'windows'].forEach(p => {
           const card = document.getElementById(`card-${v}-${p}`);
           if (!card) return;
-          const isLatest = v === 'v1.0';
+          const isLatest = v === 'v1.1';
           const shouldShow = isLatest
             ? (p === currentPlatform)
             : (v === olderVersion && p === currentPlatform);

@@ -5,4 +5,4 @@ from importlib.metadata import version, PackageNotFoundError
 try:
     __version__ = version("refined-index-calculator")
 except PackageNotFoundError:
-    __version__ = "1.1.0"
+    __version__ = "1.1.1"

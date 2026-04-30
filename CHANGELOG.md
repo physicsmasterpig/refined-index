@@ -5,6 +5,35 @@ All notable changes to Refined Index Calculator.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] — 2026-04-30
+
+### Added
+- **Multi-cusp hard-edge basis optimisation**.
+  ``core.optimal_basis.find_optimal_hard_basis_multi(data, easy_result,
+  cusp_specs, …)`` extends the v1.1.0 single-cusp optimiser to the
+  joint multi-cusp adjoint check.  Refinement = #{j : every cusp's
+  Weyl column has ``a_I[j] ∈ ℤ ∧ 2·b_I[j] ∈ ℤ``}; verification uses
+  ``check_adjoint_projection_multi_cusp`` so every per-cusp projected
+  value must be ≤ −1 and integer.
+- ``MultiCuspNcCompatWorker`` accepts ``manifold_name`` +
+  ``easy_result`` and runs the multi-cusp optimiser before the joint
+  adjoint check.  Both call sites in ``FillingCard`` thread these
+  through.
+- Sanity-tested: multi-cusp variant with ``d=1`` matches the
+  single-cusp result exactly on 6_2 NC=(1,0).
+
+### Fixed
+- Download page now correctly identifies **v1.1** as the latest stable
+  series; v1.0 (final: v1.0.9) is moved into the Older Releases
+  panel for users still on the previous track.
+
+### Notes
+- The multi-cusp optimiser is functional but on 2-cusp manifolds with
+  num_hard = 2 (L6a2, m202, m203, 6²_2) the default basis is already
+  optimal under unimodular GL(2, ℤ) at coeff_range = 1–3 — no
+  improvement found.  Manifolds with larger hard-subspace dimensions
+  may benefit; the wiring is in place for whenever those cases arise.
+
 ## [1.1.0] — 2026-04-30
 
 ### Added
