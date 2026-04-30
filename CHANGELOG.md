@@ -5,6 +5,20 @@ All notable changes to Refined Index Calculator.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4] — 2026-04-30
+
+### Changed
+- **Hard-edge basis info moved to the Compute Filling info panel.**
+  The "opt K→K′" badge previously rendered next to γᵢ in the NC cycle
+  table, which was the wrong place — the optimised hard rows are
+  what the η-variables are attached to, so the basis belongs with the
+  Weyl-vectors-per-edge table that displays $a_j$ / $b_j$ on those
+  edges.  The fill-info panel now shows a dedicated "Hard-edge basis"
+  table immediately before "Weyl vectors per edge", listing each
+  $W_j$ as the per-tetrahedron triplet $(z_i, z'_i, z''_i)$.  When
+  the basis is non-default the section header carries the
+  refinement-gain badge with full $G$ matrix on hover.
+
 ## [1.1.3] — 2026-04-23
 
 ### Fixed

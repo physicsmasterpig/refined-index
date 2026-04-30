@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from fractions import Fraction
 from manifold_index.viewmodels.filling_vm import NCCycleViewModel
+from manifold_index.formatters.manifold_fmt import _edge_triplets_latex
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -145,27 +146,9 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
         # γᵢ = (P, Q) in the (α, β) basis
         gamma_str = format_slope_latex(nc.P, nc.Q, r"\alpha", r"\beta")
 
-        # v1.1: optimised-basis badge.  When True, the displayed (a, b)
-        # / refinement / adj_val come from a non-default hard-edge basis
-        # found by the optimiser.  Tooltip shows G and the refinement gain.
-        basis_badge = ""
-        if getattr(nc, 'basis_optimised', False):
-            G = getattr(nc, 'basis_G', None)
-            d_ref = getattr(nc, 'default_refinement', None)
-            o_ref = getattr(nc, 'optimised_refinement', None)
-            G_str = ""
-            if G is not None:
-                G_str = "; ".join(", ".join(str(c) for c in row) for row in G)
-            tooltip = (f"refinement {d_ref} → {o_ref};  G = [{G_str}]"
-                       if d_ref is not None and o_ref is not None
-                       else "hard-edge basis optimised")
-            basis_badge = (
-                f' <span title="{tooltip}" '
-                f'style="display:inline-block;padding:1px 5px;margin-left:4px;'
-                f'border-radius:3px;background:#1b4332;color:#80ed99;'
-                f'font-size:0.8em;font-weight:bold;">'
-                f'opt {d_ref or "?"}→{o_ref or "?"}</span>'
-            )
+        # v1.1.4: optimised-basis information moved to the Compute Filling
+        # info panel, alongside the actual hard-edge basis rows and the
+        # Weyl vectors-per-edge table where it gives more context.
 
         # δᵢ = (R, S) — Bézout complement
         R, S = _bezout_complement(nc.P, nc.Q)
@@ -200,7 +183,7 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
         html += (
             f'<tr>\n'
             f'  <td style="text-align: center;"><b>${i}$</b></td>\n'
-            f'  <td style="text-align: center;">${gamma_str}${basis_badge}</td>\n'
+            f'  <td style="text-align: center;">${gamma_str}$</td>\n'
             f'  <td style="text-align: center;">${delta_str}$</td>\n'
             f'  <td style="text-align: center;">{snc_cell}</td>\n'
             f'  <td style="text-align: center;"><small>$\\textrm{{{nc.source}}}$</small></td>\n'
@@ -723,11 +706,13 @@ def format_fill_info_html(
     adjoint_per_cusp: "list[dict] | None" = None,
     ab_vectors=None,
     adj_pass: "bool | None" = None,
+    basis_info: "dict | None" = None,
 ) -> str:
     r"""HTML for the fill-info panel shown above the result table.
 
     Layout:
       Table 1 — Per-cusp basis info: Cusp | γ | δ | Transformed slope | k-vector
+      Table 1.5 — Hard-edge basis: actual W_j edges used (incl. opt badge)
       Table 2 — Per-edge a/b vectors: Edge | a_I[j] per cusp | b_I[j] per cusp | compatible?
       Table 3 — Per-cusp q¹ projection (with incompatible edges turned off)
 
@@ -741,6 +726,17 @@ def format_fill_info_html(
         Per-cusp adjoint projection results from MultiCuspNcCompatWorker.
     ab_vectors : ABVectors or None
         Full ABVectors with cusp_columns for multi-cusp edge display.
+    basis_info : dict or None
+        Hard-edge basis details::
+
+            {
+                "hard_edges":           list[np.ndarray],   # W_j as 3n-vectors
+                "n":                    int,                 # n_tetrahedra
+                "basis_optimised":      bool,
+                "default_refinement":   int | None,
+                "optimised_refinement": int | None,
+                "G":                    list[list[int]] | None,
+            }
     """
     if not cusp_specs_aug:
         return ""
@@ -796,6 +792,61 @@ def format_fill_info_html(
             f"</tr>"
         )
     parts.append("<table>" + "".join(rows_basis) + "</table>")
+
+    # ── Table 1.5: Hard-edge basis used for refinement ──────────────────
+    # Shows the actual W_j edges that the η-variables are attached to,
+    # so the reader can read off the Weyl-vectors-per-edge table below in
+    # the same coordinate system.  When the optimiser found a non-default
+    # basis we flag it with an inline badge (refinement gain + G matrix).
+    if basis_info is not None:
+        hard_edges = basis_info.get("hard_edges") or []
+        n_tet      = basis_info.get("n") or 0
+        b_opt      = bool(basis_info.get("basis_optimised"))
+        d_ref      = basis_info.get("default_refinement")
+        o_ref      = basis_info.get("optimised_refinement")
+        G_mat      = basis_info.get("G")
+
+        if hard_edges and n_tet:
+            # Optimised badge — moved from the NC cycle table to here.
+            badge_html = ""
+            if b_opt:
+                G_str = ""
+                if G_mat is not None:
+                    G_str = "; ".join(", ".join(str(c) for c in row)
+                                      for row in G_mat)
+                tip = (f"refinement {d_ref} → {o_ref};  G = [{G_str}]"
+                       if d_ref is not None and o_ref is not None
+                       else "hard-edge basis optimised")
+                gain = (f"opt {d_ref}→{o_ref}"
+                        if d_ref is not None and o_ref is not None
+                        else "optimised")
+                badge_html = (
+                    f' <span title="{tip}" '
+                    f'style="display:inline-block;padding:1px 6px;'
+                    f'margin-left:6px;border-radius:3px;background:#1b4332;'
+                    f'color:#80ed99;font-size:0.85em;font-weight:bold;">'
+                    f'{gain}</span>'
+                )
+
+            edge_rows = ""
+            for j, hedge in enumerate(hard_edges):
+                triplets = _edge_triplets_latex(hedge, n_tet)
+                edge_rows += (
+                    f"<tr>"
+                    f"<td style='text-align:center;font-weight:bold'>"
+                    f"$W_{{{j}}}$</td>"
+                    f"<td>${triplets}$</td>"
+                    f"</tr>"
+                )
+
+            parts.append(
+                f"<p style='margin:8px 0 4px;font-weight:bold'>"
+                f"Hard-edge basis{badge_html}</p>"
+                "<table>"
+                "<tr><th>Edge</th>"
+                f"<th>Triplets&nbsp;$(z_i,z'_i,z''_i)$ per tet</th></tr>"
+                f"{edge_rows}</table>"
+            )
 
     # ── Table 2: Per-edge a/b vectors with compatibility ────────────────
     # Collect per-edge data from ab_vectors (preferred) or fall back to

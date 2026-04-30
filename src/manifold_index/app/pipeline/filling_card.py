@@ -114,6 +114,42 @@ def _resolve_fill_nz_data(session, nc_weyl_results: dict,
     return session.nz_data
 
 
+def _build_basis_info(session, nc_weyl_results: dict,
+                      cycle_key: tuple) -> "dict | None":
+    """Return ``basis_info`` dict for the fill-info panel.
+
+    If the per-cycle Weyl check optimised the hard-edge basis, the
+    optimised hard rows + diagnostic data are returned.  Otherwise the
+    session's default ``easy_result.hard_padding`` is returned with
+    ``basis_optimised=False``.
+
+    Returns ``None`` only when no basis information is available at all
+    (e.g. session never loaded a manifold).
+    """
+    nc_entry = nc_weyl_results.get(cycle_key, {}) if cycle_key else {}
+    oer = nc_entry.get("optimised_easy_result")
+    optimised = bool(nc_entry.get("basis_optimised")) and oer is not None
+
+    if optimised:
+        hard_edges = list(oer.hard_padding)
+        n_tet = int(oer.n)
+    else:
+        er = getattr(session, "easy_result", None)
+        if er is None:
+            return None
+        hard_edges = list(er.hard_padding)
+        n_tet = int(er.n)
+
+    return {
+        "hard_edges":           hard_edges,
+        "n":                    n_tet,
+        "basis_optimised":      optimised,
+        "default_refinement":   nc_entry.get("default_refinement"),
+        "optimised_refinement": nc_entry.get("optimised_refinement"),
+        "G":                    nc_entry.get("basis_G"),
+    }
+
+
 def _compute_incompat_edges(ab) -> list[int]:
     """Return list of edge indices j where a[j] ∉ ℤ or 2*b[j] ∉ ℤ.
 
@@ -175,6 +211,7 @@ class FillingCard(QWidget):
         self._last_adjoint_per_cusp: "list | None" = None  # latest per-cusp adjoint results
         self._last_fill_info_ab = None               # ABVectors for per-edge a/b display
         self._last_fill_info_adj_pass: "bool | None" = None  # latest joint adj_pass gate
+        self._last_fill_info_basis: "dict | None" = None  # hard-edge basis info (incl. opt badge)
         self._nc_worker_progress: dict[int, tuple[int, int]] = {}
         self._fill_current_row: int | None = None
         self._fill_grid_total: int = 0
@@ -1644,6 +1681,7 @@ class FillingCard(QWidget):
                 adjoint_per_cusp=self._last_adjoint_per_cusp,
                 ab_vectors=self._last_fill_info_ab,
                 adj_pass=self._last_fill_info_adj_pass,
+                basis_info=self._last_fill_info_basis,
             )
             if info_html:
                 self._fill_info_view.set_html(info_html)
@@ -1778,6 +1816,7 @@ class FillingCard(QWidget):
         self._last_adjoint_per_cusp = None
         self._last_fill_info_adj_pass = None
         self._last_fill_info_ab = None
+        self._last_fill_info_basis = None
         self._fill_info_view.setVisible(False)
 
         # W_j compatible iff a[j]∈ℤ AND 2b[j]∈ℤ AND refined q^1 = -1.
@@ -1867,6 +1906,7 @@ class FillingCard(QWidget):
         self._last_adjoint_per_cusp = None
         self._last_fill_info_adj_pass = None
         self._last_fill_info_ab = None
+        self._last_fill_info_basis = None
         self._fill_info_view.setVisible(False)
 
         incompat_edges: list[int] = []
@@ -2080,6 +2120,9 @@ class FillingCard(QWidget):
                 self._last_fill_info_ab = nc_weyl.get("ab")
                 self._last_fill_info_adj_pass = nc_weyl.get("adj_pass") \
                     if nc_weyl else None
+                self._last_fill_info_basis = _build_basis_info(
+                    s, self._nc_weyl_results, cycle_key
+                )
                 self._refresh_fill_info_view()
             except Exception:
                 pass
@@ -2194,10 +2237,14 @@ class FillingCard(QWidget):
                 nc_weyl = self._nc_weyl_results.get(cycle_key, {})
                 self._last_fill_info_ab = nc_weyl.get("ab")
                 self._last_fill_info_adj_pass = nc_weyl.get("adj_pass")
+                self._last_fill_info_basis = _build_basis_info(
+                    s, self._nc_weyl_results, cycle_key
+                )
                 info_html = format_fill_info_html([fake_spec], result,
                                                   adjoint_per_cusp=self._last_adjoint_per_cusp,
                                                   ab_vectors=self._last_fill_info_ab,
-                                                  adj_pass=self._last_fill_info_adj_pass)
+                                                  adj_pass=self._last_fill_info_adj_pass,
+                                                  basis_info=self._last_fill_info_basis)
                 if info_html:
                     self._fill_info_view.set_html(info_html)
                     self._fill_info_view.setVisible(True)
@@ -2443,6 +2490,7 @@ class FillingCard(QWidget):
         self._last_adjoint_per_cusp = None
         self._last_fill_info_adj_pass = None
         self._last_fill_info_ab = None
+        self._last_fill_info_basis = None
         self._fill_info_view.setVisible(False)
         self._fill_btn.setEnabled(False)
         self._fill_stop_btn.setEnabled(True)
@@ -2524,6 +2572,17 @@ class FillingCard(QWidget):
         try:
             self._last_fill_info_specs  = list(cusp_specs)
             self._last_fill_info_result = result
+            # Multi-cusp basis info: pick the first cusp's NC entry — every
+            # filled cusp shares the same hard-edge basis (the optimiser
+            # operates jointly on all cusps), so any cycle_key works.
+            cycle_key = None
+            if cusp_specs:
+                first = cusp_specs[0]
+                cycle_key = (int(first.get("nc_P", 0)),
+                             int(first.get("nc_Q", 0)))
+            self._last_fill_info_basis = _build_basis_info(
+                s, self._nc_weyl_results, cycle_key
+            )
             self._refresh_fill_info_view()
         except Exception:
             pass
