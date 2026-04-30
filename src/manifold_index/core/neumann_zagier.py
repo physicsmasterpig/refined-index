@@ -717,15 +717,26 @@ def build_neumann_zagier(
                   for i in easy_result.independent_easy_indices]  # num_easy 3n-vectors
     internal_edges_ordered = hard_edges + easy_edges              # total n-r
 
+    # Per-row RHS for each internal-edge equation (in 2πi units).
+    # Raw SnapPy edges have RHS = 2.  Integer combinations sum the RHSes:
+    # for α·raw[i] + β·raw[j] the RHS is 2(α + β).  ``EasyEdgeResult`` tracks
+    # this per row; legacy callers that don't set it default to 2 (the
+    # value for raw edges), so the existing ``find_easy_edges`` flow is
+    # unchanged.  Custom basis constructions (e.g. v1.1 hard-basis search)
+    # MUST supply correct RHS values — otherwise the affine shift ν is wrong
+    # and the resulting refined index breaks Weyl symmetry m,e ↔ −m,−e.
+    hard_rhs = list(easy_result.hard_padding_rhs)
+    easy_rhs = [easy_result.all_easy_rhs[i]
+                for i in easy_result.independent_easy_indices]
+    internal_rhs_ordered = hard_rhs + easy_rhs                    # total n-r
+
     P_internal = np.zeros((n - r, 2 * n), dtype=int)
     nu_internal = np.zeros(n - r, dtype=int)
     for j, edge_3n in enumerate(internal_edges_ordered):
         c, cb = _reduce_to_block(edge_3n, n)
         P_internal[j] = cb
-        # Internal edge equations have RHS = 2 (in this project's units where 2πi → 2).
-        # The affine shift ν satisfies: g_NZ_row · v + ν = RHS, so ν = c - RHS = c - 2.
-        # (Meridian rows have RHS = 0, so their ν = c.)
-        nu_internal[j] = c - 2
+        # Affine shift  g_NZ_row · v + ν = RHS  ⇒  ν = c − RHS.
+        nu_internal[j] = c - int(internal_rhs_ordered[j])
 
     # Position block
     P = np.vstack([P_meridian, P_internal])   # (n, 2n)

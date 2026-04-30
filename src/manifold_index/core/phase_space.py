@@ -28,6 +28,22 @@ class EasyEdgeResult:
     n: int
     r: int
 
+    # Per-row right-hand-side (RHS) of the edge equation in 2πi units.
+    # For raw SnapPy edge equations the RHS is always 2 (sum-around-edge = 2πi).
+    # For integer combinations, the RHS scales as 2 × (signed coefficient sum).
+    # When None (default), interpreted as [2] * len(...) — backward-compatible
+    # with all callers that produce only raw / Stage-1 edges (which obey
+    # the sum-of-coefficients = 2 constraint that pins their RHS at 2).
+    # Custom basis-search constructions must set these explicitly.
+    hard_padding_rhs: "list[int] | None" = None
+    all_easy_rhs: "list[int] | None" = None
+
+    def __post_init__(self) -> None:
+        if self.hard_padding_rhs is None:
+            self.hard_padding_rhs = [2] * len(self.hard_padding)
+        if self.all_easy_rhs is None:
+            self.all_easy_rhs = [2] * len(self.all_easy)
+
     @property
     def num_independent_easy(self) -> int:
         return len(self.independent_easy_indices)
@@ -37,6 +53,12 @@ class EasyEdgeResult:
         """[independent_easy... | hard_padding...], length n-r."""
         easy = [self.all_easy[i] for i in self.independent_easy_indices]
         return easy + self.hard_padding
+
+    @property
+    def basis_rhs(self) -> list[int]:
+        """RHS values for ``basis_edges`` in the same order."""
+        easy = [self.all_easy_rhs[i] for i in self.independent_easy_indices]
+        return easy + list(self.hard_padding_rhs)
 
 
 def _is_easy(edge_3n: np.ndarray, n: int) -> bool:

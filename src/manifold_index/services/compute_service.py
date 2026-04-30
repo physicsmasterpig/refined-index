@@ -253,3 +253,35 @@ class ComputeService:
             result.adjoint.projected_value if result.adjoint is not None else None
         )
         return ab, adjoint_pass, adjoint_value
+
+    # ── Hard-edge basis optimisation ──────────────────────────────────
+
+    @staticmethod
+    def find_optimal_hard_basis(
+        data: Any,
+        easy_result: Any,
+        cusp_idx: int,
+        nc_P: int,
+        nc_Q: int,
+        *,
+        q_order_half: int = 8,
+        coeff_range: int = 1,
+        require_integer_adj: bool = True,
+        require_adj_pass: bool = True,
+    ) -> Any | None:
+        """Search the hard-edge basis space for max refinement on (P, Q).
+
+        Thin wrapper around
+        :func:`manifold_index.core.optimal_basis.find_optimal_hard_basis`.
+        Returns an ``OptimalBasisResult`` (or ``None`` if the default basis
+        is already optimal under the chosen criteria).
+        """
+        from manifold_index.core.optimal_basis import (  # noqa: PLC0415
+            find_optimal_hard_basis as _find,
+        )
+        return _find(
+            data, easy_result, cusp_idx, nc_P, nc_Q,
+            q_order_half=q_order_half, coeff_range=coeff_range,
+            require_integer_adj=require_integer_adj,
+            require_adj_pass=require_adj_pass,
+        )
