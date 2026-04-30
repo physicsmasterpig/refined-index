@@ -186,6 +186,19 @@ MAC_ZIP=""
 if ! $SKIP_MAC; then
   header "[ 3/6 ]  macOS build"
 
+  # CRITICAL: refresh the editable dist-info before bundling.  Without
+  # this, ``importlib.metadata.version("refined-index-calculator")`` reads
+  # whatever version was last installed (which may pre-date this release's
+  # version bump), and PyInstaller bundles that stale dist-info.  Result:
+  # the built app reports an old version in its title bar even though the
+  # source files (and __init__.py fallback) say the new one.  Reinstalling
+  # in editable mode rewrites the dist-info to match the current
+  # pyproject.toml version.
+  info "Refreshing editable install (pip dist-info)..."
+  "$PYTHON_BIN" -m pip install -e . --force-reinstall --no-deps --quiet \
+    && ok "dist-info refreshed to ${VERSION_NUM}" \
+    || warn "pip install -e failed; PyInstaller may bundle stale version"
+
   info "Running PyInstaller..."
   "$PYINSTALLER" ManifoldIndex.spec --noconfirm --clean 2>&1 | tail -5
 
