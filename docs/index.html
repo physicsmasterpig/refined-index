@@ -619,7 +619,7 @@
     <!-- ── Download Section ──────────────────────────────────────────── -->
     <div class="download-section" id="download">
       <div class="download-header">
-        <h2>Download v1.0.9</h2>
+        <h2>Download v1.1.0</h2>
         <p>Stable release · choose your platform</p>
       </div>
 
@@ -633,21 +633,21 @@
         </div>
       </div>
 
-      <!-- macOS v1.0.9 -->
+      <!-- macOS v1.1.0 -->
       <div class="download-card active" id="card-v1.0-macos">
         <span class="version-badge latest">Latest · Stable</span>
-        <h3>v1.0.9 for macOS</h3>
+        <h3>v1.1.0 for macOS</h3>
         <div class="platform-info">Universal (Intel + Apple Silicon) · macOS 11+</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.0.9/ManifoldIndex.zip" class="download-btn">Download .zip (334 MB)</a>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.1.0/ManifoldIndex.zip" class="download-btn">Download .zip (334 MB)</a>
         <div class="system-note">Extract the zip, move <strong>ManifoldIndex.app</strong> to Applications, then run:<br><code>xattr -cr /Applications/ManifoldIndex.app</code><br>Only required the first time (clears the quarantine flag).</div>
       </div>
 
-      <!-- Windows v1.0.9 -->
+      <!-- Windows v1.1.0 -->
       <div class="download-card" id="card-v1.0-windows">
         <span class="version-badge latest">Latest · Stable</span>
-        <h3>v1.0.9 for Windows</h3>
+        <h3>v1.1.0 for Windows</h3>
         <div class="platform-info">Windows 10+ · x64 standalone exe</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.0.9/ManifoldIndex.exe" class="download-btn">Download .exe (350 MB)</a>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.1.0/ManifoldIndex.exe" class="download-btn">Download .exe (350 MB)</a>
         <div class="system-note">No installation needed — just double-click the downloaded <strong>ManifoldIndex.exe</strong>. If Windows SmartScreen warns, click <strong>More info</strong> → <strong>Run anyway</strong>.</div>
       </div>
 
@@ -739,6 +739,28 @@
     <!-- ── Changelog ────────────────────────────────────────────────────– -->
     <section id="changelog">
       <h2>Changelog</h2>
+
+      <h3>v1.1.0 — hard-edge basis optimisation</h3>
+      <ul>
+        <li><strong>Auto-optimise hard-edge basis per NC cycle.</strong> The
+        per-cycle Weyl/adjoint check in Card ③ now searches integer-unimodular
+        changes-of-basis on the hard subspace and silently swaps in a basis
+        that yields a strictly larger refinement count <em>subject to</em> the
+        adjoint q¹ projection passing with an integer value. For 6_2 NC=(1,0)
+        this lifts the displayed refinement from 1 to 2 with adj_val = −1
+        (was −2 / refinement 1) — at &lt; 2 s extra cost per cycle.
+        Manifolds whose default basis is already optimal (m060, …) return
+        immediately with no overhead.</li>
+        <li><strong>Bug fix:</strong> ν<sub>internal</sub> in
+        <code>build_neumann_zagier</code> no longer hard-codes RHS = 2.
+        The RHS is now tracked per row via <code>EasyEdgeResult</code>, so
+        any non-raw integer combination of edges produces the correct
+        affine shift. The default flow (raw + Stage-1 easy edges, all
+        RHS = 2 by construction) is unchanged.</li>
+        <li><strong>UI:</strong> a green <em>opt 1→2</em> pill appears next
+        to the γᵢ slope in the NC table when an optimised basis was used;
+        hovering reveals the G-matrix and the refinement gain.</li>
+      </ul>
 
       <h3>v1.0.9 — 6_2 (1, 0) undercounting fix, batched F_x2</h3>
       <ul>

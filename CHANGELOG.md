@@ -5,6 +5,59 @@ All notable changes to Refined Index Calculator.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-04-30
+
+### Added
+- **Hard-edge basis optimiser** (`core/optimal_basis.find_optimal_hard_basis`).
+  Given a manifold and an NC cycle (P, Q), searches integer-unimodular
+  changes-of-basis on the hard-edge subspace to maximise the refinement
+  count `#{j : a[j] ∈ ℤ ∧ 2·b[j] ∈ ℤ}` subject to `adj_pass = True` and
+  integer `adj_val`. Two-stage:
+  1. *Analytic prefilter* using the contragredient transform
+     `(a, b) → (G⁻ᵀ·a, G⁻ᵀ·b)` — pure rational arithmetic, cheap.
+  2. *Verification* via a full Weyl + adjoint check on the top
+     candidates only.
+
+  Default `coeff_range = 1` finishes in ≈ 1.7 s on `num_hard = 3`;
+  `coeff_range = 2` is more thorough at ≈ 19 s.
+
+- **Auto-application in `NcCompatWorker`**. Per-cycle Weyl checks in
+  Card ③ now silently optimise the hard basis when an improvement
+  exists. The displayed `(a, b)`, refinement count, and `adj_val` come
+  from the optimised basis. Optimisation failures fall back silently.
+
+- **UI indicator**: green *opt K→K′* pill next to γᵢ in the NC table
+  when the basis was optimised; tooltip shows G and the refinement gain.
+
+- New `EasyEdgeResult.hard_padding_rhs` and `all_easy_rhs` fields
+  (default `[2] * N`, backward-compatible).
+
+- `Session.easy_result` field (not serialised).
+
+### Fixed
+- **`ν_internal` hard-coded RHS = 2** in `build_neumann_zagier`. For
+  any integer combination of edge equations (e.g. `α·raw[i] + β·raw[j]`)
+  the RHS is `2(α + β)`, not 2 — the wrong value introduced a q-power
+  offset that broke `m, e ↔ −m, −e` Weyl symmetry of the unrefined
+  index for non-raw bases. The default flow (raw + Stage-1 easy edges,
+  all RHS = 2 by construction) is unaffected; v1.0.x behaviour is
+  preserved.
+
+### Verified
+- 6_2 NC=(1,0): default `refinement = 1, adj_val = −2`; optimiser finds
+  `refinement = 2, adj_val = −1` (clean integer) at coeff_range = 1
+  in ~2 s end-to-end.
+- m060 NC=(1,1): default basis already optimal; optimiser returns
+  `None` in ~0.1 s, no overhead.
+- All 287 unit tests pass.
+
+### Known limitations
+- `MultiCuspNcCompatWorker` does not yet run the optimiser.
+- The kernel cache key does not include the basis G hash. In practice
+  the optimiser is deterministic for a given (manifold, NC cycle) so
+  cache collisions don't occur, but defensive cache-key hardening is
+  planned for a follow-up.
+
 ## [1.0.9] — 2026-04-22
 
 ### Fixed
