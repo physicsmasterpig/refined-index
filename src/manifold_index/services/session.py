@@ -142,6 +142,7 @@ class Session:
     # ── Card ① results ────────────────────────────────────────────────
     manifold_data: Any = None        # snappy.Manifold | None  (not serialised)
     nz_data: Any = None              # NeumannZagierData | None (not serialised)
+    easy_result: Any = None          # EasyEdgeResult | None    (not serialised)
     cache_status: dict[str, Any] = field(default_factory=dict)
     # cache_status keys: "iref", "nc", "kernels"
     # values: {"available": bool, "qq_order": int|None, ...}
@@ -224,6 +225,7 @@ class Session:
         if stage <= PipelineStage.LOADED:
             self.manifold_data = None
             self.nz_data = None
+            self.easy_result = None
             self.cache_status = {}
             self.active_edges = []
             self.index_queries = []

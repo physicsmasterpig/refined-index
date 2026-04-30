@@ -93,15 +93,27 @@ class NcCompatWorker(QThread):
         num_hard: int,
         q_order_half: int,
         parent=None,
+        *,
+        # v1.1: pass-through to enable hard-edge basis optimisation.
+        # Both must be provided for optimisation to run; otherwise the
+        # worker falls back to the default basis unchanged.
+        manifold_name: "str | None" = None,
+        easy_result: Any = None,
+        optimise_basis: bool = True,
+        optimise_coeff_range: int = 1,
     ) -> None:
         super().__init__(parent)
-        self._nz_data      = nz_data
-        self._P            = P
-        self._Q            = Q
-        self._cusp_idx     = cusp_idx
+        self._nz_data       = nz_data
+        self._P             = P
+        self._Q             = Q
+        self._cusp_idx      = cusp_idx
         self._index_queries = index_queries
-        self._num_hard     = num_hard
-        self._q_order_half = q_order_half
+        self._num_hard      = num_hard
+        self._q_order_half  = q_order_half
+        self._manifold_name = manifold_name
+        self._easy_result   = easy_result
+        self._optimise_basis = optimise_basis
+        self._optimise_coeff_range = optimise_coeff_range
 
     def run(self) -> None:
         try:
@@ -109,6 +121,55 @@ class NcCompatWorker(QThread):
                 dehn_filling as _df,
                 neumann_zagier as _nz,
             )
+
+            # ── v1.1: hard-edge basis optimisation (optional) ───────────
+            #
+            # When the caller supplied ``manifold_name`` + ``easy_result``,
+            # search the unimodular basis space for an optimised hard
+            # basis that yields max refinement subject to integer adjoint
+            # projection.  If an improvement is found, swap nz_data for
+            # the rebuilt one and continue normally — every subsequent
+            # step (basis change, probe grid, Weyl check, marginal check)
+            # then operates on the optimised basis transparently.
+            basis_optimised = False
+            basis_G: "list[list[int]] | None" = None
+            default_refinement: "int | None" = None
+            optimised_refinement: "int | None" = None
+            opt_diag: dict = {}
+
+            if (self._optimise_basis and self._manifold_name
+                    and self._easy_result is not None):
+                try:
+                    from manifold_index.core.optimal_basis import (  # noqa: PLC0415
+                        find_optimal_hard_basis,
+                    )
+                    from manifold_index.core.manifold import (  # noqa: PLC0415
+                        load_manifold as _load_md,
+                    )
+                    md = _load_md(self._manifold_name)  # in-thread reload
+                    opt = find_optimal_hard_basis(
+                        md, self._easy_result, self._cusp_idx,
+                        self._P, self._Q,
+                        q_order_half=self._q_order_half,
+                        coeff_range=self._optimise_coeff_range,
+                    )
+                    if opt is not None:
+                        # Rebuild nz_data with the optimised basis
+                        new_nz = _nz.build_neumann_zagier(md, opt.new_easy_result)
+                        self._nz_data = new_nz
+                        basis_optimised = True
+                        basis_G = opt.G
+                        default_refinement = opt.default_refinement
+                        optimised_refinement = opt.refinement
+                        opt_diag = {
+                            "n_searched": opt.n_candidates_searched,
+                            "n_verified": opt.n_candidates_verified,
+                        }
+                except Exception:
+                    # If optimisation fails for any reason, silently fall
+                    # back to the default basis — never block the user.
+                    pass
+
             R, S = _df.find_rs(self._P, self._Q)
             nz_nc = _nz.apply_general_cusp_basis_change(
                 self._nz_data, self._cusp_idx,
@@ -195,6 +256,11 @@ class NcCompatWorker(QThread):
                     "adjoint_value": None,
                     "is_marginal": None,
                     "unrefined_q1_proj": None,
+                    "basis_optimised": basis_optimised,
+                    "basis_G": basis_G,
+                    "default_refinement": default_refinement,
+                    "optimised_refinement": optimised_refinement,
+                    "basis_opt_diag": opt_diag,
                 })
                 return
 
@@ -320,6 +386,11 @@ class NcCompatWorker(QThread):
                 "adjoint_value":    adjoint_value,
                 "is_marginal":      is_marginal,
                 "unrefined_q1_proj": unrefined_q1_proj,
+                "basis_optimised":   basis_optimised,
+                "basis_G":           basis_G,
+                "default_refinement":   default_refinement,
+                "optimised_refinement": optimised_refinement,
+                "basis_opt_diag":    opt_diag,
             })
         except Exception as exc:
             self.error.emit(str(exc))

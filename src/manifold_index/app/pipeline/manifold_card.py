@@ -322,6 +322,7 @@ class ManifoldCard(QWidget):
         s.manifold_name = manifold_data.name
         # Don't store manifold_data — it's thread-bound; reload in main thread when needed
         s.nz_data       = nz_data
+        s.easy_result   = easy_result   # stash for downstream (e.g. hard-basis optimiser)
         s.cache_status  = cache_info
         s.active_edges  = [True] * int(nz_data.num_hard)
         s.stage         = PipelineStage.LOADED

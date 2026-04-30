@@ -947,6 +947,9 @@ class FillingCard(QWidget):
                 index_queries = list(s.index_queries),
                 num_hard     = s.num_hard(),
                 q_order_half = s.q_order_half,
+                # v1.1: pass through to enable hard-edge basis optimisation
+                manifold_name = s.manifold_name,
+                easy_result   = s.easy_result,
                 parent       = self,
             )
             worker.finished.connect(
@@ -973,11 +976,20 @@ class FillingCard(QWidget):
         adj_value    = payload.get("adjoint_value")
         is_marginal  = payload.get("is_marginal")
         unrefined_q1_proj = payload.get("unrefined_q1_proj")
+        basis_optimised   = payload.get("basis_optimised", False)
+        basis_G           = payload.get("basis_G")
+        default_refine    = payload.get("default_refinement")
+        optimised_refine  = payload.get("optimised_refinement")
 
+        opt_msg = (
+            f" basis_optimised: {default_refine}→{optimised_refine}"
+            if basis_optimised else ""
+        )
         print(
             f"[WEYL-NC] Cycle ({P},{Q}) done: ab={'present' if ab else 'None'}, "
             f"adj_pass={adj_pass}, adj_value={adj_value}, "
             f"is_marginal={is_marginal}, unrefined_q1_proj={unrefined_q1_proj}"
+            f"{opt_msg}"
         )
 
         # Store per-cycle result
@@ -986,7 +998,11 @@ class FillingCard(QWidget):
             "adj_pass":             adj_pass,
             "adj_value":            adj_value,
             "is_marginal":          is_marginal,
-            "unrefined_q1_proj": unrefined_q1_proj,
+            "unrefined_q1_proj":    unrefined_q1_proj,
+            "basis_optimised":      basis_optimised,
+            "basis_G":              basis_G,
+            "default_refinement":   default_refine,
+            "optimised_refinement": optimised_refine,
         }
 
         # Check if all cycles are done
