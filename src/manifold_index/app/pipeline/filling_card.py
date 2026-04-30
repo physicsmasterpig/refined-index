@@ -1056,6 +1056,10 @@ class FillingCard(QWidget):
                     vm.weyl_b               = None
                     vm.is_marginal          = None
                     vm.unrefined_q1_proj = None
+                    vm.basis_optimised      = False
+                    vm.basis_G              = None
+                    vm.default_refinement   = None
+                    vm.optimised_refinement = None
                 else:
                     ab = result.get("ab")
                     vm.weyl_compatible    = None if ab is None else True
@@ -1070,7 +1074,12 @@ class FillingCard(QWidget):
                         vm.weyl_b = None
                     # Strongly-NC (unrefined q^1) — controls kernel choice.
                     vm.is_marginal          = result.get("is_marginal")
-                    vm.unrefined_q1_proj = result.get("unrefined_q1_proj")
+                    vm.unrefined_q1_proj    = result.get("unrefined_q1_proj")
+                    # v1.1: hard-edge basis optimisation indicator.
+                    vm.basis_optimised      = bool(result.get("basis_optimised"))
+                    vm.basis_G              = result.get("basis_G")
+                    vm.default_refinement   = result.get("default_refinement")
+                    vm.optimised_refinement = result.get("optimised_refinement")
             else:
                 vm.weyl_compatible      = None
                 vm.adjoint_proj_pass    = None
@@ -1079,6 +1088,10 @@ class FillingCard(QWidget):
                 vm.weyl_b               = None
                 vm.is_marginal          = None
                 vm.unrefined_q1_proj = None
+                vm.basis_optimised      = False
+                vm.basis_G              = None
+                vm.default_refinement   = None
+                vm.optimised_refinement = None
 
     # ------------------------------------------------------------------
     # Internal — Fill stop

@@ -69,6 +69,14 @@ class NCCycleViewModel:
     # is_marginal = False when proj ≤ -1 → refined kernel may be used.
     is_marginal: "bool | None" = None
     unrefined_q1_proj: "int | None" = None
+    # v1.1: hard-edge basis optimisation status for this NC cycle.
+    # When ``basis_optimised`` is True the displayed (a, b), refinement
+    # count, and adj_val all come from the optimised basis — not the
+    # default raw-edge basis.
+    basis_optimised: "bool" = False
+    basis_G: "list[list[int]] | None" = None
+    default_refinement: "int | None" = None
+    optimised_refinement: "int | None" = None
 
 
 # ---------------------------------------------------------------------------

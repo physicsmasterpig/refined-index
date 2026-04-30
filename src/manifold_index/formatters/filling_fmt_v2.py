@@ -145,6 +145,28 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
         # γᵢ = (P, Q) in the (α, β) basis
         gamma_str = format_slope_latex(nc.P, nc.Q, r"\alpha", r"\beta")
 
+        # v1.1: optimised-basis badge.  When True, the displayed (a, b)
+        # / refinement / adj_val come from a non-default hard-edge basis
+        # found by the optimiser.  Tooltip shows G and the refinement gain.
+        basis_badge = ""
+        if getattr(nc, 'basis_optimised', False):
+            G = getattr(nc, 'basis_G', None)
+            d_ref = getattr(nc, 'default_refinement', None)
+            o_ref = getattr(nc, 'optimised_refinement', None)
+            G_str = ""
+            if G is not None:
+                G_str = "; ".join(", ".join(str(c) for c in row) for row in G)
+            tooltip = (f"refinement {d_ref} → {o_ref};  G = [{G_str}]"
+                       if d_ref is not None and o_ref is not None
+                       else "hard-edge basis optimised")
+            basis_badge = (
+                f' <span title="{tooltip}" '
+                f'style="display:inline-block;padding:1px 5px;margin-left:4px;'
+                f'border-radius:3px;background:#1b4332;color:#80ed99;'
+                f'font-size:0.8em;font-weight:bold;">'
+                f'opt {d_ref or "?"}→{o_ref or "?"}</span>'
+            )
+
         # δᵢ = (R, S) — Bézout complement
         R, S = _bezout_complement(nc.P, nc.Q)
         delta_str = format_slope_latex(R, S, r"\alpha", r"\beta")
@@ -178,7 +200,7 @@ def format_nc_cycle_table_html(nc_cycles: list[NCCycleViewModel]) -> str:
         html += (
             f'<tr>\n'
             f'  <td style="text-align: center;"><b>${i}$</b></td>\n'
-            f'  <td style="text-align: center;">${gamma_str}$</td>\n'
+            f'  <td style="text-align: center;">${gamma_str}${basis_badge}</td>\n'
             f'  <td style="text-align: center;">${delta_str}$</td>\n'
             f'  <td style="text-align: center;">{snc_cell}</td>\n'
             f'  <td style="text-align: center;"><small>$\\textrm{{{nc.source}}}$</small></td>\n'
