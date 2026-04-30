@@ -619,7 +619,7 @@
     <!-- ── Download Section ──────────────────────────────────────────── -->
     <div class="download-section" id="download">
       <div class="download-header">
-        <h2>Download v1.1.1</h2>
+        <h2>Download v1.1.2</h2>
         <p>Stable release · choose your platform</p>
       </div>
 
@@ -633,21 +633,21 @@
         </div>
       </div>
 
-      <!-- macOS v1.1.1 -->
+      <!-- macOS v1.1.2 -->
       <div class="download-card active" id="card-v1.1-macos">
         <span class="version-badge latest">Latest · Stable</span>
-        <h3>v1.1.1 for macOS</h3>
+        <h3>v1.1.2 for macOS</h3>
         <div class="platform-info">Universal (Intel + Apple Silicon) · macOS 11+</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.1.1/ManifoldIndex.zip" class="download-btn">Download .zip (334 MB)</a>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.1.2/ManifoldIndex.zip" class="download-btn">Download .zip (334 MB)</a>
         <div class="system-note">Extract the zip, move <strong>ManifoldIndex.app</strong> to Applications, then run:<br><code>xattr -cr /Applications/ManifoldIndex.app</code><br>Only required the first time (clears the quarantine flag).</div>
       </div>
 
-      <!-- Windows v1.1.1 -->
+      <!-- Windows v1.1.2 -->
       <div class="download-card" id="card-v1.1-windows">
         <span class="version-badge latest">Latest · Stable</span>
-        <h3>v1.1.1 for Windows</h3>
+        <h3>v1.1.2 for Windows</h3>
         <div class="platform-info">Windows 10+ · x64 standalone exe</div>
-        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.1.1/ManifoldIndex.exe" class="download-btn">Download .exe (350 MB)</a>
+        <a href="https://github.com/physicsmasterpig/refined-index/releases/download/v1.1.2/ManifoldIndex.exe" class="download-btn">Download .exe (350 MB)</a>
         <div class="system-note">No installation needed — just double-click the downloaded <strong>ManifoldIndex.exe</strong>. If Windows SmartScreen warns, click <strong>More info</strong> → <strong>Run anyway</strong>.</div>
       </div>
 
@@ -758,6 +758,28 @@
     <!-- ── Changelog ────────────────────────────────────────────────────– -->
     <section id="changelog">
       <h2>Changelog</h2>
+
+      <h3>v1.1.2 — fill workers honour the optimised basis; fresh dist-info</h3>
+      <ul>
+        <li><strong>Fill workers now use the optimised hard-edge basis.</strong>
+        v1.1.0 / v1.1.1 optimised the basis for the per-NC-cycle Weyl
+        check (and showed the green <em>opt K→K′</em> badge) but the
+        actual <code>FillWorker</code> / <code>UnrefinedKernelFillWorker</code>
+        continued to compute on the default <code>nz_data</code>, so the
+        η-indices didn't line up with the optimised
+        <code>incompat_edges</code> and the filled-index series came
+        out with the default refinement count.  The launchers now
+        rebuild <code>nz_data</code> from the <code>optimised_easy_result</code>
+        emitted by <code>NcCompatWorker</code>, so the fill genuinely
+        runs in the optimised basis.</li>
+        <li><strong>Stale dist-info on v1.1.0 / v1.1.1 macOS builds.</strong>
+        <code>importlib.metadata</code> returned 1.0.8 in the bundled
+        app because the build machine's editable install hadn't been
+        refreshed since v1.0.8.  <code>release.sh</code> now
+        reinstalls the package immediately before invoking
+        PyInstaller, so future binaries always carry the correct
+        version.</li>
+      </ul>
 
       <h3>v1.1.1 — multi-cusp basis optimisation, downloads page cleanup</h3>
       <ul>

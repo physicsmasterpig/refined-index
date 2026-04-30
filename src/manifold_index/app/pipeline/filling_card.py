@@ -85,6 +85,33 @@ def _compute_extended_incompat_edges(ab, refined_adj_pass) -> list[int]:
     return base
 
 
+def _resolve_fill_nz_data(session, nc_weyl_results: dict,
+                          cycle_key: tuple) -> Any:
+    """Return the nz_data the fill workers should actually compute on.
+
+    If the per-cycle Weyl check optimised the hard-edge basis,
+    rebuild nz_data from the stored ``optimised_easy_result`` so that
+    the (a, b) vectors emitted by that check refer to the SAME basis
+    as the I^ref the worker computes.  Otherwise fall back to the
+    session's default nz_data.
+    """
+    if cycle_key in nc_weyl_results:
+        oer = nc_weyl_results[cycle_key].get("optimised_easy_result")
+        if oer is not None and session.manifold_name:
+            try:
+                from manifold_index.core.manifold import (  # noqa: PLC0415
+                    load_manifold as _load_md,
+                )
+                from manifold_index.core.neumann_zagier import (  # noqa: PLC0415
+                    build_neumann_zagier as _bnz,
+                )
+                md = _load_md(session.manifold_name)
+                return _bnz(md, oer)
+            except Exception:
+                pass  # fall through to default nz_data
+    return session.nz_data
+
+
 def _compute_incompat_edges(ab) -> list[int]:
     """Return list of edge indices j where a[j] ∉ ℤ or 2*b[j] ∉ ℤ.
 
@@ -1003,6 +1030,11 @@ class FillingCard(QWidget):
             "basis_G":              basis_G,
             "default_refinement":   default_refine,
             "optimised_refinement": optimised_refine,
+            # v1.1: stash the rebuilt EasyEdgeResult so subsequent fill
+            # workers can rebuild ``nz_data`` in the optimised basis (the
+            # (a, b) vectors above refer to that basis, so the FillWorker
+            # MUST use the same basis or η-indices misalign).
+            "optimised_easy_result": payload.get("optimised_easy_result"),
         }
 
         # Check if all cycles are done
@@ -1779,8 +1811,12 @@ class FillingCard(QWidget):
             row = self._fill_table.add_row(m_cells, eq_cell, "", "—")
             self._fill_table.set_row_computing(row)
 
+            # v1.1: use the optimised basis nz_data when the per-cycle
+            # Weyl check found one; otherwise fall back to s.nz_data.
+            fill_nz = _resolve_fill_nz_data(s, self._nc_weyl_results, (nc_P, nc_Q))
+
             worker = FillWorker(
-                nz_data        = s.nz_data,
+                nz_data        = fill_nz,
                 cusp_idx       = cusp_idx,
                 nc_P           = nc_P,
                 nc_Q           = nc_Q,
@@ -1861,8 +1897,11 @@ class FillingCard(QWidget):
             row = self._fill_table.add_row(m_cells, eq_cell, "", "—")
             self._fill_table.set_row_computing(row)
 
+            # v1.1: use the optimised basis nz_data when available
+            fill_nz = _resolve_fill_nz_data(s, self._nc_weyl_results, (nc_P, nc_Q))
+
             worker = UnrefinedKernelFillWorker(
-                nz_data        = s.nz_data,
+                nz_data        = fill_nz,
                 cusp_idx       = cusp_idx,
                 nc_P           = nc_P,
                 nc_Q           = nc_Q,

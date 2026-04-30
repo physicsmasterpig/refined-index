@@ -5,6 +5,34 @@ All notable changes to Refined Index Calculator.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] — 2026-04-30
+
+### Fixed
+- **Fill workers now use the optimised hard-edge basis.** Previously
+  the per-NC-cycle Weyl check would optimise the basis and emit
+  ``(a, b)`` for the optimised basis, but ``FillWorker`` /
+  ``UnrefinedKernelFillWorker`` continued to compute on
+  ``s.nz_data`` (default basis).  Result: the η-indices of the
+  computed I^ref didn't line up with the optimisation-derived
+  ``incompat_edges``, so the filled-index series came out with the
+  default refinement count (e.g. 1 for 6_2 (1, 0) NC) even though the
+  Weyl badge advertised 2.  ``NcCompatWorker`` /
+  ``MultiCuspNcCompatWorker`` now also emit ``optimised_easy_result``;
+  the launchers rebuild ``nz_data`` from it via the new
+  ``_resolve_fill_nz_data`` helper, so the fill computation runs in
+  the same basis the (a, b) refer to.
+
+- **Stale ``dist-info`` baked into v1.1.0 / v1.1.1 macOS builds.**
+  ``importlib.metadata.version("refined-index-calculator")`` was
+  reading whatever version was last installed in the editable venv —
+  on the build machine that was 1.0.8 — so the bundled app reported
+  the wrong version in its title bar.  ``release.sh`` now
+  ``pip install -e . --force-reinstall --no-deps`` before invoking
+  PyInstaller, refreshing the dist-info to match the current
+  ``pyproject.toml`` version.  The v1.1.1 macOS asset on GitHub
+  Releases was re-uploaded with fresh metadata; v1.1.2 picks up the
+  fix automatically.
+
 ## [1.1.1] — 2026-04-30
 
 ### Added

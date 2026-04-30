@@ -135,6 +135,7 @@ class NcCompatWorker(QThread):
             basis_G: "list[list[int]] | None" = None
             default_refinement: "int | None" = None
             optimised_refinement: "int | None" = None
+            optimised_easy_result: Any = None  # for FillWorker to rebuild nz
             opt_diag: dict = {}
 
             if (self._optimise_basis and self._manifold_name
@@ -161,6 +162,14 @@ class NcCompatWorker(QThread):
                         basis_G = opt.G
                         default_refinement = opt.default_refinement
                         optimised_refinement = opt.refinement
+                        # Pass the EasyEdgeResult back so the fill workers
+                        # can rebuild the same nz_data for the actual
+                        # filled-index computation.  Without this the
+                        # FillWorker uses ``s.nz_data`` (default basis)
+                        # while the (a, b) come from the optimised basis,
+                        # causing an η-index mismatch and producing the
+                        # wrong refinement count in the output.
+                        optimised_easy_result = opt.new_easy_result
                         opt_diag = {
                             "n_searched": opt.n_candidates_searched,
                             "n_verified": opt.n_candidates_verified,
@@ -260,6 +269,7 @@ class NcCompatWorker(QThread):
                     "basis_G": basis_G,
                     "default_refinement": default_refinement,
                     "optimised_refinement": optimised_refinement,
+                    "optimised_easy_result": optimised_easy_result,
                     "basis_opt_diag": opt_diag,
                 })
                 return
@@ -390,6 +400,7 @@ class NcCompatWorker(QThread):
                 "basis_G":           basis_G,
                 "default_refinement":   default_refinement,
                 "optimised_refinement": optimised_refinement,
+                "optimised_easy_result": optimised_easy_result,
                 "basis_opt_diag":    opt_diag,
             })
         except Exception as exc:
@@ -469,6 +480,7 @@ class MultiCuspNcCompatWorker(QThread):
             basis_G: "list[list[int]] | None" = None
             default_refinement: "int | None" = None
             optimised_refinement: "int | None" = None
+            optimised_easy_result: Any = None
             opt_diag: dict = {}
 
             if (self._optimise_basis and self._manifold_name
@@ -493,6 +505,7 @@ class MultiCuspNcCompatWorker(QThread):
                         basis_G = opt.G
                         default_refinement = opt.default_refinement
                         optimised_refinement = opt.refinement
+                        optimised_easy_result = opt.new_easy_result
                         opt_diag = {
                             "n_searched": opt.n_candidates_searched,
                             "n_verified": opt.n_candidates_verified,
@@ -607,6 +620,7 @@ class MultiCuspNcCompatWorker(QThread):
                     "basis_G": basis_G,
                     "default_refinement": default_refinement,
                     "optimised_refinement": optimised_refinement,
+                    "optimised_easy_result": optimised_easy_result,
                     "basis_opt_diag": opt_diag,
                 })
                 return
@@ -640,6 +654,7 @@ class MultiCuspNcCompatWorker(QThread):
                 "basis_G": basis_G,
                 "default_refinement": default_refinement,
                 "optimised_refinement": optimised_refinement,
+                "optimised_easy_result": optimised_easy_result,
                 "basis_opt_diag": opt_diag,
             })
         except Exception as exc:
