@@ -320,7 +320,19 @@ class ManifoldCard(QWidget):
         # ── Populate session ──────────────────────────────────────────
         s = self._session
         s.manifold_name = manifold_data.name
-        # Don't store manifold_data — it's thread-bound; reload in main thread when needed
+        # Stash a thread-safe ManifoldData (raw=None) so downstream worker
+        # threads can use it without re-calling SnaPy (whose SQLite session
+        # is thread-bound).  The .raw SnaPy Manifold object is dropped; all
+        # downstream code (build_neumann_zagier, optimal_basis) only reads
+        # gluing_matrix / num_tetrahedra / num_cusps which are pure data.
+        from manifold_index.core.manifold import ManifoldData as _MD
+        s.manifold_data = _MD(
+            name=manifold_data.name,
+            num_tetrahedra=manifold_data.num_tetrahedra,
+            num_cusps=manifold_data.num_cusps,
+            gluing_matrix=manifold_data.gluing_matrix,
+            raw=None,
+        )
         s.nz_data       = nz_data
         s.easy_result   = easy_result   # stash for downstream (e.g. hard-basis optimiser)
         s.cache_status  = cache_info

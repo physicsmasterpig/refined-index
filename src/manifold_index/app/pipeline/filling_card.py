@@ -94,21 +94,23 @@ def _resolve_fill_nz_data(session, nc_weyl_results: dict,
     the (a, b) vectors emitted by that check refer to the SAME basis
     as the I^ref the worker computes.  Otherwise fall back to the
     session's default nz_data.
+
+    Uses the thread-safe ``session.manifold_data`` (raw=None) so the
+    rebuild works from any thread.  Calling ``snappy.Manifold(name)``
+    here would silently raise on non-main threads (SnaPy's SQLite
+    session is thread-bound) and disable basis-optimised filling.
     """
     if cycle_key in nc_weyl_results:
         oer = nc_weyl_results[cycle_key].get("optimised_easy_result")
-        if oer is not None and session.manifold_name:
+        md = getattr(session, "manifold_data", None)
+        if oer is not None and md is not None:
             try:
-                from manifold_index.core.manifold import (  # noqa: PLC0415
-                    load_manifold as _load_md,
-                )
                 from manifold_index.core.neumann_zagier import (  # noqa: PLC0415
                     build_neumann_zagier as _bnz,
                 )
-                md = _load_md(session.manifold_name)
                 return _bnz(md, oer)
-            except Exception:
-                pass  # fall through to default nz_data
+            except Exception as _exc:
+                print(f"[FILL] basis-rebuild skipped: {_exc}", flush=True)
     return session.nz_data
 
 
@@ -974,8 +976,11 @@ class FillingCard(QWidget):
                 index_queries = list(s.index_queries),
                 num_hard     = s.num_hard(),
                 q_order_half = s.q_order_half,
-                # v1.1: pass through to enable hard-edge basis optimisation
+                # v1.1: pass through to enable hard-edge basis optimisation.
+                # manifold_data is the thread-safe copy (raw=None); without
+                # it the optimiser silently disables itself.
                 manifold_name = s.manifold_name,
+                manifold_data = s.manifold_data,
                 easy_result   = s.easy_result,
                 parent       = self,
             )
@@ -1515,6 +1520,7 @@ class FillingCard(QWidget):
                 q_order_half = s.q_order_half,
                 # v1.1: enable hard-edge basis optimisation
                 manifold_name = s.manifold_name,
+                manifold_data = s.manifold_data,
                 easy_result   = s.easy_result,
                 parent       = self,
             )
@@ -2376,6 +2382,7 @@ class FillingCard(QWidget):
                 q_order_half = s.q_order_half,
                 # v1.1: enable hard-edge basis optimisation
                 manifold_name = s.manifold_name,
+                manifold_data = s.manifold_data,
                 easy_result   = s.easy_result,
                 parent       = self,
             )

@@ -95,9 +95,14 @@ class NcCompatWorker(QThread):
         parent=None,
         *,
         # v1.1: pass-through to enable hard-edge basis optimisation.
-        # Both must be provided for optimisation to run; otherwise the
-        # worker falls back to the default basis unchanged.
+        # All three (manifold_name, manifold_data, easy_result) must be
+        # provided for optimisation to run; otherwise the worker falls
+        # back to the default basis unchanged.  ``manifold_data`` MUST
+        # be a thread-safe copy with ``raw=None`` (SnaPy's SQLite session
+        # is thread-bound — calling load_manifold() here would silently
+        # raise and disable the optimiser).
         manifold_name: "str | None" = None,
+        manifold_data: Any = None,
         easy_result: Any = None,
         optimise_basis: bool = True,
         optimise_coeff_range: int = 1,
@@ -111,6 +116,7 @@ class NcCompatWorker(QThread):
         self._num_hard      = num_hard
         self._q_order_half  = q_order_half
         self._manifold_name = manifold_name
+        self._manifold_data = manifold_data
         self._easy_result   = easy_result
         self._optimise_basis = optimise_basis
         self._optimise_coeff_range = optimise_coeff_range
@@ -138,16 +144,13 @@ class NcCompatWorker(QThread):
             optimised_easy_result: Any = None  # for FillWorker to rebuild nz
             opt_diag: dict = {}
 
-            if (self._optimise_basis and self._manifold_name
+            if (self._optimise_basis and self._manifold_data is not None
                     and self._easy_result is not None):
                 try:
                     from manifold_index.core.optimal_basis import (  # noqa: PLC0415
                         find_optimal_hard_basis,
                     )
-                    from manifold_index.core.manifold import (  # noqa: PLC0415
-                        load_manifold as _load_md,
-                    )
-                    md = _load_md(self._manifold_name)  # in-thread reload
+                    md = self._manifold_data  # thread-safe copy (raw=None)
                     opt = find_optimal_hard_basis(
                         md, self._easy_result, self._cusp_idx,
                         self._P, self._Q,
@@ -174,10 +177,13 @@ class NcCompatWorker(QThread):
                             "n_searched": opt.n_candidates_searched,
                             "n_verified": opt.n_candidates_verified,
                         }
-                except Exception:
-                    # If optimisation fails for any reason, silently fall
-                    # back to the default basis — never block the user.
-                    pass
+                except Exception as _exc:
+                    # Surface failures to stderr so users can report what
+                    # went wrong, but never block the user — fall back to
+                    # the default basis.
+                    import traceback as _tb  # noqa: PLC0415
+                    print(f"[WEYL-NC] basis-opt skipped: {_exc}", flush=True)
+                    _tb.print_exc()
 
             R, S = _df.find_rs(self._P, self._Q)
             nz_nc = _nz.apply_general_cusp_basis_change(
@@ -449,7 +455,10 @@ class MultiCuspNcCompatWorker(QThread):
         parent=None,
         *,
         # v1.1: pass-through for hard-edge basis optimisation.
+        # ``manifold_data`` MUST be a thread-safe copy with raw=None
+        # (see NcCompatWorker for rationale).
         manifold_name: "str | None" = None,
+        manifold_data: Any = None,
         easy_result: Any = None,
         optimise_basis: bool = True,
         optimise_coeff_range: int = 1,
@@ -461,6 +470,7 @@ class MultiCuspNcCompatWorker(QThread):
         self._num_hard      = num_hard
         self._q_order_half  = q_order_half
         self._manifold_name = manifold_name
+        self._manifold_data = manifold_data
         self._easy_result   = easy_result
         self._optimise_basis = optimise_basis
         self._optimise_coeff_range = optimise_coeff_range
@@ -483,16 +493,13 @@ class MultiCuspNcCompatWorker(QThread):
             optimised_easy_result: Any = None
             opt_diag: dict = {}
 
-            if (self._optimise_basis and self._manifold_name
+            if (self._optimise_basis and self._manifold_data is not None
                     and self._easy_result is not None):
                 try:
                     from manifold_index.core.optimal_basis import (  # noqa: PLC0415
                         find_optimal_hard_basis_multi,
                     )
-                    from manifold_index.core.manifold import (  # noqa: PLC0415
-                        load_manifold as _load_md,
-                    )
-                    md = _load_md(self._manifold_name)
+                    md = self._manifold_data  # thread-safe copy (raw=None)
                     opt = find_optimal_hard_basis_multi(
                         md, self._easy_result, self._cusp_specs,
                         q_order_half=self._q_order_half,
@@ -510,8 +517,10 @@ class MultiCuspNcCompatWorker(QThread):
                             "n_searched": opt.n_candidates_searched,
                             "n_verified": opt.n_candidates_verified,
                         }
-                except Exception:
-                    pass  # silently fall back to default
+                except Exception as _exc:
+                    import traceback as _tb  # noqa: PLC0415
+                    print(f"[MULTI-NC] basis-opt skipped: {_exc}", flush=True)
+                    _tb.print_exc()
 
             # ── Apply basis changes for all filled cusps ─────────────
             nz_nc = self._nz_data

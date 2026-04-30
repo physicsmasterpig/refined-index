@@ -5,6 +5,26 @@ All notable changes to Refined Index Calculator.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] — 2026-04-23
+
+### Fixed
+- **Hard-edge basis optimisation now actually runs in the GUI.**  The
+  per-NC-cycle ``NcCompatWorker`` and ``MultiCuspNcCompatWorker``
+  reload the manifold inside their worker thread to feed the
+  optimiser.  SnaPy's SQLite session is thread-bound, so
+  ``snappy.Manifold(name)`` raises silently on the worker side and the
+  ``except Exception: pass`` fallback was disabling the optimiser for
+  every user.  Symptom: 6_2 with NC=(1,0) and Dehn-filling slope (5,1)
+  reported refinement = 1 instead of the expected 2 in the GUI even
+  though synchronous tests of the same code path returned 2.
+  ``ManifoldCard`` now stashes a thread-safe copy of the
+  ``ManifoldData`` (``raw=None`` to drop the SnaPy database handle) in
+  the session, both NC workers consume that copy directly, and
+  ``_resolve_fill_nz_data`` rebuilds the optimised ``nz_data`` from
+  the stored copy rather than reloading via SnaPy.  The optimiser's
+  silent ``except`` now also prints to stderr so future failures are
+  visible instead of disappearing.
+
 ## [1.1.2] — 2026-04-30
 
 ### Fixed
