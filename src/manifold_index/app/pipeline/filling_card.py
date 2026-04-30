@@ -1481,6 +1481,9 @@ class FillingCard(QWidget):
                 index_queries = list(s.index_queries),
                 num_hard     = s.num_hard(),
                 q_order_half = s.q_order_half,
+                # v1.1: enable hard-edge basis optimisation
+                manifold_name = s.manifold_name,
+                easy_result   = s.easy_result,
                 parent       = self,
             )
             self._joint_adjoint_worker.finished.connect(
@@ -2332,6 +2335,9 @@ class FillingCard(QWidget):
                 index_queries = list(s.index_queries),
                 num_hard     = s.num_hard(),
                 q_order_half = s.q_order_half,
+                # v1.1: enable hard-edge basis optimisation
+                manifold_name = s.manifold_name,
+                easy_result   = s.easy_result,
                 parent       = self,
             )
             self._joint_adjoint_worker.finished.connect(

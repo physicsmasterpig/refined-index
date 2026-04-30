@@ -436,6 +436,12 @@ class MultiCuspNcCompatWorker(QThread):
         num_hard: int,
         q_order_half: int,
         parent=None,
+        *,
+        # v1.1: pass-through for hard-edge basis optimisation.
+        manifold_name: "str | None" = None,
+        easy_result: Any = None,
+        optimise_basis: bool = True,
+        optimise_coeff_range: int = 1,
     ) -> None:
         super().__init__(parent)
         self._nz_data       = nz_data
@@ -443,6 +449,10 @@ class MultiCuspNcCompatWorker(QThread):
         self._index_queries = index_queries
         self._num_hard      = num_hard
         self._q_order_half  = q_order_half
+        self._manifold_name = manifold_name
+        self._easy_result   = easy_result
+        self._optimise_basis = optimise_basis
+        self._optimise_coeff_range = optimise_coeff_range
 
     def run(self) -> None:
         try:
@@ -453,6 +463,42 @@ class MultiCuspNcCompatWorker(QThread):
                 neumann_zagier as _nz,
             )
             from manifold_index.core.weyl_check import run_weyl_checks  # noqa: PLC0415
+
+            # ── v1.1: multi-cusp hard-edge basis optimisation ───────────
+            basis_optimised = False
+            basis_G: "list[list[int]] | None" = None
+            default_refinement: "int | None" = None
+            optimised_refinement: "int | None" = None
+            opt_diag: dict = {}
+
+            if (self._optimise_basis and self._manifold_name
+                    and self._easy_result is not None):
+                try:
+                    from manifold_index.core.optimal_basis import (  # noqa: PLC0415
+                        find_optimal_hard_basis_multi,
+                    )
+                    from manifold_index.core.manifold import (  # noqa: PLC0415
+                        load_manifold as _load_md,
+                    )
+                    md = _load_md(self._manifold_name)
+                    opt = find_optimal_hard_basis_multi(
+                        md, self._easy_result, self._cusp_specs,
+                        q_order_half=self._q_order_half,
+                        coeff_range=self._optimise_coeff_range,
+                    )
+                    if opt is not None:
+                        new_nz = _nz.build_neumann_zagier(md, opt.new_easy_result)
+                        self._nz_data = new_nz
+                        basis_optimised = True
+                        basis_G = opt.G
+                        default_refinement = opt.default_refinement
+                        optimised_refinement = opt.refinement
+                        opt_diag = {
+                            "n_searched": opt.n_candidates_searched,
+                            "n_verified": opt.n_candidates_verified,
+                        }
+                except Exception:
+                    pass  # silently fall back to default
 
             # ── Apply basis changes for all filled cusps ─────────────
             nz_nc = self._nz_data
@@ -557,6 +603,11 @@ class MultiCuspNcCompatWorker(QThread):
                     "adjoint_is_pass": None,
                     "adjoint_value": None,
                     "per_cusp_adjoint": [],
+                    "basis_optimised": basis_optimised,
+                    "basis_G": basis_G,
+                    "default_refinement": default_refinement,
+                    "optimised_refinement": optimised_refinement,
+                    "basis_opt_diag": opt_diag,
                 })
                 return
 
@@ -585,6 +636,11 @@ class MultiCuspNcCompatWorker(QThread):
                 "adjoint_is_pass": wc.multi_cusp_adjoint.all_pass if wc.multi_cusp_adjoint else None,
                 "adjoint_value": None,   # not meaningful as a single number for d>1
                 "per_cusp_adjoint": per_cusp,
+                "basis_optimised": basis_optimised,
+                "basis_G": basis_G,
+                "default_refinement": default_refinement,
+                "optimised_refinement": optimised_refinement,
+                "basis_opt_diag": opt_diag,
             })
         except Exception as exc:
             self.error.emit(str(exc))
