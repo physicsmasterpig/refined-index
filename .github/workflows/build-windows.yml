@@ -113,14 +113,24 @@ jobs:
       - name: Smoke test exe
         shell: bash
         run: |
-          export QT_QPA_PLATFORM=offscreen
-          export QTWEBENGINE_CHROMIUM_FLAGS="--disable-gpu --no-sandbox"
+          # Native windows QPA (runner has a desktop session) —
+          # QT_QPA_PLATFORM=offscreen is unsupported with QtWebEngine
+          # on Windows and hangs the compositor.
+          export QTWEBENGINE_CHROMIUM_FLAGS="--disable-gpu"
           export MANIFOLDINDEX_SMOKE=1
           export MANIFOLDINDEX_SMOKE_OUT="$PWD/smoke.json"
           status=0
-          timeout 420 ./dist/ManifoldIndex.exe || status=$?
+          # In-app watchdog dumps all thread stacks + exits at 240 s;
+          # this outer timeout is the backstop only.
+          timeout 360 ./dist/ManifoldIndex.exe || status=$?
           echo "exe exit code: $status"
-          cat smoke.json 2>/dev/null || echo "no smoke.json produced"
+          echo "--- smoke.json ---"
+          cat smoke.json 2>/dev/null || echo "(no smoke.json produced)"
+          echo "--- crash.log ---"
+          cat "$LOCALAPPDATA/manifold-index/logs/crash.log" 2>/dev/null || echo "(none)"
+          echo "--- faulthandler.log ---"
+          cat "$LOCALAPPDATA/manifold-index/logs/faulthandler.log" 2>/dev/null || echo "(none)"
+          cp "$LOCALAPPDATA/manifold-index/logs/"*.log . 2>/dev/null || true
           exit $status
 
       # ── 9. Upload artifact (always) ─────────────────────────────
@@ -142,6 +152,8 @@ jobs:
           path: |
             build/ManifoldIndex_win/warn-*.txt
             smoke.json
+            crash.log
+            faulthandler.log
           retention-days: 30
           if-no-files-found: ignore
 

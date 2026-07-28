@@ -55,10 +55,22 @@ def launch_gui() -> None:
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
 
+    smoke_mode = bool(os.environ.get("MANIFOLDINDEX_SMOKE"))
+    if smoke_mode:
+        from manifold_index.app import smoke
+
+        # A hang anywhere below must self-report: dump all thread
+        # stacks and exit rather than sitting silent until CI's kill.
+        crash_log.arm_watchdog(240.0)
+        smoke.mark("pre-qapplication")
+
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("ManifoldIndex")
     app.setApplicationVersion(__version__)
     app.setOrganizationName("physicsmasterpig")
+
+    if smoke_mode:
+        smoke.mark("pre-window")
 
     from manifold_index.app.window import MainWindow
     win = MainWindow()
@@ -71,8 +83,8 @@ def launch_gui() -> None:
     except Exception:
         pass
 
-    if os.environ.get("MANIFOLDINDEX_SMOKE"):
-        from manifold_index.app import smoke
+    if smoke_mode:
+        smoke.mark("window-shown")
         smoke.schedule(app)
 
     sys.exit(app.exec())

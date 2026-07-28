@@ -20,6 +20,27 @@ import json
 import os
 import sys
 
+_report: dict = {"phase": "init", "checks": {}}
+
+
+def _out_path() -> str:
+    return os.environ.get("MANIFOLDINDEX_SMOKE_OUT", "smoke.json")
+
+
+def _flush() -> None:
+    try:
+        with open(_out_path(), "w", encoding="utf-8") as f:
+            json.dump(_report, f, indent=2)
+    except OSError:
+        pass
+
+
+def mark(phase: str) -> None:
+    """Record startup progress incrementally — if the process hangs or
+    dies, the report file shows how far it got."""
+    _report["phase"] = phase
+    _flush()
+
 
 def _check_snappy() -> dict:
     """Census SQLite databases + SnapPy C extension."""
@@ -64,13 +85,12 @@ def run(app) -> None:
     """Execute all checks, write the report, and exit the application."""
     from manifold_index import __version__
 
-    report: dict = {
-        "version": __version__,
-        "python": sys.version.split()[0],
-        "platform": sys.platform,
-        "frozen": bool(getattr(sys, "frozen", False)),
-        "checks": {},
-    }
+    _report.update(
+        version=__version__,
+        python=sys.version.split()[0],
+        platform=sys.platform,
+        frozen=bool(getattr(sys, "frozen", False)),
+    )
     checks = {
         "snappy_census": _check_snappy,
         "manifold_pipeline": _check_manifold_pipeline,
@@ -79,26 +99,21 @@ def run(app) -> None:
     }
     all_ok = True
     for name, fn in checks.items():
+        mark(f"check:{name}")
         try:
-            report["checks"][name] = fn()
+            _report["checks"][name] = fn()
         except Exception as exc:  # noqa: BLE001 — report, don't die
             import traceback
 
-            report["checks"][name] = {
+            _report["checks"][name] = {
                 "ok": False,
                 "error": f"{type(exc).__name__}: {exc}",
                 "traceback": traceback.format_exc(),
             }
-        all_ok = all_ok and bool(report["checks"][name].get("ok"))
+        all_ok = all_ok and bool(_report["checks"][name].get("ok"))
 
-    report["ok"] = all_ok
-    out = os.environ.get("MANIFOLDINDEX_SMOKE_OUT", "smoke.json")
-    try:
-        with open(out, "w", encoding="utf-8") as f:
-            json.dump(report, f, indent=2)
-    except OSError:
-        all_ok = False
-
+    _report["ok"] = all_ok
+    mark("done")
     app.exit(0 if all_ok else 1)
 
 

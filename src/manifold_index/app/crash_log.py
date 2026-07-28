@@ -148,8 +148,19 @@ def _install_qt_handler() -> None:
     qInstallMessageHandler(_qt_handler)
 
 
+def arm_watchdog(timeout_s: float = 240.0) -> None:
+    """Self-diagnose hangs: after *timeout_s* dump every thread's stack
+    to faulthandler.log and hard-exit.  Used by the CI smoke mode — a
+    GUI-thread deadlock would otherwise time out with zero output."""
+    if _FAULT_FH is not None:
+        faulthandler.dump_traceback_later(timeout_s, exit=True, file=_FAULT_FH)
+
+
 def _show_dialog(exc_type, exc) -> None:
     """Best-effort modal dialog so a startup crash is not invisible."""
+    if os.environ.get("MANIFOLDINDEX_SMOKE") or \
+            os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+        return  # headless/CI — a modal dialog would hang forever
     try:
         from PySide6.QtWidgets import QApplication, QMessageBox
 
