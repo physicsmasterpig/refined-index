@@ -119,9 +119,35 @@ class DownloadTab(QWidget):
             self._status_label.setText(f"Registry error: {exc}")
 
     def _on_refresh(self) -> None:
+        # The remote fetch (urllib, timeout 10 s) must not run on the
+        # GUI thread — on an offline machine it would freeze the whole
+        # window until the socket times out.
+        from PySide6.QtCore import QThread, Signal
+
+        class _RegistryWorker(QThread):
+            done = Signal(object, str)
+
+            def run(self) -> None:
+                try:
+                    reg = DataHubService.load_registry(use_remote=True)
+                    self.done.emit(reg, "")
+                except Exception as exc:
+                    self.done.emit(None, str(exc))
+
         self._refresh_btn.setEnabled(False)
-        self._load_registry(use_remote=True)
+        self._status_label.setText("Loading remote registry…")
+        self._registry_worker = _RegistryWorker(self)
+        self._registry_worker.done.connect(self._on_registry_fetched)
+        self._registry_worker.start()
+
+    def _on_registry_fetched(self, registry: object, error: str) -> None:
         self._refresh_btn.setEnabled(True)
+        if registry is None:
+            self._status_label.setText(f"Registry error: {error}")
+            return
+        self._registry = registry
+        self._populate_tree()
+        self._status_label.setText("Remote registry loaded.")
 
     def _populate_tree(self) -> None:
         self._tree.clear()

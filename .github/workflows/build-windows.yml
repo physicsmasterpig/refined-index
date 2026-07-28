@@ -56,16 +56,19 @@ jobs:
       # Installing the local package (editable) registers accurate
       # metadata so importlib.metadata.version() returns the version
       # from pyproject.toml (used for the window title).
+      # Pinned to the stack that produced the last verified build —
+      # an unpinned resolve here would silently ship library versions
+      # the app was never tested against.  Bump deliberately.
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install snappy numpy scipy "PySide6>=6.6" pyinstaller Pillow
+          pip install snappy==3.3.2 numpy==2.4.4 scipy==1.17.1 PySide6==6.11.0 pyinstaller==6.20.0 Pillow
           pip install -e . --no-deps
           python -c "from importlib.metadata import version; print('refined-index-calculator metadata:', version('refined-index-calculator'))"
 
       # ── 5. Generate .ico ─────────────────────────────────────────
       # macOS uses .icns — Windows needs .ico. Generate from the PNG.
-      - name: Generate icon
+      - name: Generate icon and splash image
         run: |
           python -c "
           from PIL import Image
@@ -73,6 +76,8 @@ jobs:
           img.save('assets/ManifoldIndex.ico', format='ICO',
                    sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])
           print('ManifoldIndex.ico generated')
+          img.resize((360, 360)).save('assets/ManifoldIndex_splash.png')
+          print('ManifoldIndex_splash.png generated')
           "
 
       # ── 6. Preflight check ───────────────────────────────────────
@@ -99,6 +104,25 @@ jobs:
           fi
           echo "ManifoldIndex.exe found — OK"
 
+      # ── 8b. Smoke test the frozen exe ───────────────────────────
+      # Runs the actual bundled app headless on the Windows runner:
+      # constructs the full MainWindow, loads a census manifold
+      # (exercises the SnapPy SQLite databases), does a process-pool
+      # spawn roundtrip (the parallel-kernel path), and exits 0/1
+      # with a JSON report. Catches "builds fine, dies at runtime".
+      - name: Smoke test exe
+        shell: bash
+        run: |
+          export QT_QPA_PLATFORM=offscreen
+          export QTWEBENGINE_CHROMIUM_FLAGS="--disable-gpu --no-sandbox"
+          export MANIFOLDINDEX_SMOKE=1
+          export MANIFOLDINDEX_SMOKE_OUT="$PWD/smoke.json"
+          status=0
+          timeout 420 ./dist/ManifoldIndex.exe || status=$?
+          echo "exe exit code: $status"
+          cat smoke.json 2>/dev/null || echo "no smoke.json produced"
+          exit $status
+
       # ── 9. Upload artifact (always) ─────────────────────────────
       # Available in Actions tab even on manual/non-tag runs.
       - name: Upload artifact
@@ -108,20 +132,27 @@ jobs:
           path: dist/ManifoldIndex.exe
           retention-days: 7
 
+      # PyInstaller's warn file lists every module it could not bundle —
+      # the first thing to read when a runtime import fails.
+      - name: Upload build warnings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyinstaller-warnings-${{ steps.ver.outputs.version }}
+          path: |
+            build/ManifoldIndex_win/warn-*.txt
+            smoke.json
+          retention-days: 30
+          if-no-files-found: ignore
+
       # ── 10. Upload to GitHub Release (tag pushes only) ──────────
+      # No `body:` here — release.sh creates the release with combined
+      # macOS + Windows notes; setting a body would overwrite them.
       - name: Upload to Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.version }}
           files: dist/ManifoldIndex.exe
-          body: |
-            **Windows build — ${{ steps.ver.outputs.version }}**
-
-            1. Download `ManifoldIndex.exe`
-            2. Run it — no installation needed
-
-            > Windows Defender may show an unknown publisher warning.
-            > Click **More info → Run anyway**.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

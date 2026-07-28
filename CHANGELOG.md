@@ -5,7 +5,66 @@ All notable changes to Refined Index Calculator.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.4] — 2026-04-30
+## [1.1.4] — 2026-07-28
+
+### Fixed
+- **Windows: parallel kernel computation crashed with "cannot find
+  context for 'fork'".**  Every parallel path in ``kernel_cache``
+  requested the POSIX-only ``fork`` start method, so on Windows the
+  Compute Filling auto-precompute (any uncached ℓ≥2 slope) and every
+  DataHub Generate run died at pool creation.  A shared
+  ``_pool_context()`` helper now falls back to ``spawn``; the ℓ≥3
+  V-map worker receives its shared state through a pool initializer
+  (fork inherited it silently before), and worker counts are clamped
+  to Windows' 61-handle pool limit.
+- **Windows (frozen exe): census SQLite connections were thread-bound.**
+  PyInstaller runs ``rthook_snappy`` — and therefore the first
+  ``import snappy`` — before the launcher's ``check_same_thread=False``
+  patch, so DataHub Generate workers failed per-manifold with
+  "SQLite objects created in a thread…".  The patch now lives at the
+  top of the runtime hook itself.
+- **Windows: I^ref cache writes are now actually serialised.**  The
+  ``fcntl``-only lock silently no-opped on Windows; writes now lock via
+  ``msvcrt`` byte-range locking, and ``os.replace`` retries while a
+  concurrent reader briefly holds the destination open (Windows refuses
+  the replace where POSIX allows it).  Corrupt-cache quarantine renames
+  use ``os.replace`` for the same reason.
+- Cache filenames derived from manifold names are sanitised for
+  Windows-invalid characters (DT codes contain ``:``); the opt-in RSS
+  limit knob no longer imports the POSIX-only ``resource`` module
+  unguarded; data-pack registry and marker files are read/written as
+  UTF-8 regardless of locale (Korean Windows defaults to cp949).
+- Multiprocessing children no longer re-run the runtime hook's full
+  snappy import — on Windows (spawn) every pool worker paid seconds of
+  startup for databases it never touches.
+- Math panels no longer follow the OS palette: on dark-mode Windows
+  they rendered dark inside the app's fixed light theme.
+- The census autocomplete list is built in a background thread; it
+  previously ran a full census scan on the GUI thread inside
+  ``MainWindow.__init__`` (seconds of frozen startup, worst on the
+  Windows onefile build).  DataHub "Check for Updates" no longer does
+  blocking network I/O on the GUI thread.
+
+### Added
+- **Crash + diagnostic logging** (``app/crash_log.py``): uncaught
+  exceptions (main thread and QThreads), Qt warnings/criticals, and
+  C-level faults are appended to ``logs/crash.log`` under the per-user
+  cache directory (``%LOCALAPPDATA%\manifold-index\logs`` on Windows,
+  ``~/Library/Caches/manifold-index/logs`` on macOS), with an error
+  dialog pointing at the file — the windowed Windows build previously
+  failed with no trace at all.
+- **Self-test mode** (``MANIFOLDINDEX_SMOKE=1``): builds the full
+  MainWindow headless, loads a census manifold, round-trips a
+  process-pool worker, and exits 0/1 with a JSON report.  The Windows
+  CI workflow now runs the built exe through it, so "builds fine but
+  dies at runtime" can no longer ship as a green build.
+- Windows onefile build shows a **splash screen with extraction
+  progress** — the ~900 MB payload extraction on every launch
+  previously gave no feedback for its first 30–90 s — and the bundle
+  drops Chromium devtools/debug resources and unused locales.
+- Windows CI pins the dependency stack that produced the last verified
+  build, uploads the PyInstaller warn file + smoke report as artifacts,
+  and no longer overwrites the curated release notes.
 
 ### Changed
 - **Hard-edge basis info moved to the Compute Filling info panel.**

@@ -25,11 +25,38 @@ Strategy
 import os
 import sys
 
+# ── SQLite thread-safety patch ────────────────────────────────────────
+# This hook performs the FIRST snappy import of the process (runtime
+# hooks run before the entry script), and snappy opens ~20 census
+# SQLite connections at import time.  The check_same_thread=False patch
+# must therefore live HERE — launcher.py's copy runs too late in the
+# frozen app, leaving those connections bound to the import thread and
+# unusable from Qt worker threads.
+import sqlite3 as _sq
+
+_sq_connect_orig = _sq.connect
+
+
+def _sq_connect_nothreadcheck(*args, **kwargs):
+    kwargs.setdefault("check_same_thread", False)
+    return _sq_connect_orig(*args, **kwargs)
+
+
+_sq.connect = _sq_connect_nothreadcheck  # type: ignore[assignment]
+
 
 def _patch_snappy_paths() -> None:
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass is None:
         return  # not frozen — nothing to do
+
+    # Multiprocessing children (spawn start method — the only one on
+    # Windows) re-run all runtime hooks before freeze_support() gets a
+    # chance to intercept.  Pool workers never touch the census
+    # databases, so skip the eager snappy import that would otherwise
+    # cost every worker seconds of startup.
+    if "--multiprocessing-fork" in sys.argv:
+        return
 
     # On macOS .app bundles produced by PyInstaller >= 6,
     # sys._MEIPASS -> Contents/Frameworks  (binaries + PYZ)

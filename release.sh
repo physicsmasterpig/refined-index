@@ -134,13 +134,10 @@ do_sed "src/manifold_index/__init__.py" \
   "__version__ = \"${CURRENT_VERSION}\"" \
   "__version__ = \"${VERSION_NUM}\""
 
-# docs/index.html — URLs and version text
-do_sed "docs/index.html" \
-  "releases/download/v${CURRENT_VERSION}/ManifoldIndex\.zip" \
-  "releases/download/${VERSION_TAG}/ManifoldIndex.zip"
-do_sed "docs/index.html" \
-  "releases/download/v${CURRENT_VERSION}/ManifoldIndex\.exe" \
-  "releases/download/${VERSION_TAG}/ManifoldIndex.exe"
+# docs/index.html — version text only.  The primary download cards use
+# version-agnostic releases/latest/download/ URLs so the page can never
+# point at a not-yet-published release (pages deploys on every push,
+# before the Windows CI asset exists).
 do_sed "docs/index.html" \
   "v${CURRENT_VERSION}" \
   "v${VERSION_NUM}"
@@ -152,15 +149,14 @@ ok "pyproject.toml, both specs, build scripts, docs/index.html"
 # skipped this step) the patterns silently no-op.  Catch that here.
 if ! $DRY_RUN; then
   for asset in ManifoldIndex.zip ManifoldIndex.exe; do
-    expected="releases/download/${VERSION_TAG}/${asset}"
+    expected="releases/latest/download/${asset}"
     if ! grep -q "$expected" docs/index.html; then
-      die "docs/index.html does not reference ${expected} after version bump.
-    Likely cause: docs still point at an older version than pyproject.toml.
-    Fix docs/index.html manually so its download links match v${CURRENT_VERSION}
-    before re-running, or edit this release to the new tag directly."
+      die "docs/index.html does not reference ${expected}.
+    The primary download cards must use the version-agnostic
+    releases/latest/download/ URLs — fix docs/index.html before re-running."
     fi
   done
-  ok "docs/index.html references v${VERSION_NUM} download URLs"
+  ok "docs/index.html uses releases/latest download URLs"
 
   # Verify __version__ fallback in __init__.py was bumped.
   # This is the string the frozen app displays in its window title, since

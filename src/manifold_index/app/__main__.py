@@ -38,6 +38,15 @@ _sqlite3.connect = _sqlite3_connect_nothreadcheck  # type: ignore[assignment]
 
 def launch_gui() -> None:
     """Create the QApplication and show the MainWindow."""
+    import os
+
+    from manifold_index import __version__
+    from manifold_index.app import crash_log
+
+    # Crash trail first — the windowed Windows build has no console, so
+    # without this an early failure leaves no trace at all.
+    crash_log.install(app_version=__version__)
+
     from PySide6.QtWidgets import QApplication
     from PySide6.QtCore import Qt
 
@@ -48,13 +57,23 @@ def launch_gui() -> None:
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("ManifoldIndex")
-    from manifold_index import __version__
     app.setApplicationVersion(__version__)
     app.setOrganizationName("physicsmasterpig")
 
     from manifold_index.app.window import MainWindow
     win = MainWindow()
     win.show()
+
+    try:  # onefile Windows build: bootloader splash shown during extraction
+        import pyi_splash  # type: ignore[import-not-found]
+
+        pyi_splash.close()
+    except Exception:
+        pass
+
+    if os.environ.get("MANIFOLDINDEX_SMOKE"):
+        from manifold_index.app import smoke
+        smoke.schedule(app)
 
     sys.exit(app.exec())
 

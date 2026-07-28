@@ -88,6 +88,101 @@ _DEFAULT_IREF_DIR = _user_cache_dir() / "iref_cache"
 _INF_DEG = 10**9
 
 
+def _lock_file_exclusive(f, timeout_s: float = 60.0) -> bool:
+    """Blocking exclusive lock on an open file object, cross-platform.
+
+    POSIX: ``fcntl.flock``.  Windows: ``msvcrt.locking`` on a 1-byte
+    region, polled non-blocking so we control the timeout (LK_LOCK gives
+    up after ~10 s, which a large gzip+pickle write can exceed).
+    Returns False if the lock could not be acquired in *timeout_s* —
+    callers then proceed unlocked (best effort, same as the historical
+    Windows behaviour) and rely on the atomic replace.
+    """
+    import sys
+
+    if sys.platform == "win32":
+        import msvcrt
+
+        deadline = time.monotonic() + timeout_s
+        while True:
+            try:
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                return True
+            except OSError:
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(0.2)
+    else:
+        import fcntl
+
+        fcntl.flock(f, fcntl.LOCK_EX)
+        return True
+
+
+def _unlock_file(f) -> None:
+    import sys
+
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(f, fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
+def _replace_with_retry(src: Path, dst: Path, attempts: int = 20) -> None:
+    """``os.replace`` that tolerates Windows readers holding *dst* open.
+
+    Windows refuses to replace a file another process has open
+    (PermissionError); readers here hold files only for a quick
+    gzip+unpickle, so a short retry loop clears it.
+    """
+    for i in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if i == attempts - 1:
+                raise
+            time.sleep(0.25)
+
+
+def _cap_workers(n: int) -> int:
+    """Clamp a worker count to what ProcessPoolExecutor accepts.
+
+    Windows waits on process handles with WaitForMultipleObjects, so
+    concurrent.futures rejects ``max_workers > 61`` there with a
+    ValueError.
+    """
+    import sys
+
+    if sys.platform == "win32":
+        return max(1, min(n, 61))
+    return max(1, n)
+
+
+def _pool_context() -> multiprocessing.context.BaseContext:
+    """Multiprocessing context for the kernel worker pools.
+
+    ``fork`` keeps the workers cheap on POSIX (they inherit the already
+    imported numpy/scipy).  Windows has no ``fork`` — the workers are
+    module-level functions with picklable arguments (the V-map worker
+    additionally receives its shared state via a pool initializer), so
+    ``spawn`` is a drop-in replacement there (slower startup only).
+    """
+    try:
+        return multiprocessing.get_context("fork")
+    except ValueError:  # win32
+        return multiprocessing.get_context("spawn")
+
+
 # ---------------------------------------------------------------------------
 # Degree-bound helpers  (numpy-vectorised, pure integer arithmetic)
 # ---------------------------------------------------------------------------
@@ -589,7 +684,9 @@ def _load_kernel_from_dir(
         except (EOFError, OSError, pickle.UnpicklingError, Exception) as exc:
             # Corrupt cache (e.g. process killed mid-write): quarantine and regenerate.
             try:
-                path.rename(path.with_suffix(path.suffix + ".corrupt"))
+                # os.replace, not Path.rename — rename cannot overwrite an
+                # existing .corrupt leftover on Windows.
+                os.replace(path, path.with_suffix(path.suffix + ".corrupt"))
             except OSError:
                 pass
             import logging
@@ -621,7 +718,7 @@ def _load_kernel_from_dir(
                 candidate = pickle.load(f)
         except (EOFError, OSError, pickle.UnpicklingError, Exception) as exc:
             try:
-                cached_path.rename(cached_path.with_suffix(cached_path.suffix + ".corrupt"))
+                os.replace(cached_path, cached_path.with_suffix(cached_path.suffix + ".corrupt"))
             except OSError:
                 pass
             import logging
@@ -700,10 +797,19 @@ def _nz_hash(nz_data: Any) -> str:
     return h.hexdigest()[:16]
 
 
+_FILENAME_UNSAFE = str.maketrans({c: "_" for c in '/\\ :*?"<>|'})
+
+
 def _iref_filename(manifold_name: str, nz_data: Any) -> str:
-    """Canonical filename for an I^ref cache file."""
+    """Canonical filename for an I^ref cache file.
+
+    Manifold names can contain characters that are invalid in Windows
+    filenames (DT codes have ':', links have '/'); all such characters
+    map to '_' on every platform so cache filenames stay portable.
+    The nz-hash keeps the name unambiguous.
+    """
     h = _nz_hash(nz_data)
-    safe_name = manifold_name.replace("/", "_").replace(" ", "_")
+    safe_name = manifold_name.translate(_FILENAME_UNSAFE)
     return f"iref_{safe_name}_{h}.pkl.gz"
 
 
@@ -720,9 +826,10 @@ def save_iref_cache(
 
     Merges with any existing file so that entries from previous sessions
     (possibly at different qq_orders) are preserved.  The entire
-    read-merge-write is serialised with an exclusive ``fcntl`` lock so that
-    multiple worker processes can safely write the same file concurrently
-    (as happens when a single manifold is split into grid chunks).
+    read-merge-write is serialised with an exclusive file lock (fcntl on
+    POSIX, msvcrt on Windows) so that multiple worker processes can
+    safely write the same file concurrently (as happens when a single
+    manifold is split into grid chunks).
 
     Parameters
     ----------
@@ -735,7 +842,6 @@ def save_iref_cache(
 
     Returns the path written, or ``None`` if there were no entries.
     """
-    import sys
     from manifold_index.core.refined_dehn_filling import (
         _iref_cache,
         _nz_content_key,
@@ -760,10 +866,9 @@ def save_iref_cache(
     # workers writing the same manifold file do not corrupt the output.
     lock_path = path.with_suffix(".lock")
     lock_file = open(lock_path, "w")
+    locked = False
     try:
-        if sys.platform != "win32":
-            import fcntl
-            fcntl.flock(lock_file, fcntl.LOCK_EX)
+        locked = _lock_file_exclusive(lock_file)
 
         # Merge with existing file (preserve entries at other qq_orders)
         old_grid_params: dict | None = None
@@ -813,12 +918,11 @@ def save_iref_cache(
         tmp_path = path.with_suffix(".tmp")
         with gzip.open(tmp_path, "wb") as f:
             pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
-        os.replace(tmp_path, path)
+        _replace_with_retry(tmp_path, path)
 
     finally:
-        if sys.platform != "win32":
-            import fcntl
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
+        if locked:
+            _unlock_file(lock_file)
         lock_file.close()
         try:
             lock_path.unlink(missing_ok=True)
@@ -1589,7 +1693,7 @@ def _precompute_tail_map(
             all_m1_e1_halves[i : i + _TAIL_CHUNK]
             for i in range(0, len(all_m1_e1_halves), _TAIL_CHUNK)
         ]
-        ctx = multiprocessing.get_context("fork")
+        ctx = _pool_context()
         with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as pool:
             futures = [
                 pool.submit(
@@ -1658,7 +1762,18 @@ def _precompute_tail_map(
 #  3. Phase 1 probes use _compute_entry_from_v → fast.
 # ---------------------------------------------------------------------------
 
-_v_parts_global: Any = None  # fork-inherited V-map partition (set before fork)
+_v_parts_global: Any = None  # V-map partition shared with pool workers
+
+
+def _v_map_worker_init(v_parts: Any) -> None:
+    """Pool initializer: bind the V-map inside each worker process.
+
+    Under fork this re-binds the already-inherited object (free); under
+    spawn — the only start method on Windows — the worker starts with
+    ``_v_parts_global = None``, so the V-map must arrive via initargs.
+    """
+    global _v_parts_global
+    _v_parts_global = v_parts
 
 
 def _precompute_v_map(
@@ -1925,11 +2040,11 @@ def _worker_compute_chunk_v_map(
     eta_order: int,
     lcd_full: int,
 ) -> tuple[dict[tuple[int, Fraction], QEtaSeries], int]:
-    """Parallel worker for ℓ≥3 kernel entries using the fork-inherited V-map.
+    """Parallel worker for ℓ≥3 kernel entries using the shared V-map.
 
-    Uses the module-level ``_v_parts_global`` (set in the parent process
-    before the ``ProcessPoolExecutor`` is created) to avoid pickling the
-    potentially large V-map data.
+    Reads the module-level ``_v_parts_global``, which every pool worker
+    receives via the ``_v_map_worker_init`` initializer (inherited for
+    free under fork; delivered through initargs under spawn/Windows).
 
     Parameters
     ----------
@@ -2052,7 +2167,7 @@ def precompute_filling_kernel(
 
     # Decide parallelism
     if n_workers is None:
-        n_workers = max(1, (os.cpu_count() or 4) - 2)
+        n_workers = _cap_workers((os.cpu_count() or 4) - 2)
 
     _status(f"[kernel] Pre-computing K^ref({P}/{Q}) at qq={qq_order}: "
             f"HJ={hj_ks}, ℓ={ell}, qq_internal={qq_internal}")
@@ -2224,8 +2339,13 @@ def precompute_filling_kernel(
                 f"(~{_CHUNK_SIZE_V} pts each), {remaining_v} pts to compute"
             )
 
-            ctx_v = multiprocessing.get_context("fork")
-            with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx_v) as pool_v:
+            ctx_v = _pool_context()
+            with ProcessPoolExecutor(
+                max_workers=n_workers,
+                mp_context=ctx_v,
+                initializer=_v_map_worker_init,
+                initargs=(v_parts,),
+            ) as pool_v:
                 futures_v = {
                     pool_v.submit(
                         _worker_compute_chunk_v_map,
@@ -2486,7 +2606,7 @@ def precompute_filling_kernel(
             f"(~{_CHUNK_SIZE} pts each), {remaining_pts} pts to compute"
         )
 
-        ctx = multiprocessing.get_context("fork")
+        ctx = _pool_context()
         with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as pool:
             if tail_map is not None:
                 # ℓ≥3 fast path: workers skip inner IS steps via tail_map.
@@ -2749,7 +2869,7 @@ def apply_precomputed_kernel(
 
     if n_workers > 1 and len(all_me_pairs) > 1:
         # --- Parallel path: ProcessPoolExecutor with initialiser ---
-        n_workers = min(n_workers, len(all_me_pairs), os.cpu_count() or 1)
+        n_workers = _cap_workers(min(n_workers, len(all_me_pairs), os.cpu_count() or 1))
         if verbose:
             print(
                 f"[kernel] Parallel I^ref: {len(all_me_pairs)} (m,e) pairs "

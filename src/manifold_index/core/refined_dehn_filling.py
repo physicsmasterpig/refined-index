@@ -2233,12 +2233,13 @@ def compute_filled_refined_index(
     # manifolds, this is almost always beneficial.
     if auto_precompute:
         from manifold_index.core.kernel_cache import (
+            _cap_workers,
             precompute_filling_kernel,
             save_kernel_table,
         )
         import os as _os
 
-        _n_auto_workers = max(1, (_os.cpu_count() or 4) - 2)
+        _n_auto_workers = _cap_workers((_os.cpu_count() or 4) - 2)
         if verbose:
             print(
                 f"[refined_filling] ℓ={ell}: no cached kernel for "

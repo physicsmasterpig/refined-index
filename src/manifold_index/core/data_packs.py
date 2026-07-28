@@ -182,7 +182,7 @@ def load_registry(use_remote: bool = False) -> PackRegistry:
         except Exception:
             pass  # fall through to bundled
 
-    with open(_bundled_registry_path(), "r") as f:
+    with open(_bundled_registry_path(), "r", encoding="utf-8") as f:
         data = json.load(f)
     return _parse_registry(data)
 
@@ -201,7 +201,7 @@ def check_installed(registry: PackRegistry) -> None:
         pack.installed = marker.exists()
         if pack.installed:
             try:
-                meta = json.loads(marker.read_text())
+                meta = json.loads(marker.read_text(encoding="utf-8"))
                 pack.installed_files = meta.get("n_files", 0)
             except Exception:
                 pack.installed_files = 0
@@ -218,7 +218,7 @@ def _write_marker(pack: PackInfo, n_files: int, file_list: list[str] | None = No
         "n_files": n_files,
         "files": file_list or [],
     }
-    marker.write_text(json.dumps(meta, indent=2))
+    marker.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
 # ── Download URL ─────────────────────────────────────────────────────
@@ -350,7 +350,7 @@ def uninstall_pack(pack: PackInfo) -> int:
     file_list: list[str] = []
     if marker.exists():
         try:
-            meta = json.loads(marker.read_text())
+            meta = json.loads(marker.read_text(encoding="utf-8"))
             file_list = meta.get("files", [])
         except Exception:
             pass

@@ -155,15 +155,53 @@ a = Analysis(
     optimize=0,
 )
 
+# Trim the extracted payload (onefile re-extracts it every launch):
+#   - Chromium devtools frontend (remote-debugging UI only), ~75 MB
+#   - *.debug.pak debug resource variants
+#   - qtwebengine locales other than en-US / ko (the app UI is English,
+#     users are largely Korean)
+def _keep_data(entry):
+    name = entry[0].lower().replace("\\", "/")
+    if "devtools_resources" in name:
+        return False
+    if name.endswith(".debug.pak"):
+        return False
+    if "/qtwebengine_locales/" in name and not name.endswith(("en-us.pak", "ko.pak")):
+        return False
+    return True
+
+a.datas = [d for d in a.datas if _keep_data(d)]
+
 # ── PYZ ────────────────────────────────────────────────────────────
 pyz = PYZ(a.pure, cipher=None)
+
+# ── Splash ─────────────────────────────────────────────────────────
+# The onefile exe extracts ~900 MB to %TEMP% on every launch; without
+# feedback that first minute looks like the app is broken.  The
+# bootloader shows this window (with per-file progress text) during
+# extraction.  Generated in CI; absent in local checkouts.
+_SPLASH_PNG = PROJECT / "assets" / "ManifoldIndex_splash.png"
+splash = None
+if _SPLASH_PNG.exists():
+    splash = Splash(
+        str(_SPLASH_PNG),
+        binaries=a.binaries,
+        datas=a.datas,
+        text_pos=(18, 340),
+        text_size=9,
+        text_color="#666666",
+        always_on_top=False,
+    )
 
 # ── EXE (onefile) ──────────────────────────────────────────────────
 # All binaries and data are bundled into a single ManifoldIndex.exe.
 # Output: dist/ManifoldIndex.exe
+_splash_args = [splash, splash.binaries] if splash is not None else []
+
 exe = EXE(
     pyz,
     a.scripts,
+    *_splash_args,
     a.binaries,
     a.datas,
     [],

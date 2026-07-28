@@ -103,7 +103,10 @@ class ManifoldCard(QWidget):
         self._name_edit.setPlaceholderText("Manifold name (e.g. m004, 4_1)")
         self._name_edit.returnPressed.connect(self._on_load_clicked)
         input_row.addWidget(self._name_edit, 3)
-        self._attach_autocomplete()
+        # Autocomplete is attached asynchronously by MainWindow
+        # (_AutocompleteWorker) — building it here ran a full census
+        # SQLite scan on the GUI thread during construction, and the
+        # MainWindow completer overwrote this one anyway.
 
         nmax_label = QLabel("Nmax:")
         input_row.addWidget(nmax_label)
@@ -153,69 +156,6 @@ class ManifoldCard(QWidget):
     def trigger_load(self) -> None:
         """Public: programmatically trigger a Load (used by Run All)."""
         self._on_load_clicked()
-
-    # ------------------------------------------------------------------
-    # Autocomplete
-    # ------------------------------------------------------------------
-
-    def _attach_autocomplete(self) -> None:
-        """Attach SnaPy census names as inline autocomplete (best-effort).
-
-        Reads manifold names directly from SnaPy's SQLite files using a
-        short-lived connection that is opened and closed here, on the main
-        thread, and never shared with worker threads.  This avoids the
-        "SQLite object created in thread X used in thread Y" error that occurs
-        when SnaPy's own ORM connection is opened on the main thread.
-        """
-        try:
-            import snappy_manifolds.sqlite_files as sf  # type: ignore[import]
-            import sqlite3, os
-
-            db_path = os.path.join(sf.__path__[0], "manifolds.sqlite")
-            if not os.path.isfile(db_path):
-                return
-
-            # Open a dedicated read-only connection — never reused by SnaPy.
-            con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True,
-                                  check_same_thread=False)
-            names: list[str] = []
-            try:
-                # Cusped censuses have a plain 'name' column.
-                for tbl in ("orientable_cusped_census",
-                            "nonorientable_cusped_census",
-                            "census_knots"):
-                    try:
-                        rows = con.execute(f"SELECT DISTINCT name FROM {tbl}").fetchall()
-                        names.extend(r[0] for r in rows if r[0])
-                    except sqlite3.OperationalError:
-                        pass
-
-                # Closed censuses store the Dehn-filled name as cusped(m,l).
-                for tbl in ("orientable_closed_census",
-                            "nonorientable_closed_census"):
-                    try:
-                        rows = con.execute(
-                            f"SELECT DISTINCT cusped, m, l FROM {tbl}"
-                        ).fetchall()
-                        names.extend(
-                            f"{r[0]}({r[1]},{r[2]})" for r in rows
-                        )
-                    except sqlite3.OperationalError:
-                        pass
-            finally:
-                con.close()
-
-            if not names:
-                return
-
-            from PySide6.QtWidgets import QCompleter
-            from PySide6.QtCore import Qt
-            completer = QCompleter(sorted(set(names)), self)
-            completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-            completer.setFilterMode(Qt.MatchFlag.MatchContains)
-            self._name_edit.setCompleter(completer)
-        except Exception:
-            pass
 
     # ------------------------------------------------------------------
     # Slots

@@ -15,7 +15,7 @@ BLUEPRINT §13.9.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QMainWindow, QPushButton,
@@ -30,6 +30,34 @@ from manifold_index.app.dev_mode import dev_mode
 
 from manifold_index import __version__ as _VERSION
 _APP_TITLE = f"Refined Index Calculator  v{_VERSION}"
+
+
+class _AutocompleteWorker(QThread):
+    """Enumerate SnaPy census names off the GUI thread.
+
+    Safe because sqlite3.connect is patched process-wide with
+    check_same_thread=False before the first snappy import (see
+    rthook_snappy.py / app/__main__.py), and the census databases are
+    read-only.
+    """
+
+    ready = Signal(list)
+
+    def run(self) -> None:
+        names: list[str] = []
+        try:
+            import snappy
+            for attr in ("OrientableCuspedCensus", "OrientableClosedCensus",
+                         "NonorientableCuspedCensus"):
+                try:
+                    col = getattr(snappy, attr, None)
+                    if col is not None and hasattr(col, "keys"):
+                        names.extend(col.keys())
+                except Exception:
+                    pass
+        except Exception:
+            names = []
+        self.ready.emit(names)
 
 
 class MainWindow(QMainWindow):
@@ -260,27 +288,27 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _setup_autocomplete(self) -> None:
-        """Attach SnaPy census autocomplete to the manifold name field."""
-        try:
-            import snappy
-            names: list[str] = []
-            for attr in ("OrientableCuspedCensus", "OrientableClosedCensus",
-                         "NonorientableCuspedCensus"):
-                try:
-                    col = getattr(snappy, attr, None)
-                    if col is not None and hasattr(col, "keys"):
-                        names.extend(col.keys())
-                except Exception:
-                    pass
-        except Exception:
+        """Attach SnaPy census autocomplete to the manifold name field.
+
+        The census enumeration reads tens of thousands of SQLite rows —
+        far too slow for the GUI thread (it used to run synchronously in
+        ``__init__``, stalling the first window paint by seconds, worse
+        on the frozen Windows build).  A worker QThread builds the name
+        list; the completer is attached on its ``ready`` signal.
+        """
+        self._ac_worker = _AutocompleteWorker(self)
+        self._ac_worker.ready.connect(self._apply_autocomplete)
+        self._ac_worker.start()
+
+    def _apply_autocomplete(self, names: list) -> None:
+        if not names:
             return
         try:
             from PySide6.QtWidgets import QCompleter
-            from PySide6.QtCore import QStringListModel
-            view = self._pipeline_view
             # ManifoldCard stores the name QLineEdit as _name_edit
             name_edit = getattr(
-                getattr(view, "_manifold_card", None), "_name_edit", None
+                getattr(self._pipeline_view, "_manifold_card", None),
+                "_name_edit", None,
             )
             if name_edit is None:
                 return

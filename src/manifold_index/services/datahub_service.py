@@ -740,7 +740,7 @@ def _update_registry_entry(
         return
 
     try:
-        with open(registry_path, "r") as f:
+        with open(registry_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
         return
@@ -772,7 +772,7 @@ def _update_registry_entry(
     data["packs"] = packs
 
     try:
-        with open(registry_path, "w") as f:
+        with open(registry_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
     except Exception:
         pass  # registry update is best-effort

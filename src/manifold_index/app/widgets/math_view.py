@@ -173,14 +173,22 @@ document.addEventListener("DOMContentLoaded", function() {{
 
 
 def sys_colors() -> dict[str, str]:
-    """Read current Qt palette and return colour dict for build_katex_html."""
-    pal = QApplication.instance().palette()
+    """Colour dict for ``build_katex_html`` — the app's fixed light theme.
+
+    Deliberately NOT derived from ``QApplication.palette()``: the app
+    chrome is a fixed light theme (QSS in app/theme/style.py) that does
+    not follow the OS, while the palette does — on dark-mode Windows the
+    palette turns dark and the math panels would render dark inside the
+    light chrome.
+    """
+    from manifold_index.app.theme import colors as _c
+
     return {
-        "bg":     pal.color(pal.ColorRole.Base).name(),
-        "fg":     pal.color(pal.ColorRole.Text).name(),
-        "border": pal.color(pal.ColorRole.Mid).name(),
-        "muted":  pal.color(pal.ColorRole.Mid).name(),
-        "accent": pal.color(pal.ColorRole.Highlight).name(),
+        "bg":     _c.SURFACE,
+        "fg":     _c.TEXT_PRIMARY,
+        "border": _c.BORDER,
+        "muted":  _c.TEXT_MUTED,
+        "accent": _c.ACCENT,
     }
 
 

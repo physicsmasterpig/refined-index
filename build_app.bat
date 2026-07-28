@@ -11,7 +11,7 @@ REM
 
 setlocal enabledelayedexpansion
 
-set SPEC=ManifoldIndex.spec
+set SPEC=ManifoldIndex_win.spec
 set EXE=dist\ManifoldIndex.exe
 set APP_VERSION=1.1.4
 

@@ -770,14 +770,18 @@ def _exact_e0_candidates(
         """Evaluate F_x2 for a (B, num_easy) int64 batch, return valid rows."""
         _rss_limit = os.environ.get("_IREF_RSS_LIMIT_GB", "0")
         if _rss_limit and _rss_limit != "0":
-            import resource as _res
-            _rss = _res.getrusage(_res.RUSAGE_SELF).ru_maxrss
-            _rss_gb = _rss / (1024 ** 3)
-            if _rss_gb > float(_rss_limit):
-                raise MemoryError(
-                    f"Worker RSS {_rss_gb:.1f} GB exceeds limit "
-                    f"{_rss_limit} GB — aborting chunk"
-                )
+            try:
+                import resource as _res
+            except ImportError:  # win32 — knob unsupported, ignore
+                _res = None
+            if _res is not None:
+                _rss = _res.getrusage(_res.RUSAGE_SELF).ru_maxrss
+                _rss_gb = _rss / (1024 ** 3)
+                if _rss_gb > float(_rss_limit):
+                    raise MemoryError(
+                        f"Worker RSS {_rss_gb:.1f} GB exceeds limit "
+                        f"{_rss_limit} GB — aborting chunk"
+                    )
         if e0_batch.size == 0:
             return []
         args_b = base_args[:, np.newaxis] + easy_cols @ e0_batch.T  # (2n, B)
