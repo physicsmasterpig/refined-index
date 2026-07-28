@@ -19,6 +19,13 @@ from fractions import Fraction
 
 import numpy as np
 
+# Kept out of the f-strings below on purpose: a backslash inside an
+# f-string *expression* is a SyntaxError before Python 3.12, and this
+# package supports 3.10+.  The Windows build (Python 3.11) could not
+# compile this module when the literal was inlined, so PyInstaller
+# silently dropped it and the frozen app died at startup.
+_TH_COMPOSITION = "<th>$\\textrm{{Composition}}$</th>"
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers  (also re-exported for sibling formatters)
@@ -181,7 +188,7 @@ def format_easy_edges_html(ps, md=None) -> str:
         return '<p class="muted">$\\textrm{{No easy edges.}}$</p>\n'
     header = (
         "<tr><th>$\\textrm{{Edge}}$</th><th>$\\textrm{{Triplets}}$</th>"
-        f"{'<th>$\\textrm{{Composition}}$</th>' if md is not None else ''}"
+        f"{_TH_COMPOSITION if md is not None else ''}"
         "<th>$\\textrm{{Role}}$</th></tr>\n"
     )
     return (
@@ -227,7 +234,7 @@ def format_hard_edges_html(ps, md=None) -> str:
         return '<p class="muted">No hard edges.</p>\n'
     header = (
         "<tr><th>$\\textrm{{Edge}}$</th><th>$\\textrm{{Triplets}}$</th>"
-        f"{'<th>$\\textrm{{Composition}}$</th>' if md is not None else ''}"
+        f"{_TH_COMPOSITION if md is not None else ''}"
         "<th>$\\textrm{{Role}}$</th></tr>\n"
     )
     return (

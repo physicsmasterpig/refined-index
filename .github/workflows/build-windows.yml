@@ -80,13 +80,33 @@ jobs:
           print('ManifoldIndex_splash.png generated')
           "
 
-      # ── 6. Preflight check ───────────────────────────────────────
-      - name: Verify entry point importable
+      # ── 6. Preflight checks ──────────────────────────────────────
+      # compileall FIRST: a module that fails to compile under the CI
+      # Python is silently dropped by PyInstaller ("invalid module" in
+      # the warn file) and the frozen app then dies at startup with
+      # ModuleNotFoundError.  This exact failure shipped once — a
+      # backslash inside an f-string expression is legal from 3.12 but
+      # a SyntaxError on the 3.11 used here, so the developer's newer
+      # local Python never saw it.
+      - name: Verify all sources compile on this Python
+        run: |
+          python -VV
+          python -m compileall -q src launcher.py rthook_snappy.py
+          echo "all sources compile — OK"
+
+      # Import the real GUI module graph, not just the lazy entry
+      # point (launch_gui defers every Qt/window import into its body,
+      # so importing it alone proves almost nothing).
+      - name: Verify GUI import graph
+        env:
+          QT_QPA_PLATFORM: minimal
         run: |
           python -c "
           import sys; sys.path.insert(0, 'src')
-          from manifold_index.app import launch_gui
-          print('launch_gui importable — OK')
+          import manifold_index.app.window
+          import manifold_index.app.pipeline.pipeline_view
+          import manifold_index.app.datahub.datahub_view
+          print('GUI import graph OK')
           "
 
       # ── 7. PyInstaller build ─────────────────────────────────────
